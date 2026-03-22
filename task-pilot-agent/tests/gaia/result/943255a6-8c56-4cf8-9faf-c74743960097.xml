@@ -1,0 +1,11 @@
+<result>
+  <reasoning><![CDATA[The question asks: among the 1994 IUPAC names mentioned in Norman Greenwood's 1997 article that are no longer in use for any element as of end 2022, which one has the atomic number that appears earliest in the CSV?
+
+From step 2 and 3, the article discusses the 1994 IUPAC recommendations for elements 104–109, including both temporary systematic names (e.g., Unnilhexium for element 106) and proposed permanent names (Dubnium, Joliotium, etc.). Step 6 identifies which 1994 IUPAC names are no longer in use: these include all eight temporary systematic names for 104–111 and two proposed names (Joliotium for 105, Hahnium for 108). The atomic numbers associated with these obsolete names are 104, 105, 106, 107, 108, 109, 110, 111.
+
+Step 1 provides the CSV list of atomic numbers. Checking the first occurrence indices (step 7) among these eight numbers:
+- 106 appears at index 24 (0‑based), which is earlier than any other in the set (104 at 27, 108 at 70, 105 at 82, etc.).
+
+Therefore, atomic number 106 is the earliest appearing. The obsolete 1994 IUPAC name for atomic number 106 is the temporary systematic name “Unnilhexium” (step 6). The casing is authoritative from the source. Applied casing rule: used authoritative casing from source.]]></reasoning>
+  <final_answer><![CDATA[Unnilhexium]]></final_answer>
+</result>

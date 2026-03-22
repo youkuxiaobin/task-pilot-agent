@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history includes an analysis of the PDF schedule for ZBC Networks. The output shows that on ZBC 03, there are 9 total episodes from first-season shows, but the distinct number of shows broadcasting episodes from their first season is 5. The distinct shows listed are: Damp Planet, Nature's Tastiest, Robo-Owls, Time Parking, You're Still Up?. Therefore, the answer is 5. Final answer is a numeric value, so no casing rule applied.]]></reasoning>
+  <final_answer><![CDATA[5]]></final_answer>
+</result>

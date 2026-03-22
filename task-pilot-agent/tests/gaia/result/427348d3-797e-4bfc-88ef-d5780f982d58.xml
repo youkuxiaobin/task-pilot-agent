@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the percentage of cases during the 2019, 2020, and 2021 terms in which a specific justice agreed with the Court's judgment. First, identify the justice: the case is Torres v. Madrid (October Term 2020), where the defendant "Madrid" is a world capital, and the principal opinion was written by Chief Justice John Roberts. Next, use the Supreme Court Database (SCDB) to obtain justice‑centered data for the 2019–2021 terms. Filtering for John Roberts yields 184 cases in which he participated. His agreement with the Court’s judgment is defined as votes in the majority, unanimous, or concurring categories (dissent indicates disagreement). The counts from the data are: majority 50, unanimous 49, concurring 43, for a total of 142 agreement cases. The agreement rate is (142/184) × 100 = 77.1739…%. Rounded to the nearest tenth of a percent, this is 77.2%.]]></reasoning>
+  <final_answer><![CDATA[77.2%]]></final_answer>
+</result>

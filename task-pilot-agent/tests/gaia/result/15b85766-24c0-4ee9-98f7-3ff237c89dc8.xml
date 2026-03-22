@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history shows a search for the June 2018 issue of Hochschule Anhalt Architektur on opendata.uni-halle.de. In Step 1, the search results list the publication "Obstbäume - Heimischer Früchte - Äpfel" with an issue date of 14 June 2018. Step 3 and Step 4 reason that this article is locked (despite the open access indication in Step 1, the analysis treats it as locked) and identify the fruit mentioned in the title as "Äpfel," which is German for "apples." The English singular form is "apple." The user's query does not specify casing, so the sentence-casing fallback applies: the first word is capitalized for a single-word answer. Applied casing rule: sentence-case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Apple]]></final_answer>
+</result>

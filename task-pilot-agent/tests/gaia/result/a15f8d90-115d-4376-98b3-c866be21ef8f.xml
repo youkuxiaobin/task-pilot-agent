@@ -1,0 +1,4 @@
+<result>
+<reasoning><![CDATA[Step 1 identifies the pine tree as Torrey pine, endemic to coastal San Diego County and Santa Rosa Island. Step 2 determines the city with a commercial airport, that pine, and a zoo as San Diego. Step 3 finds the San Diego Zoo and its alligator exhibits. Step 4 identifies the endangered alligator species in that exhibit as the Chinese alligator (Alligator sinensis). The question asks for the endangered alligator species in singular form. The Chinese alligator is an alligator species, while the gharial mentioned is a crocodilian but not an alligator. Therefore, the answer is Chinese alligator. Casing: authoritative from source, so output 'Chinese alligator'.]]></reasoning>
+<final_answer><![CDATA[Chinese alligator]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From step 1, the Excel data includes columns for Location and menu items. Step 2 identified Burgers and Hot Dogs as items containing meat. Step 3 filtered rows for the Marztep location, summed the sales for Burgers and Hot Dogs, and reported the total as $4031 after rounding to the nearest integer. The numeric value is 4031. Since the final answer is a number, no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[4031]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From step_1 and step_3, the book review about Nobel Prize-winning microbiologist Salvador Luria appeared in Nature issue 7938 (Volume 612, Issue 7938) on 25 November 2022. From step_2, the book review about physicist Peter Higgs (the God particle) appeared in Nature issue 7917 (Volume 607, Issue 7917) on 7 July 2022. Nature issues are sequentially numbered; the difference in issue numbers is 7938 - 7917 = 21. Interpreting "issues apart" as the difference in issue numbers, the two reviews are 21 issues apart. The final answer is numeric, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[21]]></final_answer>
+</result>

@@ -1,0 +1,11 @@
+<result>
+  <reasoning><![CDATA[The user asks for the percentage that the highest single-episode Wheel of Fortune winnings (non-celebrity) represents of the highest lifetime Jeopardy winnings, based on English Wikipedia data at the end of 2022, rounded to the nearest whole percent.
+
+From the tool call history:
+- Step 1 (mcp_local:deepsearch) provides Brad Rutter's total Jeopardy winnings through 2022: $4,968,436.
+- Step 2 (mcp_local:deepsearch) provides the highest single-episode Wheel of Fortune winnings for a non-celebrity contestant in 2022: $100,000.
+- Step 3 (reasoning only) calculates the percentage: (100,000 / 4,968,436) * 100 ≈ 2.012%. Rounded to the nearest whole percent, this is 2%.
+
+The question explicitly disregards celebrity versions, which is satisfied as both sources refer to non-celebrity amounts. The data is from English Wikipedia and valid through 2022. The rounding instruction is to the nearest whole percent, which has been applied. The final answer is a numeric percentage; no additional units or symbols are required.]]></reasoning>
+  <final_answer><![CDATA[2]]></final_answer>
+</result>

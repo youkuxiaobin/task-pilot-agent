@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, Step 3 shows that NumPy 1.24's qr factorization function supports 4 distinct modes ('reduced', 'complete', 'r', 'raw'). Step 6 shows that NumPy 1.13 supports 6 distinct modes ('reduced', 'complete', 'r', 'raw', 'full', 'economic'). The absolute difference is |4 - 6| = 2. Applied casing rule: not applicable as the final answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[2]]></final_answer>
+</result>

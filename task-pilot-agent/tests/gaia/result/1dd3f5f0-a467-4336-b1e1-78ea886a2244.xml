@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history: Step 2 lists Adirondack stations, including New York Penn Station (NYP), Yonkers, Croton-Harmon, and Poughkeepsie. Step 4 identifies Metro-North Hudson Line sharing Yonkers, Croton-Harmon, and Poughkeepsie. Step 5 shows NJ Transit serves New York Penn Station. Step 6 shows Long Island Rail Road (LIRR) serves New York Penn Station. Step 7 confirms no commuter rail at other Adirondack stations like Albany-Rensselaer in July 2023. Step 8 filters out subway/light rail and deduplicates to three unique commuter/heavy rail lines: Metro-North Hudson Line, NJ Transit, and LIRR. Step 9 counts these as 3. The final answer is a numeric count, so no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[3]]></final_answer>
+</result>

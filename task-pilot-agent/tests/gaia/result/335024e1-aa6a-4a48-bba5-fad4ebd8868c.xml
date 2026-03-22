@@ -1,0 +1,14 @@
+<result>
+  <reasoning><![CDATA[Step 1: The 2014 World Fantasy Award for Best Anthology winner is "Dangerous Women", and the "Shadows Beneath" anthology is a separate collection. From tool calls (step_1, step_2, step_3, step_4), Brandon Sanderson contributed to both anthologies, identifying him as the author in question.
+
+Step 2: Brandon Sanderson's college roommate was Ken Jennings, a famous Jeopardy! champion, as confirmed in step_5.
+
+Step 3: As of the end of 2022, Brandon Sanderson's most successful crowdfunding campaign was the "Surprise! Four Secret Novels" Kickstarter, which raised $41,754,153 USD (step_6).
+
+Step 4: Ken Jennings' longest winning streak on Jeopardy! earned him $2,522,700 (step_7).
+
+Step 5: Calculate the percentage: (2,522,700 / 41,754,153) * 100 ≈ 6.041999...%. Rounded down to the nearest hundredth (truncating to two decimal places) gives 6.04% (step_8).
+
+Casing decision: The final answer is a numerical percentage, so no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[6.04%]]></final_answer>
+</result>

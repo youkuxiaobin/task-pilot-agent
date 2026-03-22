@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[First, I extracted the three September 2016 posts from Step 3: Hot Tamales Licorice Bites (categories: Licorice, Spicy Candy, Chewy Candy, Fruity Candy), HiCHEW Sours (categories: Chewy Candy, Sour Candy, Japanese Candy, Fruity Candy), and Crispy M&Ms S'mores (categories: Chocolate, Mars Products, Seasonal Candy, Marshmallow). From Step 5, the "Type" categories starting with M are Malt, Marshmallow, Mints, and Mockolate. Matching posts to these categories, only Crispy M&Ms S'mores includes Marshmallow, so counts are: Malt=0, Marshmallow=1, Mints=0, Mockolate=0. Total posts in M categories is 1, with 4 categories, so average = 1/4 = 0.25. Rounded to the nearest whole number, 0.25 rounds down to 0. The answer is numerical, so no text casing rule applies; the numerical value is output as is.]]></reasoning>
+  <final_answer><![CDATA[0]]></final_answer>
+</result>

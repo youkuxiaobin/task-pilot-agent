@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step 1 provides the scientific name Diceros bicornis and its translation: Diceros means "two-horned" and bicornis means "two-horned". Step 2 extracts that each part references 2 horns. Summing these gives 2 + 2 = 4 horns. The question asks for the total number of horns referenced in the translation, so the answer is 4. Since the answer is numeric, no casing rules apply.]]></reasoning>
+  <final_answer><![CDATA[4]]></final_answer>
+</result>

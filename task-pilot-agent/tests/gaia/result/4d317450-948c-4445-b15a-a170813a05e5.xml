@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the name of the TV episode featuring Hayley Atwell (Peggy Carter) and Domhnall Gleeson (Bill Weasley), which aired before 2020. The tool call history shows they co-starred in the Black Mirror episode "Be Right Back", which aired in 2013. This matches the user's description. The episode name is provided with authoritative casing in the source, so I preserve it as "Be Right Back". Applied casing rule: authoritative casing from source.]]></reasoning>
+  <final_answer><![CDATA[Be Right Back]]></final_answer>
+</result>

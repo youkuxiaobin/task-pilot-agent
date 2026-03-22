@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history contains a step (step_2) that directly computed the requested value. The output states: "恰好有2名工人在店的总分钟数: 287 分钟". This is the total number of minutes between 8 am and 8 pm when exactly two workers are present. The result is a numerical value already expressed in minutes. The answer should be output as the number 287. No authoritative casing is provided for a numerical answer, so the fallback rule is not applicable.]]></reasoning>
+  <final_answer><![CDATA[287]]></final_answer>
+</result>

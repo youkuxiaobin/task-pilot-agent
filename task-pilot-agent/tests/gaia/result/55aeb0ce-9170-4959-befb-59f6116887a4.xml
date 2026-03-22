@@ -1,0 +1,14 @@
+<result>
+  <reasoning><![CDATA[The user asks for a word meaning dramatic or theatrical that, when appended with two letters and then duplicated, forms a species of duck. With no tool history, I must reason from the question.
+
+First, identify words meaning "dramatic" or "theatrical": common candidates include "dramatic," "theatrical," "histrionic," "melodramatic," "stagy," etc.
+
+Next, consider duck species whose scientific or common names might involve repetition after adding two letters. The harlequin duck has the scientific name *Histrionicus histrionicus*. The root "histrionic" means "dramatic or theatrical." 
+
+If we take "histrionic," append "us" (two letters), we get "histrionicus." Duplicating this yields "histrionicus histrionicus," which closely matches the scientific name *Histrionicus histrionicus* (with minor capitalization and Latinized spelling). This fits the description: a word meaning dramatic/theatrical ("histrionic") forms a duck species when appended with "us" and duplicated.
+
+No other candidate (e.g., "dramatic," "theatrical") yields a known duck species under this operation. Thus, the word is "histrionic."
+
+For casing: the question provides no authoritative casing. Applying the sentence-casing fallback, a single-word answer is capitalised.]]></reasoning>
+  <final_answer><![CDATA[Histrionic]]></final_answer>
+</result>

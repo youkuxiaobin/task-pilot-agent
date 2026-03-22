@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history includes the content from page 54 of "Anatomy and Physiology of Animals", which explicitly mentions "a mammal like the rabbit" in the description of Diagram 4.15 showing the main body organs. Subsequent tool calls extract and confirm "rabbit" as the animal referenced. The user requests the common name without any article. The source text provides the name in lowercase "rabbit", which is authoritative casing for the verbatim answer. Casing decision: authoritative casing from source text (lowercase) is preserved.]]></reasoning>
+  <final_answer><![CDATA[rabbit]]></final_answer>
+</result>

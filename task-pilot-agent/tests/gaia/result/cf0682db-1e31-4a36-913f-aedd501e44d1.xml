@@ -1,0 +1,19 @@
+<result>
+  <reasoning><![CDATA[Define variables: a = nights with 15 questions (1 error each), b = nights with <15 questions (3 errors each), c = nights with 20 questions (0 errors each), d = nights with ≥25 questions (4 errors each). Total nights: a + b + c + d = 5. Total errors: a + 3b + 0c + 4d = 6.
+
+From total errors: a + 3b + 4d = 6. Since a, b, d are non‑negative integers, and from total nights c = 5 - a - b - d ≥ 0.
+
+Consider possible (b,d) satisfying 3b + 4d ≤ 6:
+- If d=0: 3b ≤ 6 → b ≤ 2.
+  * b=0: a = 6 - 0 - 0 = 6, then c = 5 - 6 - 0 - 0 = -1 (invalid).
+  * b=1: a = 6 - 3 - 0 = 3, c = 5 - 3 - 1 - 0 = 1 (valid).
+  * b=2: a = 6 - 6 - 0 = 0, c = 5 - 0 - 2 - 0 = 3 (valid).
+- If d=1: 3b + 4 ≤ 6 → 3b ≤ 2 → b=0 only.
+  * b=0: a = 6 - 0 - 4 = 2, c = 5 - 2 - 0 - 1 = 2 (valid).
+- d≥2 gives 3b + 8 ≤ 6, impossible.
+
+Thus valid triples (a,b,c,d) are: (3,1,1,0), (0,2,3,0), (2,0,2,1). Hence the possible values for a (nights with 15 questions) are 0, 2, and 3. Sorted in ascending order: 0, 2, 3.
+
+Final answer is a numeric list, so casing rule is not applicable.]]></reasoning>
+  <final_answer><![CDATA[0, 2, 3]]></final_answer>
+</result>

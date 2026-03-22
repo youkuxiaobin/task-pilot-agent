@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the first name cited in the introduction of the bioRxiv paper co-authored by Fabien L. Condamine and David Peris before June 2023. Step 1 identified the relevant preprint: "The Dual Role of Angiosperm Radiation on Insect Diversification" (DOI: 10.1101/2023.02.07.527317v1), with reference [1] listing "Peris D, Condamine FL. (2023). ...". Step 7 provided the introduction text, which contains the first citation marker [[1]] at the end of the first sentence. Mapping this marker to the reference list from step 1 shows that citation [1] corresponds to the authors "Peris D, Condamine FL". Therefore, the first author cited is "Peris D". The string is taken verbatim from the reference list, preserving its exact casing and punctuation. Applied casing rule: authoritative casing from source.]]></reasoning>
+  <final_answer><![CDATA[Peris D]]></final_answer>
+</result>

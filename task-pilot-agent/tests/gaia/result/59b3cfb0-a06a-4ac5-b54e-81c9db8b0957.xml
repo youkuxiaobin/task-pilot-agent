@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the absolute difference between the percentage of carrier pigeon users in Palmetto and Coconut cities, rounded to two decimal places, without a percent sign. The tool call history from step_2 provides the computed results: Palmetto percentage is 50.00%, Coconut percentage is 66.67%, and the absolute difference is 16.67%. The value is already rounded to two decimals as shown. The final answer should be the numeric difference without the percent symbol. The answer is a number, so casing rules do not apply. Applied casing rule: sentence-case capitalised first word (not applicable for numeric answer).]]></reasoning>
+  <final_answer><![CDATA[16.67]]></final_answer>
+</result>

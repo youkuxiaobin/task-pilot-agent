@@ -1,0 +1,14 @@
+<result>
+  <reasoning><![CDATA[The user question asks for the average number of employees worldwide in the year a Gamespot review was written, for a fast food restaurant mentioned in that review. The tool call history shows:
+
+1. The Gamespot review is for Blade Trinity (2004) and mentions McDonald's.
+2. The review year is 2004.
+3. A search for McDonald's 2004 SEC filing (10‑K) indicates the document does not specify the average number of employees worldwide (step 4).
+4. An attempt to parse the filing returned no data (step 5).
+5. Step 6 claims the average number is 418,000, but this contradicts the direct tool output in step 4, which states the filing lacks employee count data.
+
+Because the tool history contains conflicting information (step 4 says data absent, step 6 asserts a number), and the most direct evidence (the SEC filing search) indicates the data is not available, a unique answer cannot be determined from the provided tool calls. Therefore the final answer is unknown.
+
+Casing decision: The final answer is the placeholder "unknown", which is given in lowercase in the examples; no authoritative casing is provided, so it is output as lowercase.]]></reasoning>
+  <final_answer><![CDATA[unknown]]></final_answer>
+</result>

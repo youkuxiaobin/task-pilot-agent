@@ -1,0 +1,234 @@
+# config.yaml
+env: dev
+lang: en
+prompt_file: "../config/prompt.yaml"
+
+core:
+  agent_id: "task-pilot-agent"
+  output_styles:
+    html: ""
+    markdown: "，最后以 markdown 展示最终结果"
+    table: "，最后以excel 展示最终结果"
+    ppt: "，最后以 ppt 展示最终结果"
+    gaia: ""
+  default_output_style: "gaia"
+  planer_max_steps: 20
+  planer_min_steps: 0
+  executor_max_steps: 10
+  planner_replan_each_step: true
+  planner_replan_on_failure: true
+  planner_max_replans: 10
+
+server:
+  host: 0.0.0.0
+  port: 9010
+  debug: false
+  cors_allow_origins:
+    - "*"
+logging:
+  level: info
+  directory: "./logs"
+  filename_prefix: "task-pilot-agent"
+  max_bytes: 314572800
+  backup_count: 10
+summary_agent:
+  enable_thinking: true
+  discard_reasoning_content: true
+
+db:
+  host: mysql11966w.yun.qianxin-inc.cn
+  port: 11966
+  user: smartcrawler
+  password: "CHANGE_ME"             # 可被 .env / env 覆盖
+  name: smartcrawler
+
+memory:
+  search_memory: true
+  search_rag: true
+  rag_retriever_config:
+    provider: "milvus"  # 指定使用的向量数据库，Milvus 或 Qdrant
+    config:
+      top_k: 10  # 查询时返回的前 10 个最相似向量
+      query_field: "query_emb"  # 用于查询的字段名
+      collection: "example_collection"  # 数据库中的集合名
+      retrieval_field: "query_result"   # 检索结果字段名
+      dimension: 128  # 向量的维度
+      distance_metric: "L2"  # 使用欧几里得距离计算向量相似度
+      index_type: "IVF"  # 使用 IVF 索引类型
+      timeout: 30  # 查询超时设置，单位秒
+      enable_fallback: true  # 是否启用回退机制
+      address: "127.0.0.1:19530"  # Milvus 服务的地址和端口
+      # Milvus 特有配置
+      metric_type: "L2"  # 欧几里得距离
+      index_file_size: 1024  # 索引文件大小，单位 MB
+      # Qdrant 特有配置（如果是 Qdrant）
+      batch_size: 32  # 每次查询的批量大小
+      replication_factor: 2  # 数据副本数量
+
+search:
+  - provider: "jina" # jina or bocha
+    api_key: "CHANGE_ME"
+  - provider: "serper" # 支持: jina / bocha / serper
+    api_key: "CHANGE_ME"
+    proxy: "http://10.59.85.59:8888"        # 需要代理时填写，例如 http://127.0.0.1:7890
+
+llm:
+  provider: "openai"
+  config: 
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "zai-org/GLM-4.6"
+    temperature: 0.0
+    context_length: 198000
+    #model: "Pro/deepseek-ai/DeepSeek-V3.1"
+    #model: "Pro/deepseek-ai/DeepSeek-V3.1"
+    #model: "Qwen/Qwen3-235B-A22B-Instruct-2507"
+
+    #api_key: "CHANGE_ME"
+    #site_url: "https://api.deepseek.com/v1"
+    #model: "deepseek-chat"
+    #temperature: 0.0
+    #context_length: 128000
+
+    # moonshot
+    #api_key: "CHANGE_ME"
+    #site_url: "https://api.moonshot.cn/v1"
+    #model: "kimi-k2-thinking-turbo"
+    #temperature: 1.0
+    #context_length: 128000
+    
+    # aliyun
+    #site_url: "https://dashscope.aliyuncs.com/compatible-mode/v1/"
+    #api_key: "CHANGE_ME"
+    #model: "qwen3-235b-a22b-instruct-2507"
+    #model: "qwen3-max"
+    #temperature: 0.0
+    #context_length: 131072
+    #context_length: 160000
+    
+    #aip
+    #site_url: "https://aip.b.qianxin-inc.cn/v2/"
+    #api_key: "CHANGE_ME"
+    #model: "GLM-4.6"
+  contexts:
+    default: "deepseek_chat"
+    planner: "deepseek_reasoner"
+    executor: "deepseek_chat"
+    summary: "deepseek_reasoner"
+    react: "deepseek_reasoner"
+  configs:
+    - name: "deepseek_chat"
+      provider: "openai"
+      config: 
+        api_key: "CHANGE_ME"
+        site_url: "https://api.deepseek.com/v1"
+        model: "deepseek-chat"
+        temperature: 0.0
+        context_length: 128000
+    - name: "deepseek_reasoner"
+      provider: "openai"
+      config: 
+        api_key: "CHANGE_ME"
+        site_url: "https://api.deepseek.com/v1"
+        model: "deepseek-reasoner"
+        temperature: 0.2
+        context_length: 128000
+    #temperature: 0.0
+    #context_length: 198000
+    
+    #api_key: "CHANGE_ME"
+    #site_url: "https://api.deepseek.com/v1"
+    #model: "deepseek-chat"
+    #temperature: 0.0
+    #context_length: 128000
+
+audio_llm:
+  provider: "openai"
+  config: 
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+image_llm:
+  provider: "openai"
+  config: 
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+
+video_llm:
+  provider: "google"
+  config: 
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "gemini-2.5-flash"
+    temperature: 0.0
+    context_length: 128000
+
+browser_use:
+  sandbox_url: "http://10.59.16.45:30080"
+  provider: "moonshot"
+  config:
+    # api_key: "CHANGE_ME"
+    # site_url: "https://api.siliconflow.cn/v1"
+    # model: "Pro/deepseek-ai/DeepSeek-V3.2-Exp"
+    # temperature: 0.0
+    # context_length: 128000
+
+    #api_key: "CHANGE_ME"
+    #site_url: "https://api.moonshot.cn/v1"
+    #model: "kimi-k2-thinking-turbo"
+    #temperature: 1.0
+    #context_length: 128000
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "zai-org/GLM-4.6"
+    temperature: 0.0
+    context_length: 198000
+    
+    # deepseek
+    # api_key: "CHANGE_ME"
+    # site_url: "https://api.deepseek.com/v1"
+    # model: "deepseek-chat"
+    # temperature: 0.6
+    # context_length: 128000
+
+embedder: 
+  provider: "openai"                      # 仍然走 OpenAI 兼容接口
+  config:
+    #api_key: "CHANGE_ME"
+    api_key: "CHANGE_ME"
+    model: "Qwen/Qwen3-Embedding-8B"       # SiliconFlow 支持的嵌入模型
+    openai_base_url: "https://api.siliconflow.cn/v1"
+    embedding_dims: 1024                  # 该模型的维度
+
+vector_store: 
+  provider: "qdrant"
+  config: 
+    #path: "./mem0_qdrant"
+    collection_name: "mem0_bge1024_v1"
+    embedding_model_dims: 1024
+    url: "http://localhost:6333"
+
+mcp:
+  mcp_local:
+    transport: streamable-http
+    host: 0.0.0.0
+    port: 9009
+  mcp_market:
+    refresh_interval_seconds: 6000000
+    mcp_servers:
+      - url: "http://127.0.0.1:9009/mcp"
+        transport: "streamable-http"
+        authorization: ""
+        tool_prefix: "mcp_local"
+      - url: "http://127.0.0.1:19001/mcp"
+        transport: "streamable-http"
+        authorization: ""
+        tool_prefix: "mcp_world"
+      

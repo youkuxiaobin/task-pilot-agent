@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step_3 provides a reasoning analysis that extracts data from Table 2 and Table 1. It identifies that "Banks" is the only noncomposite transparent surname that was a calque (仿译词) in both Alliata-Principe and Fatica translations in Table 2. Then, from Table 1 data, the Fatica translation for "Banks" is given as "Scarpati". Therefore, the answer is "Scarpati". For casing, "Scarpati" is a proper noun and appears capitalized in the source reasoning, so I retain that capitalisation. Applied casing rule: proper noun 'Scarpati' retained its capitalisation as in the source.]]></reasoning>
+  <final_answer><![CDATA[Scarpati]]></final_answer>
+</result>

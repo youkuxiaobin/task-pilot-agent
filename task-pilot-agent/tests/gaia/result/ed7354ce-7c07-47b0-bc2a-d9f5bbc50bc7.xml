@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user's question asks for the difference in population between the most populous and least populous districts of a city, derived through a chain of references. The tool call history provides the necessary steps: the film is "They Might Be Giants" (1971), which inspired the band of the same name. The band's third studio album is "Flood", which includes the song "Istanbul (Not Constantinople)" named after the city Istanbul. Wikipedia data from February 2023 lists Istanbul's districts and their populations: the most populous district is Esenyurt with 978,007 people, and the least populous is Adalar with 16,325 people. The difference is 978,007 - 16,325 = 961,682. The answer is a numeric value, so casing is not applicable.]]></reasoning>
+  <final_answer><![CDATA[961682]]></final_answer>
+</result>

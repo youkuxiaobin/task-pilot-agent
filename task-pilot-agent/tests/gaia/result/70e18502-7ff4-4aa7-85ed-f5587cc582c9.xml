@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the difference in the number of COVID-19 misinformation link instances found on Twitter versus Facebook in the specified article. The tool call history provides the relevant data. Step 2's code output explicitly states: "Facebook实例数: 6388" and "Twitter实例数: 12184". Step 4 calculates the difference as 5,796. Step 5's final answer confirms the difference is 5,796 more instances on Twitter. The final answer is a numeric value, so no text casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[5796]]></final_answer>
+</result>

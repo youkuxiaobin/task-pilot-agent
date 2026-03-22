@@ -1,0 +1,26 @@
+<result>
+  <reasoning><![CDATA[First, compute the ISBN-10 check digit for each of the nine given numbers. The ISBN-10 check digit formula is: for digits a1 to a9, the check digit a10 satisfies (10*a1 + 9*a2 + 8*a3 + 7*a4 + 6*a5 + 5*a6 + 4*a7 + 3*a8 + 2*a9 + 1*a10) ≡ 0 mod 11. The check digit is (11 - S mod 11) mod 11, where S = 10*a1 + ... + 2*a9. If the result is 10, it is represented as 'X'.
+
+Calculations:
+1. 478225952: S=273, mod 11=9, check digit=2.
+2. 643485613: S=254, mod 11=1, check digit=10 → X.
+3. 739394228: S=294, mod 11=8, check digit=3.
+4. 291726859: S=265, mod 11=1, check digit=10 → X.
+5. 875262394: S=290, mod 11=4, check digit=7.
+6. 542617795: S=250, mod 11=8, check digit=3.
+7. 031810713: S=134, mod 11=2, check digit=9.
+8. 957007669: S=286, mod 11=0, check digit=0.
+9. 871467426: S=284, mod 11=9, check digit=2.
+
+For forming the new number, replace any X with 0. The order given is 587364921, meaning the new number's digits come from the check digits of items in that order: item5, item8, item7, item3, item6, item4, item9, item2, item1.
+Thus: item5=7, item8=0, item7=9, item3=3, item6=3, item4=0 (X→0), item9=2, item2=0 (X→0), item1=2.
+The new 9-digit number is 709330202.
+
+Now compute the ISBN-10 check digit for this new number 709330202.
+Digits: b1=7, b2=0, b3=9, b4=3, b5=3, b6=0, b7=2, b8=0, b9=2.
+S = 10*7 + 9*0 + 8*9 + 7*3 + 6*3 + 5*0 + 4*2 + 3*0 + 2*2 = 70 + 0 + 72 + 21 + 18 + 0 + 8 + 0 + 4 = 193.
+193 mod 11 = 6 (since 11*17=187, 193-187=6).
+Check digit = (11 - 6) mod 11 = 5 mod 11 = 5.
+The final answer is a digit, so no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[5]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the number of rural men in Tamil Nadu who stated they were Scheduled Caste with the name Panchama in the 2011 census. The tool call history provides a direct answer: the rural male population of the Panchama Scheduled Caste in Tamil Nadu for the 2011 Census is 1,314. This matches the query. Following output rules for numbers, since the task does not explicitly require thousands separators, I output a plain numeric string without commas. The answer is numeric, so no casing decision is needed.]]></reasoning>
+  <final_answer><![CDATA[1314]]></final_answer>
+</result>

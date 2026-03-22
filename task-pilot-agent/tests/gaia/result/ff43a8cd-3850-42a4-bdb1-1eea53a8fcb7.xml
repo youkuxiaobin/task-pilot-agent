@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the number of pull requests merged in the numpy GitHub repository in 2021. From the tool call history, step_2 provides a direct GitHub API query result indicating 1,331 merged pull requests for the year 2021. Step_1 shows release-specific PR counts summing to 1,262, but step_3 cross-references this with the API count and confirms that the GitHub API count of 1,331 is more comprehensive and authoritative, as it includes all merged PRs regardless of release inclusion. Step_4 delivers this as the final verified answer. Therefore, the answer is 1,331. The final answer is numeric, so no textual casing rule is applied.]]></reasoning>
+  <final_answer><![CDATA[1331]]></final_answer>
+</result>

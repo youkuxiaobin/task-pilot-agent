@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the total number of hours the show "Time Parking" is aired according to the broadcast schedule. The tool call history (step_1) contains the extracted schedule data and explicitly states: "Time Parking节目总播出时长: 4 小时". The extracted list shows four episodes airing at 9:00, 10:00, 11:00, and 12:00, each presumably one hour long, confirming a total of 4 hours. Step 2's error does not affect the availability of the answer from step_1. The final answer is a numeric value; no specific formatting or units were requested, so the plain number is output. Casing rule: The answer is a number, so casing rules do not apply.]]></reasoning>
+  <final_answer><![CDATA[4]]></final_answer>
+</result>

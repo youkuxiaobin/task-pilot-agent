@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[First, from step_1, oganesson was officially named in November 2016. Next, step_2 found the Journal of the Royal Society of Antiquaries of Ireland issue for that period: Volume 146 (2016), which is treated as the first issue from that month. Step_3 identified the second article in that issue as "Re-conceptualizing the Irish monastic town" by Melanie Maddox. Step_4 confirmed Melanie Maddox as the female author. Step_5 retrieved the contact email for Melanie Maddox as mmaddox@citadel.edu. The email address is provided in lowercase in the source, so authoritative casing is preserved. Applied casing rule: authoritative casing preserved as given.]]></reasoning>
+  <final_answer><![CDATA[mmaddox@citadel.edu]]></final_answer>
+</result>

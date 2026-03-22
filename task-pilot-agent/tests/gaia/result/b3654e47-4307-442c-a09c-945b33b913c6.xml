@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Step 3 provided female-authored percentages per age range: Adult 66.67%, Children 0.0%, Young Adult 23.53%. Step 4 identified Adult as the age range with the highest percentage. Step 5 calculated that within Adult books, the fantasy percentage is 40% (rounded to a whole number). Step 6 formatted the final answer as the whole number without a percent sign. The answer is a numeric value, so no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[40]]></final_answer>
+</result>

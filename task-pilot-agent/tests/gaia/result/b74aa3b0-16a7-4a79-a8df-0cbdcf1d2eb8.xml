@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history provides the analysis of Wikipedia Chocolate page revisions. The output shows that on 2021-12-31, the reference tag count is 3, and on 2022-12-31, it is 5. The difference is calculated as 5 - 3 = 2, which is also stated as +2. The user asks for "how many more references," which directly corresponds to this difference. Since the answer is numeric, no casing decision is required.]]></reasoning>
+  <final_answer><![CDATA[2]]></final_answer>
+</result>

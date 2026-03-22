@@ -1,0 +1,152 @@
+Question: The attached spreadsheet shows the inventory for a movie and video game rental store in Seattle, Washington. What is the title of the oldest Blu-Ray recorded in this spreadsheet? Return it as appearing in the spreadsheet.
+File Name: 32102e3e-d12a-4209-9163-7b3a104efe5d.xlsx
+task_id: 32102e3e-d12a-4209-9163-7b3a104efe5d
+---------------------------------
+Question: Using the Biopython library in Python, parse the PDB file of the protein identified by the PDB ID 5wb7 from the RCSB Protein Data Bank. Calculate the distance between the first and second atoms as they are listed in the PDB file. Report the answer in Angstroms, rounded to the nearest picometer.
+File Name: 7dd30055-0198-452e-8c25-f73dbe27dcb8.pdb
+task_id: 7dd30055-0198-452e-8c25-f73dbe27dcb8
+---------------------------------
+Question: What is the average number of pre-2020 works on the open researcher and contributor identification pages of the people whose identification is in this file?
+File Name: bec74516-02fc-48dc-b202-55e78d0e17cf.jsonld
+task_id: bec74516-02fc-48dc-b202-55e78d0e17cf
+---------------------------------
+Question: When you take the average of the standard population deviation of the red numbers and the standard sample deviation of the green numbers in this image using the statistics module in Python 3.11, what is the result rounded to the nearest three decimal points?
+File Name: df6561b2-7ee5-4540-baab-5095f742716a.png
+task_id: df6561b2-7ee5-4540-baab-5095f742716a
+---------------------------------
+Question: An office held a Secret Santa gift exchange where each of its twelve employees was assigned one other employee in the group to present with a gift. Each employee filled out a profile including three likes or hobbies. On the day of the gift exchange, only eleven gifts were given, each one specific to one of the recipient's interests. Based on the information in the document, who did not give a gift?
+File Name: cffe0e32-c9a6-4c52-9877-78ceb4aaa9fb.docx
+task_id: cffe0e32-c9a6-4c52-9877-78ceb4aaa9fb
+---------------------------------
+Question: Each cell in the attached spreadsheet represents a plot of land. The color of the cell indicates who owns that plot. Green cells are plots owned by Earl Smith. Can Earl walk through every plot he owns (and no other plots) and return to his starting plot without backtracking? For this question, consider backtracking to be any instance where Earl would enter a plot of land he had already entered since leaving his starting plot.
+File Name: 5cfb274c-0207-4aa7-9575-6ac0bd95d9b2.xlsx
+task_id: 5cfb274c-0207-4aa7-9575-6ac0bd95d9b2
+---------------------------------
+Question: Which of the text elements under CATEGORIES in the XML would contain the one food in the spreadsheet that does not appear a second time under a different name?
+File Name: 9b54f9d9-35ee-4a14-b62f-d130ea00317f.zip
+task_id: 9b54f9d9-35ee-4a14-b62f-d130ea00317f
+---------------------------------
+Question: Could you help me out with this assignment? Our professor sprung it on us at the end of class Friday, and I'm still trying to figure it out. The question he asked us was about an anagram. I've attached an audio recording of the question that he asked, so if you could please take a listen and give me the answer, I'd really appreciate the help. Please limit your response to the anagram text that could be generated from the original line which fulfills the professor's request, without any other commentary. Also, please don't include any punctuation in your response.
+File Name: 2b3ef98c-cc05-450b-a719-711aee40ac65.mp3
+task_id: 2b3ef98c-cc05-450b-a719-711aee40ac65
+---------------------------------
+Question: How many applicants for the job in the PDF are only missing a single qualification?
+File Name: bfcd99e1-0690-4b53-a85c-0174a8629083.zip
+task_id: bfcd99e1-0690-4b53-a85c-0174a8629083
+---------------------------------
+Question: The attached file contains a list of vendors in the Liminal Springs mall, along with each vendor’s monthly revenue and the rent they pay the mall. I want you to find the vendor that makes the least money, relative to the rent it pays. Then, tell me what is listed in the “type” column for that vendor.
+File Name: 076c8171-9b3b-49b9-a477-244d2a532826.xlsx
+task_id: 076c8171-9b3b-49b9-a477-244d2a532826
+---------------------------------
+Question: Review the chess position provided in the image. It is black's turn. Provide the correct next move for black which guarantees a win. Please provide your response in algebraic notation.
+File Name: cca530fc-4052-43b2-b130-b30968d8aa44.png
+task_id: cca530fc-4052-43b2-b130-b30968d8aa44
+---------------------------------
+Question: The attached file shows a list of books in the collection of Scribe County Public Library. How many of the library’s books that are authored by Rick Riordan are not currently on the library’s shelves?
+File Name: e9a2c537-8232-4c3f-85b0-b52de6bcba99.pdf
+task_id: e9a2c537-8232-4c3f-85b0-b52de6bcba99
+---------------------------------
+Question: As a comma separated list with no whitespace, using the provided image provide all the fractions that use / as the fraction line and the answers to the sample problems. Order the list by the order in which the fractions appear.
+File Name: 9318445f-fe6a-4e1b-acbf-c68228c9906a.png
+task_id: 9318445f-fe6a-4e1b-acbf-c68228c9906a
+---------------------------------
+Question: Using bass clef notes, what is the age of someone who has experienced the word spelled out in the sheet music by the note letters the total number of lines and notes minus the number of notes on lines in the image?
+File Name: 8f80e01c-1296-4371-9486-bb3d68651a60.png
+task_id: 8f80e01c-1296-4371-9486-bb3d68651a60
+---------------------------------
+Question: The attached file lists accommodations in the resort town of Seahorse Island. Based on the information in this file, which seems like the better available place to stay for a family that enjoys swimming and wants a full house?
+File Name: 366e2f2b-8632-4ef2-81eb-bc3877489217.pdf
+task_id: 366e2f2b-8632-4ef2-81eb-bc3877489217
+---------------------------------
+Question: In the NIH translation of the original 1913 Michaelis-Menten Paper, what is the velocity of a reaction to four decimal places using the final equation in the paper based on the information for Reaction 7 in the Excel file?
+File Name: c526d8d6-5987-4da9-b24c-83466fa172f3.xlsx
+task_id: c526d8d6-5987-4da9-b24c-83466fa172f3
+---------------------------------
+Question: You are a telecommunications engineer who wants to build cell phone towers on a stretch of road. In the reference file is a layout of the road and nearby houses. Each dash, "-", is a marker indicating a mile. Each capital H indicates a house located next to a mile marker, appearing above or below the stretch of road. Each cell phone tower can cover houses located next to the road within a 4-mile radius. Find the minimum number of cell phone towers needed to cover all houses next to the road. Your answer should be a positive numerical integer value.
+File Name: 389793a7-ca17-4e82-81cb-2b3a2391b4b9.txt
+task_id: 389793a7-ca17-4e82-81cb-2b3a2391b4b9
+---------------------------------
+Question: I was referencing each of the tables in the file from papers that were cited by the "Trans fatty acid contents in chocolates and chocolate wafers in Turkey" paper. I lost my own reference sheet and need to know which of the papers each table came from. The file may not use the full table caption. If the references in the"Trans fatty acid" paper bibliography were numbered starting with 1, give me the numbers in the order that they would be used to fill the cells in the Excel file from top to bottom, as a comma separated list.
+File Name: 3da89939-209c-4086-8520-7eb734e6b4ef.xlsx
+task_id: 3da89939-209c-4086-8520-7eb734e6b4ef
+---------------------------------
+Question: How many slides in this PowerPoint presentation mention crustaceans?
+File Name: a3fbeb63-0e8c-4a11-bff6-0e3b484c3e9c.pptx
+task_id: a3fbeb63-0e8c-4a11-bff6-0e3b484c3e9c
+---------------------------------
+Question: What percentage of the total penguin population according to the upper estimates on english Wikipedia at the end of 2012 is made up by the penguins in this file that don't live on Dream Island or have beaks longer than 42mm? Round to the nearest five decimal places.
+File Name: 8d46b8d6-b38a-47ff-ac74-cda14cf2d19b.csv
+task_id: 8d46b8d6-b38a-47ff-ac74-cda14cf2d19b
+---------------------------------
+Question: The attached file shows the locomotives in the collection of a North American railroad museum. How many wheels do the listed steam locomotives have in total?
+File Name: 54612da3-fd56-4941-80f4-5eb82330de25.xlsx
+task_id: 54612da3-fd56-4941-80f4-5eb82330de25
+---------------------------------
+Question: What is the area of the green polygon in the attached file? The numbers in purple represent the lengths of the side they are next to.
+File Name: 6359a0b1-8f7b-499b-9336-840f9ab90688.png
+task_id: 6359a0b1-8f7b-499b-9336-840f9ab90688
+---------------------------------
+Question: The attached spreadsheet contains the sales of menu items for a regional fast-food chain. Which city had the greater total sales: Wharvton or Algrimand?
+File Name: 7cc4acfa-63fd-4acc-a1a1-e8e529e0a97f.xlsx
+task_id: 7cc4acfa-63fd-4acc-a1a1-e8e529e0a97f
+---------------------------------
+Question: You are given this Excel file as a map. You start on the START cell and move toward the END cell. You are allowed to move two cells per turn, and you may move up, down, left, or right. You may not move fewer than two cells, and you may not move backward. You must avoid moving onto any blue cells. On the eleventh turn, what is the 6-digit hex code (without prefix) of the color of the cell where you land after moving?
+File Name: 65afbc8a-89ca-4ad5-8d62-355bb401f61d.xlsx
+task_id: 65afbc8a-89ca-4ad5-8d62-355bb401f61d
+---------------------------------
+Question: Look at the attached image. The quiz is scored as follows:Problems that ask the student to add or subtract fractions: 5 pointsProblems that ask the student to multiply or divide fractions: 10 pointsProblems that ask the student to form an improper fraction: 15 pointsProblems that ask the student to form a mixed number: 20 pointsDue to a technical issue that delayed having students take the quiz, the teacher is giving everyone 5 bonus points.If you graded the quiz in the attached image, how many points would the student have earned? There is no partial credit.
+File Name: cca70ce6-1952-45d2-acd4-80c903b0bc49.png
+task_id: cca70ce6-1952-45d2-acd4-80c903b0bc49
+---------------------------------
+Question: Hi, I'm making a pie but I could use some help with my shopping list. I have everything I need for the crust, but I'm not sure about the filling. I got the recipe from my friend Aditi, but she left it as a voice memo and the speaker on my phone is buzzing so I can't quite make out what she's saying. Could you please listen to the recipe and list all of the ingredients that my friend described? I only want the ingredients for the filling, as I have everything I need to make my favorite pie crust. I've attached the recipe as Strawberry pie.mp3.In your response, please only list the ingredients, not any measurements. So if the recipe calls for "a pinch of salt" or "two cups of ripe strawberries" the ingredients on the list would be "salt" and "ripe strawberries".Please format your response as a comma separated list of ingredients. Also, please alphabetize the ingredients.
+File Name: 99c9cc74-fdc8-46c6-8f8d-3ce2d3bfeea3.mp3
+task_id: 99c9cc74-fdc8-46c6-8f8d-3ce2d3bfeea3
+---------------------------------
+Question: The attached image contains a Python script. Run the Python code against an array of strings, listed below. The output of the Python script will be a URL containing C++ source code. Compile and run this C++ code against the array [35, 12, 8, 99, 21, 5] and return the sum of the third and fifth integers in the sorted list.arr = ['_alg', 'ghi', 'C++', 'jkl', 'tps', '/Q', 'pqr', 'stu', ':', '//', 'rose', 'vwx', 'yz1', '234', 'tta', '567', '890', 'cod', 'e.', 'or', 'g/', 'wiki', '/', 'ing', 'sort', 'abc' , 'or', 'it', 'hms', 'mno' , 'uic', 'ksort', '#', 'ht' ]
+File Name: b7f857e4-d8aa-4387-af2a-0e844df5b9d8.png
+task_id: b7f857e4-d8aa-4387-af2a-0e844df5b9d8
+---------------------------------
+Question: I have the Standard plan in the image below, and I just uploaded 60 equally sized files and got a message that I'm 100GB over the limit. I have 980 more files of the same size to upload. What is the average additional cost per file in dollar that goes over my current plan limit rounded to the nearest cent if I have to upgrade to the minimum possible plan to store them all? Answer with the following format: x.xx
+File Name: d8152ad6-e4d5-4c12-8bb7-8d57dc10c6de.png
+task_id: d8152ad6-e4d5-4c12-8bb7-8d57dc10c6de
+---------------------------------
+Question: The attached PDF lists accommodations in the resort community of Seahorse Island. Which type of accommodation has a higher average rating in Seahorse Island?
+File Name: 67e8878b-5cef-4375-804e-e6291fdbe78a.pdf
+task_id: 67e8878b-5cef-4375-804e-e6291fdbe78a
+---------------------------------
+Question: This spreadsheet contains a list of clients for a retractable awning company. Each client has ordered a new awning for the back of their house within the last 90 days. The company makes different designs depending on whether the awning is made to block sunrises or sunsets. In this region, houses with odd-numbered street addresses face east, and houses with even-numbered street addresses face west. How many of these clients will be receiving the sunset awning design?
+File Name: 4d51c4bf-4b0e-4f3d-897b-3f6687a7d9f2.xlsx
+task_id: 4d51c4bf-4b0e-4f3d-897b-3f6687a7d9f2
+---------------------------------
+Question: What is the final numeric output from the attached Python code?
+File Name: f918266a-b3e0-4914-865d-4faa564f1aef.py
+task_id: f918266a-b3e0-4914-865d-4faa564f1aef
+---------------------------------
+Question: The attached spreadsheet contains a list of books I read in the year 2022. What is the title of the book that I read the slowest, using the rate of words per day?
+File Name: da52d699-e8d2-4dc5-9191-a2199e0b6a9b.xlsx
+task_id: da52d699-e8d2-4dc5-9191-a2199e0b6a9b
+---------------------------------
+Question: The brand that makes these harnesses the dogs are wearing in the attached pic shares stories from their ambassadors on their website. What meat is mentioned in the story added Dec 8th 2022?
+File Name: 5b2a14e8-6e59-479c-80e3-4696e8980152.jpg
+task_id: 5b2a14e8-6e59-479c-80e3-4696e8980152
+---------------------------------
+Question: The attached spreadsheet lists the locomotives owned by a local railroad museum. What is the typical American name for the type of locomotive this museum uses for the Murder Mystery Express?
+File Name: edd4d4f2-1a58-45c4-b038-67337af4e029.xlsx
+task_id: edd4d4f2-1a58-45c4-b038-67337af4e029
+---------------------------------
+Question: The attached file lists the locomotives owned by a local railroad museum. It gives each locomotive’s identifying number, operating status, and the name of the daily excursion it heads, if operational. What are the odds that today’s Sunset Picnic Trip will use a steam locomotive? Assume that each day’s excursion picks one of its assigned locomotives at random, and express the answer in the form “1 in 4”, “1 in 5”, etc.
+File Name: 4d0aa727-86b1-406b-9b33-f870dd14a4a5.xlsx
+task_id: 4d0aa727-86b1-406b-9b33-f870dd14a4a5
+---------------------------------
+Question: Hi, I was out sick from my classes on Friday, so I'm trying to figure out what I need to study for my Calculus mid-term next week. My friend from class sent me an audio recording of Professor Willowbrook giving out the recommended reading for the test, but my headphones are broken :(Could you please listen to the recording for me and tell me the page numbers I'm supposed to go over? I've attached a file called Homework.mp3 that has the recording. Please provide just the page numbers as a comma-delimited list. And please provide the list in ascending order.
+File Name: 1f975693-876d-457b-a649-393859e79bf3.mp3
+task_id: 1f975693-876d-457b-a649-393859e79bf3
+---------------------------------
+Question: If this whole pint is made up of ice cream, how many percent above or below the US federal standards for butterfat content is it when using the standards as reported by Wikipedia in 2020? Answer as + or - a number rounded to one decimal place.
+File Name: b2c257e0-3ad7-4f05-b8e3-d9da973be36e.jpg
+task_id: b2c257e0-3ad7-4f05-b8e3-d9da973be36e
+---------------------------------
+Question: The attached Excel file contains the sales of menu items for a local fast-food chain. What were the total sales that the chain made from food (not including drinks)? Express your answer in USD with two decimal places.
+File Name: 7bd855d8-463d-4ed5-93ca-5fe35145f733.xlsx
+task_id: 7bd855d8-463d-4ed5-93ca-5fe35145f733
+---------------------------------

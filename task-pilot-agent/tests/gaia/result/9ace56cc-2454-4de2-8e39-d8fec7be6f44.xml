@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history provides a direct answer to the question. The step_answer states: "the Wikipedia user ... is a member of the **Counter Vandalism Unit** according to their user page as of 2022." I extract the unit name "Counter Vandalism Unit" from this statement. The answer must be without articles; the unit name contains no articles like "a" or "the". The casing is preserved from the authoritative source in the tool history. Authoritative casing from the tool history is followed.]]></reasoning>
+  <final_answer><![CDATA[Counter Vandalism Unit]]></final_answer>
+</result>

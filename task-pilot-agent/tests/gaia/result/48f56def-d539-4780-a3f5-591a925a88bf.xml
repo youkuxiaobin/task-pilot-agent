@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history provides the throughput for TurboViT on an RTX A6000 at batch size 32 as 1696.9 images per second. The user states that the Titan RTX is exactly half as performant. Therefore, the Titan RTX throughput is calculated as 1696.9 / 2 = 848.45 images per second. Rounding 848.45 to the nearest integer results in 848. This value is confirmed by the calculation in step_3 and the output from step_4. The final answer is a number, so no textual casing rules apply.]]></reasoning>
+  <final_answer><![CDATA[848]]></final_answer>
+</result>

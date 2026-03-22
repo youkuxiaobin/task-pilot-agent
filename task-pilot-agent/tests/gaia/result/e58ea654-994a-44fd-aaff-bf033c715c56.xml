@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the sugar component of the chemical in Scheme 2 that has the highest shown percentage. From the tool call history, step_3 reports the yields from Scheme 2: Tre-Cz at 60% and Mal-Cz at 73%. Therefore, Mal-Cz has the highest percentage. Step_4 and step_5 identify the sugar component of Mal-Cz as maltose, based on the article's description that Mal-Cz is the maltose analogue and is synthesized from amine-derivatized maltose (VI). The task provides no authoritative casing for the answer. Following the sentence-casing fallback, the first word is capitalized. Applied casing rule: sentence-case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Maltose]]></final_answer>
+</result>

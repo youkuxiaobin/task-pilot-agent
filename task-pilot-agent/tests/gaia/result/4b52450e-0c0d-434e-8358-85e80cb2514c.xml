@@ -1,0 +1,4 @@
+<result>
+<reasoning><![CDATA[From step_1 tool call, the worst explosive accident by death toll is the Wanggongchang Explosion (1626). Step_2 tool call provides information on Ming dynasty heirs killed in this accident: Crown Prince Zhu Cijiong, the only surviving son and heir of Emperor Tianqi, died. Step_3 explicitly extracts the count as 1. Thus, exactly one heir of the Ming emperor died as a result of the Wanggongchang Explosion. The final answer is a number, so no text casing rules apply.]]></reasoning>
+<final_answer><![CDATA[1]]></final_answer>
+</result>

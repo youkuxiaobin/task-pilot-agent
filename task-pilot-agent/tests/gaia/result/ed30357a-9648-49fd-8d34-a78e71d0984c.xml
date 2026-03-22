@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, Step 2 provides the 2021 video count for Not Just Bikes as 24 videos, and Step 3 provides the 2022 video count as 27 videos. The percent decrease is calculated as ((old value - new value) / old value) × 100 = ((24 - 27) / 24) × 100 = (-3/24) × 100 = -12.5. Rounded to two decimal places, this is -12.50. Since the result is negative, it indicates an increase rather than a decrease. The answer is numeric with a percent symbol, so no text casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[-12.50%]]></final_answer>
+</result>

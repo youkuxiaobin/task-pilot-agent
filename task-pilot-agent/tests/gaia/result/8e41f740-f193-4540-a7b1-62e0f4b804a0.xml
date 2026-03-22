@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Bob and Linda are both genotype Aa. Their child (second generation) has a genotype probability: AA with 1/4, Aa with 1/2, and aa with 1/4. This child then has a child with another individual of genotype Aa. For each possible genotype of the second-generation child, the probability that the grandchild (third generation) is Aa is 1/2: if child is AA (× Aa) → P(Aa) = 1/2; if child is Aa (× Aa) → P(Aa) = 1/2; if child is aa (× Aa) → P(Aa) = 1/2. Using the law of total probability: P(grandchild is Aa) = (1/4)*(1/2) + (1/2)*(1/2) + (1/4)*(1/2) = 1/2. As a percentage, 1/2 = 50%. Rounding to the nearest integer yields 50%. Final answer is numeric, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[50]]></final_answer>
+</result>

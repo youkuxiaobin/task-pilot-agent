@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool_call_history includes a deepsearch result on the Las Vegas Monorail route alignment from the Convention Center to the LINQ Hotel (step_1) and an analysis of right turns based on that information (step_2). The search results indicate that the monorail runs parallel to Las Vegas Boulevard (The Strip) for most of this segment, maintains a straight southbound alignment, and no significant turns or changes in parallel road are documented. According to the user's definition, a turn occurs when the track changes the nearby road it runs parallel to. Since no such change is reported, there are no turns, hence zero right turns. The final answer is numeric, so no textual casing rules apply. Applied casing rule: not applicable as the final answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[0]]></final_answer>
+</result>

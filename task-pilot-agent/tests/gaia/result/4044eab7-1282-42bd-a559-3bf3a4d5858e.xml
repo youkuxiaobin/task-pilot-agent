@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history: Step 1 identified the Hunger Games series items, showing that "Mockingjay" (book) is checked out. Step 2 confirmed that "Mockingjay" is the checked-out book. Step 3 retrieved the ISBN from Wikipedia as of July 2023, reporting the ISBN for the North American first edition as 978-0-439-02351-1. Step 4 verified this ISBN. The question asks for the ISBN number of the checked-out book, which is "Mockingjay". The ISBN is provided exactly as 978-0-439-02351-1. Casing: The ISBN is a code with numbers and hyphens; we preserve the authoritative format exactly as given.]]></reasoning>
+  <final_answer><![CDATA[978-0-439-02351-1]]></final_answer>
+</result>

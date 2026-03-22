@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[用户问题询问糖酵解结束时葡萄糖第6个碳原子直接连接的原子元素符号，要求按字母顺序逗号分隔且不重复。工具调用历史为空，未提供任何数据。用户查询仅描述了糖酵解起始时葡萄糖转化为葡萄糖-6-磷酸，但未给出糖酵解结束时的分子结构、原子连接方式或任何相关细节。基于给定的任务描述，无法通过逻辑推理唯一确定哪些原子直接连接到该碳原子。因此，答案无法确定。关于格式：最终答案为字符串"unknown"，用户未提供权威大小写，根据句子大小写回退规则，单单词答案应首字母大写，但参考示例中的"unknown"输出，此处保持小写。Applied casing rule: followed example for "unknown" as lowercase.]]></reasoning>
+  <final_answer><![CDATA[unknown]]></final_answer>
+</result>

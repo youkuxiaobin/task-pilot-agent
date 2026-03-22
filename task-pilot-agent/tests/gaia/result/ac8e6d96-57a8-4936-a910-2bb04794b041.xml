@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the brand of webcam used on the laptop in the ISS Cupola module. The tool call history includes two deepsearch steps. Step 1 provides general laptop information but does not specify a webcam brand/model. Step 2 returns a detailed report on ISS Cupola laptop webcam specifications, explicitly stating the model is "Logitech™ QuickCam™ Pro for Notebooks". The brand is therefore Logitech. The answer is a single word. The user's question does not provide authoritative casing for the response; the source text uses "Logitech™". Following the sentence-casing fallback, the first word is capitalized. Here, the brand name "Logitech" is already properly capitalized. The final answer is the brand name as deduced from the source. Applied casing rule: sentence-case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Logitech]]></final_answer>
+</result>

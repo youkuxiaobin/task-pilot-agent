@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool history shows that APOD pages from 2011-2012 with "comet" in the title were retrieved (step 1), their content fetched (step 2), comet names parsed (step 3), and unnamed comets filtered out (step 4), leaving four named comets: Garradd, Hartley 2, Lovejoy, Tempel 1. Perihelion distances (AU) for each were searched using August 2023 data (step 5): Comet Garradd 1.551 AU, Comet Hartley 2 1.06 AU, Comet Lovejoy 0.0056 AU, Comet Tempel 1 1.54 AU. The distances were compiled into a table (step 6). The comet with minimum perihelion distance is Comet Lovejoy (0.0056 AU), and the one with maximum is Comet Garradd (1.551 AU) (step 7). The difference is 1.551 - 0.0056 = 1.5454 AU, rounded to two decimal places gives 1.55 AU (step 8). The final answer is numeric, so no text casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[1.55]]></final_answer>
+</result>

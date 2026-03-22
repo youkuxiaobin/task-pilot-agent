@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the Wikispecies Subordo as of 2022 for the genus studied in the article "Food For Everyone." From step_2, the article is "Food for everyone: Differential feeding habits of cryptic bat species inferred from DNA metabarcoding," which studies the genus Plecotus (brown long-eared bats). Step_4 confirms the genus is Plecotus. Step_5 provides the taxonomic classification from Wikispecies, stating the suborder for Plecotus is Microchiroptera as of 2022. The source text from step_5 explicitly lists "Suborder: Microchiroptera." Therefore, the answer is Microchiroptera. The casing follows the authoritative capitalization from the Wikispecies source. Applied casing rule: authoritative source capitalization.]]></reasoning>
+  <final_answer><![CDATA[Microchiroptera]]></final_answer>
+</result>

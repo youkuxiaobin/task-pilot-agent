@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From Step 1, the zodiac animal worth mapping extracted from the image shows: Rat:300 coins, Ox:300, Tiger:300, Rabbit:500, Dragon:300, Snake:300, Horse:300, Goat:300, Monkey:500, Rooster:500, Dog:300, Pig:300. From Step 2, the zodiac animal for each year from 1925 to 1976 is mapped: 1925 is Ox, 1926 Tiger, 1927 Rabbit, 1928 Dragon, 1929 Snake, 1930 Horse, 1931 Goat, 1932 Monkey, 1933 Rooster, 1934 Dog, 1935 Pig, 1936 Rat, and so on until 1976 Dragon. Step 3 calculates the total wealth according to the rules: birth year 1925 (Ox, worth 300) is counted triple (900), death year 1976 (Dragon, worth 300) is subtracted (-300), and all other years in between are added at their respective animal worths. The computation yields a total of 18200 coins. Applied casing rule: not applicable (numeric answer).]]></reasoning>
+  <final_answer><![CDATA[18200]]></final_answer>
+</result>

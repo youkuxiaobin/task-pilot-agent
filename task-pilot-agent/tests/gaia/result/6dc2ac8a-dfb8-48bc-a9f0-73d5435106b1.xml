@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Step 2 of the tool call history analyzed the archived Library of Congress homepage and extracted information about the Roaring 20s festival banner. The output explicitly states the festival pass price as "$75" and confirms it as the final answer. The user requests only the number, so we extract the numeric portion "75". No casing adjustment is needed for a numeric answer.]]></reasoning>
+  <final_answer><![CDATA[75]]></final_answer>
+</result>

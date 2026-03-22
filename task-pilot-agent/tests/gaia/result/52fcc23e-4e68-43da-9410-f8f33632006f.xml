@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Start (top→bottom): 2♣, 3♥, K♠, Q♥, J♣, A♦ 1) Move top 3 to bottom → Q♥, J♣, A♦, 2♣, 3♥, K♠ 2) Move top under 2nd → J♣, Q♥, A♦, 2♣, 3♥, K♠ 3) Move top 2 under 3rd → A♦, J♣, Q♥, 2♣, 3♥, K♠ 4) Move bottom to top → K♠, A♦, J♣, Q♥, 2♣, 3♥ 5) Move top 2 under 3rd → J♣, K♠, A♦, Q♥, 2♣, 3♥ 6) Move top 4 to bottom → 2♣, 3♥, J♣, K♠, A♦, Q♥7) Move bottom to top → Q♥, 2♣, 3♥, J♣, K♠, A♦8) Move top 2 to bottom → 3♥, J♣, K♠, A♦, Q♥, 2♣9) Move bottom to top → 2♣, 3♥, J♣, K♠, A♦, Q♥ So the final top card is the 2 of clubs, written as words.]]></reasoning>
+  <final_answer><![CDATA[two of clubs]]></final_answer>
+</result>

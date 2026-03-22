@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From step_2, the code interpreter output for the 2009 inaugural address states "总掌声次数: 13", meaning total applause count is 13. From step_4, the final output for the 2013 address states "总鼓掌次数: 25次", meaning total applause count is 25. The absolute difference is |25 - 13| = 12. The answer is a plain number; no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[12]]></final_answer>
+</result>

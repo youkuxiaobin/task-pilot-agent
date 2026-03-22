@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the number of years between the first year mentioned in the captions of the first and last multi-person paintings from the NGA Conservation Facture Volume 3 about Degas. The tool history shows a step-by-step analysis: step 1 and 2 identify the publication and extract painting lists; step 3 filters to multi-person paintings, listing 12 such works; step 6 analyzes these 12 paintings, extracts years from their captions, and calculates the difference. The first painting is "The Dance Class (c. 1874)" with year 1874; the last is "Blue Dancers (c. 1890)" with year 1890. The difference is 1890 - 1874 = 16 years. The answer is a number, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[16]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, the paper by Ari Allyn-Feuer and Ted Sanders (submitted to arXiv on June 5, 2023) states that the exact probability of transformative artificial general intelligence existing by 2043 is 0.4%. Rounding this value up to the nearest integer percentage yields 1%. The final answer is a numerical percentage, so no textual casing is applied. Applied casing rule: not applicable as answer is non-textual.]]></reasoning>
+  <final_answer><![CDATA[1%]]></final_answer>
+</result>

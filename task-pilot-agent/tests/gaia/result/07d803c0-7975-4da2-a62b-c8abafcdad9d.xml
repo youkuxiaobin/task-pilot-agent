@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the name of the first model to exceed 70% accuracy on ImageNet according to Papers with Code. The tool call history shows that step 1 search results identify AlexNet as achieving over 70% accuracy, with step 2 and step 3 corroborating this. Step 3 specifically includes a Papers with Code source confirming AlexNet as the first model over 70% top-5 accuracy in 2012. Thus, the model name is AlexNet. The evidence provides the name as "AlexNet" with specific capitalization, so authoritative casing is preserved. Applied casing rule: authoritative casing from evidence.]]></reasoning>
+  <final_answer><![CDATA[AlexNet]]></final_answer>
+</result>

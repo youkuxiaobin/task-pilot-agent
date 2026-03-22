@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the number of studio albums Linkin Park released until 2022 according to English Wikipedia. The tool call history contains two searches. Step 1's output explicitly states "Total Studio Albums (2000–2022): 7 albums" and lists seven albums in a table, all released by 2017. Step 3's output mentions "eight studio albums as of 2024," which includes a 2024 album ("From Zero"). Since the question is specifically "until 2022," the 2024 album should not be counted. The authoritative source for the period up to 2022 is Step 1, which confirms 7 studio albums. The answer is a numeric value, so casing rules are not applicable; the fallback would not alter a number. Applied casing rule: Not applicable, answer is a numeral.]]></reasoning>
+  <final_answer><![CDATA[7]]></final_answer>
+</result>

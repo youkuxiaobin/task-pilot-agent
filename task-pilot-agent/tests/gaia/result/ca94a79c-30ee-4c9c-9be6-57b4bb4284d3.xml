@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history indicates that the scene involves Nintendo 64 controllers used to play Mortal Kombat: Deception, which was released on PlayStation 2, Xbox, and GameCube. The earliest revision main processor speeds are: Nintendo 64 = 93.75 MHz, PlayStation 2 = 294.912 MHz, Xbox = 733 MHz, GameCube = 486 MHz. The absolute differences between the Nintendo 64 and each game console are calculated: |93.75 - 294.912| = 201.162 MHz, |93.75 - 733| = 639.25 MHz, |93.75 - 486| = 392.25 MHz. Sorted ascending: 201.162, 392.25, 639.25. Because the game is available on multiple consoles, the answer is a comma-separated list of differences without units, as per the user's instruction. The answer is numeric, so no casing applies. Applied casing rule: not applicable as answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[201.162, 392.25, 639.25]]></final_answer>
+</result>

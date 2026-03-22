@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The ASCII picture is ">>$()>". To reverse the fish's direction, we mirror it horizontally by reversing the character order and flipping directional characters: '>' becomes '<', '(' becomes ')', ')' becomes '(', and '$' remains unchanged. First, reverse the string to get ">)(>$>>". Then flip each character: '>' to '<', ')' to '(', '(' to ')', '$' to '$', '>' to '<', '>' to '<', resulting in "<()$<<". The characters are '<', '(', ')', '$', '<', '<'. In a comma-separated list, this is "<,(,),$,<,<". The answer is a list of symbols, so no textual casing adjustment is required.]]></reasoning>
+  <final_answer><![CDATA[<,(,),$,<,<]]></final_answer>
+</result>

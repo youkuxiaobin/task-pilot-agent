@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the number of times the English Wikipedia page for Fiji Mermaids was edited on April Fool's Day between 2000 and 2022. From the tool call history, Step 2 filtered timestamps for April 1 (month=4, day=1) and reported a count of 256 edits for the period 2000-2022. This matches the query since April Fool's Day is April 1st. The answer is a numeric value, so no textual casing is required. Applied casing rule: not applicable as answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[256]]></final_answer>
+</result>

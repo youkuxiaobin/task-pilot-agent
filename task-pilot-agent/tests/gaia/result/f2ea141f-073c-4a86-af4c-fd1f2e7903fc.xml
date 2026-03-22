@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the number of guanine nucleotides in the Ad_ITR primer. The tool call history includes step_5 where a code interpreter was used to count guanine nucleotides in the primer sequence "GATCTCTAGACGCGTCTATCTATATAATATACCTTATAG". The output explicitly states "鸟嘌呤核苷酸('G')的数量: 5". Therefore, the answer is 5. The final answer is a numeral and does not require casing adjustments. Applied casing rule: not applicable as the answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[5]]></final_answer>
+</result>

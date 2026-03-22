@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history contains the woreda counts from the 2007 Population and Housing Census of Ethiopia. The summary table shows: Tigray (35), Afar (29), Amhara (140), Oromia (254), Somali (52), Benishangul-Gumuz (20), SNNP (137), Gambella (13), Harari (1), Addis Ababa (10), Dire Dawa (2), Special Enumeration Areas (4). Comparing the counts, Oromia has the highest at 254 woredas. The question asks for the regional state name without appending "region" or "state", so the answer is "Oromia". The source text uses "Oromia" with a capital 'O', so authoritative casing is preserved. Casing decision: followed authoritative casing from source.]]></reasoning>
+  <final_answer><![CDATA[Oromia]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step_1 analysis identifies immune complexes as the compound mediating agglutination in the Fc gamma receptor pathway. Step_2 verification confirms the exact Wikipedia article title is "Immune complex". The user asks for the name as it appears in the title of its Wikipedia article, so the answer is "Immune complex". Authoritative casing from the Wikipedia title is used, preserving the capital "I" and lowercase "c".]]></reasoning>
+  <final_answer><![CDATA[Immune complex]]></final_answer>
+</result>

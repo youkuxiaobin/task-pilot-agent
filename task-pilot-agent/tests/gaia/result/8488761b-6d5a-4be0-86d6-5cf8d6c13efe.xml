@@ -1,0 +1,12 @@
+<result>
+  <reasoning><![CDATA[The user asks for the brand name of a specific topical drug from DrugBank. The drug must be an "antivaricose cardiovascular vasoprotective" used topically and must appear twice at the same level in the ATC classification tree. The tool call history contains the necessary steps to answer this.
+
+Step 1's output analyzes duplicate ATC C05B entries. It identifies Heparin as a drug with duplicate entries under C05B, specifically under C05BA03 (Heparin) and C05BA53 (Heparin, combinations). Step 2 confirms Heparin as the drug that appears twice at that level.
+
+Step 3 searches for the brand name of Heparin, focusing on topical formulations. The output lists specific topical heparin products, with "Contractubex Gel" being the first and most clearly named brand mentioned. The output also mentions "BARICUS 50 IU/%1/%10 JEL" and other formulations. The user's question asks for "the brand name" (singular). Based on the evidence, "Contractubex Gel" is a specific brand name provided for a topical heparin formulation.
+
+I must base the answer strictly on the source text in <tool_call_history>. The source text provides "Contractubex Gel" as a brand name. The task requires preserving the exact casing, spacing, and punctuation from the evidence. The evidence shows "Contractubex Gel" with a capital 'C', 'G', and a space. Therefore, that is the authoritative casing to use.
+
+The reasoning is complete, and a unique answer can be determined from the tool history.]]></reasoning>
+  <final_answer><![CDATA[Contractubex Gel]]></final_answer>
+</result>

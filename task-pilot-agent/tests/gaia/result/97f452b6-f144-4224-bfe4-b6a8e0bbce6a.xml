@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history: Step 1 provides the tracklist of VNV Nation's "Futureperfect". Step 2 identifies "Liebestod" as the song with a non-English title (German). Step 3 confirms that "Liebestod" references Richard Wagner's opera "Tristan und Isolde". Step 4 identifies the composer as Richard Wagner. Step 5 formats the answer as "First name Last name". The composer's name is given authoritatively as "Richard Wagner" in the sources. Casing decision: using authoritative casing from source for "Richard Wagner".]]></reasoning>
+  <final_answer><![CDATA[Richard Wagner]]></final_answer>
+</result>

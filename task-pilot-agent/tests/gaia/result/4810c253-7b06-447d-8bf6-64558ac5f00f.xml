@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history: Step 1 identifies the first two bequeathments in the will as "Meredith Grey Swift" and "Olivia Benson Swift". Step 2 extracts the girls' first names as "Meredith" and "Olivia". Step 3 (and Step 5) provides Meredith's 2012 rank on BabyNames.com as 668 for female names. Step 4 provides Olivia's 2012 rank on BabyNames.com as 6th. The average rank is calculated as (668 + 6) / 2 = 337. The answer is numeric, so no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[337]]></final_answer>
+</result>

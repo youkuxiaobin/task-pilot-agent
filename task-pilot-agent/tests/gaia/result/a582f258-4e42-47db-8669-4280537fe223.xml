@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Step 1 identifies Pinkfong as the company with the most viewed YouTube video at the end of 2020. Step 2 confirms the 2019 TV show made by Pinkfong is Pinkfong Wonderstar. Steps 3 and 4 search for the prototype logo colors; step 4 lists hex codes from the official Pinkfong color palette:ff00a6,ff5ac6,ff8fd8,ffbee8,ffe1f4. Step 5 converts these hex codes to color names: deeppink, hotpink, lavenderblush, lightpink, mistyrose. Step 6 sorts them alphabetically, resulting in deeppink, hotpink, lavenderblush, lightpink, mistyrose. Casing: The color names are provided in lowercase verbatim, so exact casing is preserved. Applied casing rule: preserved exact casing from source.]]></reasoning>
+  <final_answer><![CDATA[deeppink, hotpink, lavenderblush, lightpink, mistyrose]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Step 1 determined that Norfolk Southern was approved to acquire Conrail in 1998. Step 2 retrieved the annual percent change in Norfolk Southern's stock price for 1998 as 3.89% from Macrotrends. The question asks for this value without the percent sign, so the numeric answer is 3.89. The answer is numeric, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[3.89]]></final_answer>
+</result>

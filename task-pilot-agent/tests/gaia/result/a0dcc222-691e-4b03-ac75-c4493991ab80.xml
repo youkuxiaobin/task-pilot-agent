@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history shows the parsed Pokémon team with 24 unique moves. Step 4 provided a base power mapping for all moves, and Step 5 verified base powers for high-power moves. Comparing all base power values: Last Resort has 140, Flare Blitz, Focus Blast, Gunk Shot, Megahorn, and Superpower have 120, Earthquake has 100, Fire Blast has 110, and other moves have lower values. Status moves (Curse, Protect, Taunt, Wish) have 0. Thus, Last Resort has the highest base damage. The move name appears as "Last Resort" in the tool outputs, preserving its authoritative capitalization. Applied casing rule: preserved authoritative capitalization from source text.]]></reasoning>
+  <final_answer><![CDATA[Last Resort]]></final_answer>
+</result>

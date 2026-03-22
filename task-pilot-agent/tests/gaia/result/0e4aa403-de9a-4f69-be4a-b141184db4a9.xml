@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[We need to answer: "How many more times are emperor penguins mentioned in the PDF file than in the PLOS One reference?" This means we compute (count in PDF) - (count in PLOS One). From tool call history: Step 7 gives PDF count = 13, Step 11 gives PLOS One count = 23. Thus, difference = 13 - 23 = -10. The answer is a negative integer because the PDF has fewer mentions. Since the final answer is a number, no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[-10]]></final_answer>
+</result>

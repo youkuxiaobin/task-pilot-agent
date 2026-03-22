@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The nearest US census year to the merger year (1997) is 2000. The two states with both Carl's Jr. and Hardee's restaurants around 2000 are Oklahoma and Texas. From the 2000 US Census, Oklahoma's population was 3,450,654 and Texas's population was 20,851,820. The difference is 20,851,820 - 3,450,654 = 17,401,166. Following formatting rules for numbers, the output is a plain numeric string without thousands separators, resulting in 17401166. Casing is not applicable as the answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[17401166]]></final_answer>
+</result>

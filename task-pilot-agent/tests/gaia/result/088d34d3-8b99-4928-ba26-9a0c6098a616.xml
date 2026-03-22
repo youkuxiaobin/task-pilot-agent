@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The first paragraph of "An Online Edition of the Achilleid of Statius" mentions two excellent examples: Catullus Online developed by the University of Barcelona, and Callimachus' Aetia created by Stanford University. The coordinates for the University of Barcelona from Wikipedia (July 2023) are 41°23′12″N, 2°09′50″E (41.386667°N, 2.163889°E decimal). The coordinates for Stanford University are 37°25′21″N 122°9′55″W (37.422500°N, -122.165278°E decimal). Using the great-circle distance formula, the distance is 9,588,400.27 meters, which equals 9.58840027 million meters. Rounded to one decimal place, this is 9.6 million meters. The final answer is numeric, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[9.6]]></final_answer>
+</result>

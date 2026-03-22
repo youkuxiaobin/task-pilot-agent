@@ -1,0 +1,4 @@
+<result>
+<reasoning><![CDATA[From the tool call history, step 1 identifies the article "From Mao to McDonald's: Emerging Markets for Potatoes and Potato Products in China 1961-2007" by G. Scott, published in 2012 in the American Journal of Potato Research. The article title mentions both a fast food restaurant (McDonald's) and a Chinese politician (Mao). Step 3 retrieves the ISSN for this journal: Print ISSN is 1099-209X, Online ISSN is 1874-9380. The print ISSN (1099-209X) is also the linking ISSN. The user asks for "the ISSN" singular, and the print/linking ISSN is the primary identifier. Thus, the ISSN is 1099-209X. Casing: The source provides the ISSN in uppercase with hyphens, so authoritative casing is followed.]]></reasoning>
+<final_answer><![CDATA[1099-209X]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool_call_history shows that in step 2, the deepsearch tool output explicitly states: "the first word of page iii in the 'Official Blackbook Price Guide to U.S. Paper Money 2006' is **'Real'**." Subsequent steps (3-7) indicate that specific page content is not available in the sources searched, but they do not provide an alternative first word. Step 8 provides publication details without contradicting the first word. Therefore, based on the most direct evidence in the history, the first word is "Real". The tool output presents "Real" with a capital R, so authoritative casing is preserved in the final answer. Casing decision: authoritative casing from tool output is followed.]]></reasoning>
+  <final_answer><![CDATA[Real]]></final_answer>
+</result>

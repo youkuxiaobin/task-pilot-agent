@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, the total precipitation for New York City is 1898 inches. The number has 4 digits, so as per user instruction, no commas are used. The final answer is numeric, so casing rules do not apply.]]></reasoning>
+  <final_answer><![CDATA[1898]]></final_answer>
+</result>

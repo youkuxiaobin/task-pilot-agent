@@ -1,0 +1,14 @@
+<result>
+  <reasoning><![CDATA[First, find the indefinite integral of each equation to identify the coefficient of the cubic term (x^3 term). For exponential terms like 5^x, integration yields non-polynomial terms, which do not contribute to the cubic term coefficient.
+
+Equation 1: 95x^3 - 3x^2 - 19x - 1 → Integral: (95/4)x^4 - x^3 - (19/2)x^2 - x + C → cubic coefficient: -1.
+Equation 2: 13x^2 - 5^x - 38 → Integral: (13/3)x^3 - (5^x/ln(5)) - 38x + C → cubic coefficient: 13/3.
+Equation 3: -19x^5 + x^4 + 2x^3 - 3x^2 - 5^x + 10 → Integral: (-19/6)x^6 + (1/5)x^5 + (1/2)x^4 - x^3 - (5^x/ln(5)) + 10x + C → cubic coefficient: -1.
+Equation 4: x^3 + 5x^2 → Integral: (1/4)x^4 + (5/3)x^3 + C → cubic coefficient: 5/3.
+Equation 5: −102x^5 - x^4 - 12x^2 - 4x → Integral: -17x^6 - (1/5)x^5 - 4x^3 - 2x^2 + C → cubic coefficient: -4.
+
+Sum the coefficients: -1 + 13/3 + (-1) + 5/3 + (-4) = combine terms: (-1 -1 -4) + (13/3 + 5/3) = -6 + 18/3 = -6 + 6 = 0.
+
+The final answer is a numeric value, so no textual casing rule applies. Applied casing rule: not applicable as the answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[0]]></final_answer>
+</result>

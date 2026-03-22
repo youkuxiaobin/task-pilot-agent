@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, British Museum itemBb,11.118 depicts Eleazar Swalmius. His home village is identified as Rhoon in the Netherlands. Multiple sources in the tool calls confirm that Rhoon was founded in the year 1199. Therefore, the founding year of the home village is 1199. The final answer is numeric, so no textual casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[1199]]></final_answer>
+</result>

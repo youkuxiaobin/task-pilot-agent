@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step_1 identifies April 9, 2020 as the date with the lowest AUD/USD exchange rate in 2020. Step_2 provides the OHLC data for that date: open = 0.5955, high = 0.6059, low = 0.5923. The difference between high and low is 0.6059 - 0.5923 = 0.0136. Calculating this as a percentage of the open value: (0.0136 / 0.5955) * 100 ≈ 2.283%. Rounding to the nearest tenth of a percent gives 2.3%, as confirmed by the calculation in step_3. Casing is not applicable for this numerical percentage answer.]]></reasoning>
+  <final_answer><![CDATA[2.3%]]></final_answer>
+</result>

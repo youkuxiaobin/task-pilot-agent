@@ -1,0 +1,10 @@
+<result>
+  <reasoning><![CDATA[The user asks for the year the shark species depicted in Smithsonian photograph catalog ID 177827 was first scientifically described. From the tool call history:
+- Step 1 shows the photograph depicts Whitetip Reef Sharks (*Triaenodon obesus*).
+- Step 2 confirms the scientific name is *Triaenodon obesus*.
+- Step 3 search result states: "The whitetip reef shark, *Triaenodon obesus*, was first scientifically described by the German naturalist Eduard Rüppell in 1837."
+
+The year of first scientific description is clearly 1837. The answer is a simple year; no special formatting or casing is required beyond outputting the number.
+Applied casing rule: Not applicable, answer is a numeric year.]]></reasoning>
+  <final_answer><![CDATA[1837]]></final_answer>
+</result>

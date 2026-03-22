@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The original company behind Cabbage Patch Kids is Original Appalachian Artworks Inc., which began in the toy manufacturing industry (NAICS 339930). The 2018 Conseil National du Jouet press release reported the French toy industry's turnover as 3.4 billion euros. France's 2018 GDP from the World Bank is $2.78 trillion. The average 2018 USD to EUR exchange rate from Exchange Rates UK is 0.8472. First, convert GDP to euros: 2,780,000,000,000 USD * 0.8472 = 2,355,216,000,000 EUR. Then calculate the percentage: (3,400,000,000 / 2,355,216,000,000) * 100 = 0.144360%. Rounded to the nearest thousandth of a percent (three decimal places) gives 0.144%. The final answer is a numeric percentage; no authoritative casing applies, but as a numeric value it is presented as given.]]></reasoning>
+  <final_answer><![CDATA[0.144]]></final_answer>
+</result>

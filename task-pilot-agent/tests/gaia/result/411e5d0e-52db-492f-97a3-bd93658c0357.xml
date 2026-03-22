@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asked what instrument Dan Reeder is playing in the song "Troubled Soul." The tool_call_history shows three steps: Step 1 downloaded the audio from the provided YouTube URL. Step 2 analyzed the audio file and identified the primary instrument as an electric piano, specifically noting characteristics consistent with a Rhodes or Wurlitzer electric piano. Step 3 synthesized this information, confirming Dan Reeder plays an electric piano in the song. Therefore, the answer is that Dan Reeder is playing an electric piano (likely a Rhodes or Wurlitzer). The final answer is phrased as a sentence to directly answer the question. Casing: The answer is a sentence starting with a proper noun, so the first word and proper nouns are capitalized. Applied casing rule: sentence-case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Dan Reeder is playing an electric piano (likely a Rhodes or Wurlitzer).]]></final_answer>
+</result>

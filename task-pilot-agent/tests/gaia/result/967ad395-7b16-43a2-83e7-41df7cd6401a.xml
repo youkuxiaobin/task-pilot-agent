@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the increase in percent of ^14C present for a chemical when fixation time increased from 6 to 12 seconds, with two significant figures. The tool call history provides the necessary data. Step 1 retrieved the source text and table data from Glenn Kuehn's 1967 paper. Step 2 parsed the table, showing percentages for specific compounds at 6 and 12 seconds. The table indicates: Glutamate C1: 90% at 6s, 48% at 12s (decrease). Glutamate C5: 10% at 6s, 51% at 12s (increase). 3-PGA/Pyruvate C1: 99% at both times (no change). Thus, the only increase is for glutamate at the C5 position. The increase is 51% - 10% = 41%. This value already has two significant figures (41). The answer should include the percent symbol as the question asks for "percent of ^14C". Applied casing rule: not applicable; answer is numeric with percent symbol.]]></reasoning>
+  <final_answer><![CDATA[41%]]></final_answer>
+</result>

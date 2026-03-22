@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Kevin's score of 185 exceeds the maximum possible total of 180 for any pair of dice, and is odd while all possible totals are even, so he is disqualified. James's score of 17 is below the minimum possible total of 20 and is odd, so he is disqualified. Sandy's score of 77 is odd, but any possible total from 10 rolls is even (since all dice have even face values except the green die, which gives odd sums per roll, but 10 odd sums sum to an even number), so 77 cannot be achieved and she is disqualified. Jessica's score of 42 is even and within the possible range for several dice pairs (e.g., Blue-Brown, Red-Brown, Orange-Brown). There exists an assignment where Jessica gets such a pair. Therefore, Jessica is the only player with a valid score, and Bruce declares her the winner. Applied casing rule: proper name Jessica with initial capital.]]></reasoning>
+  <final_answer><![CDATA[Jessica]]></final_answer>
+</result>

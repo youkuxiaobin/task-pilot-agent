@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step 1 shows the CSV file contains precipitation data for five boroughs of New York across 12 months, with columns including 'Manhattan'. Step 2 specifically filters the summer months (June, July, August) for Manhattan and sums the precipitation, yielding a total of 87. Therefore, the amount of rain Manhattan received in the summer is 87. No unit conversion or rounding is required. The final answer is numeric, so no text casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[87]]></final_answer>
+</result>

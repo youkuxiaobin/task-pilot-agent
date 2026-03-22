@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Based on the tool_call_history, specifically step_4, the animal types and their percentages of radiographies from the 2018 Universidade de Evora thesis data are: Mammals 14.6%, Reptiles 2.4%, Birds 1.6%, Fish 0.0%. The highest percentage is Mammals, so the second highest is Reptiles. The plural form of the animal type is "reptiles". The user query does not provide authoritative casing for the textual answer, so the sentence-case fallback applies: for a single-word answer, capitalise the first word, resulting in "Reptiles". Applied casing rule: sentence-case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Reptiles]]></final_answer>
+</result>

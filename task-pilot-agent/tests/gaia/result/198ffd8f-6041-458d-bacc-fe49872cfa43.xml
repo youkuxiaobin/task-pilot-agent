@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user question asks for the number of foes defeated during a rescue that led to a lieutenant commission. From the tool call history, the attached text file contains keyword searches. The context for "singlehanded, vanquishing three green warriors" shows the protagonist, John Carter, is recognized for defending the cousin of the jeddak Than Kosis and vanquishing three green warriors, resulting in his appointment as a padwar (lieutenant). Thus, the number of foes defeated is explicitly stated as three. The final answer is a numeral, so no casing decision applies.]]></reasoning>
+  <final_answer><![CDATA[3]]></final_answer>
+</result>

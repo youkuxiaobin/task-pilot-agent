@@ -1,0 +1,4 @@
+<result>
+<reasoning><![CDATA[From step 1 of the tool call history, the search results show that for the year 2020 in watershed 02040203, koi fish were found at "Wissahickon Creek, along Green Ribbon Trail, Upper Dublin Township". Step 2 extracted the water body name as "Wissahickon Creek". The user requests only the name of the pond, lake, or stream, excluding city or county. Therefore, the answer is Wissahickon Creek. Casing decision: authoritative casing from the source text is "Wissahickon Creek", so preserved exact casing.]]></reasoning>
+<final_answer><![CDATA[Wissahickon Creek]]></final_answer>
+</result>

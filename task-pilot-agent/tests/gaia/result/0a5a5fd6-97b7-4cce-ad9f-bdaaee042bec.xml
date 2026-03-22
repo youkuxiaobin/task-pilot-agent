@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks for the director of the 1994 movie that shares a name with the unique vertex of the capsid in the specified paper abstract. From step_1, the abstract coins the term "stargate" for the unique vertex. Step_2 identifies the 1994 film "Stargate" and reports its director as Roland Emmerich, confirmed by multiple sources. Step_3 verifies this information. Thus, the director is Roland Emmerich. The name "Roland Emmerich" is provided with authoritative capitalization in the tool call history, so I preserve that casing without applying the sentence-case fallback. Casing compliance: followed authoritative casing from the source.]]></reasoning>
+  <final_answer><![CDATA[Roland Emmerich]]></final_answer>
+</result>

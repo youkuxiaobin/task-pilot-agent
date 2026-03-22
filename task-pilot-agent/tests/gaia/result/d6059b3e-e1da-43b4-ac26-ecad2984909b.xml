@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From Step 1, there are two bricks with SetCount=5: DesignID 47467 (MINI HAT, NO. 48) and DesignID 31520 (WEAPON BARREL). We need to find which one appears most by count across all LEGO sets on Brickset. Step 2 search results show DesignID 47467 appears in 6 sets with a total of 13 pieces. Step 8 search results show DesignID 31520 has a total of 82,448 pieces across all LEGO sets according to Brickset's random part feature. Comparing the total quantities: 82,448 for WEAPON BARREL versus 13 for MINI HAT, NO. 48. Therefore, WEAPON BARREL has the highest total quantity. The casing is preserved from the source PartName in Step 1 and Step 8, which is uppercase. Applied casing rule: preserved authoritative casing from source.]]></reasoning>
+  <final_answer><![CDATA[WEAPON BARREL]]></final_answer>
+</result>

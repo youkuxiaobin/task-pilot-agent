@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From Step 1, Symmetra's primary fire range was increased to 7 meters in the August 2016 patch. Assuming this change was effective by August 31, 2016, the range on that date is 7 meters. From Step 2, the range as of 2020 is 12 meters. Convert both to centimeters: 7 meters = 700 cm, 12 meters = 1200 cm. Calculate the increase: 1200 cm - 700 cm = 500 cm. The increase is 500 cm, and units are not to be included in the final answer. No textual casing required as the answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[500]]></final_answer>
+</result>

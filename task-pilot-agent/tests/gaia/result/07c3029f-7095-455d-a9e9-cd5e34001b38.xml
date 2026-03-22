@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history includes Step 2 where the first metal with null molar heat was identified as Promethium, with its discoverer listed as "Chien Shiung Wu". This information is directly extracted from the JSON data, so authoritative casing is preserved. Casing decision: authoritative casing from source.]]></reasoning>
+  <final_answer><![CDATA[Chien Shiung Wu]]></final_answer>
+</result>

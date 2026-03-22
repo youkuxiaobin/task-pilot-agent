@@ -1,0 +1,14 @@
+<result>
+<reasoning><![CDATA[The user asks which year between 2011 and 2021 was most dangerous to eat food relative to Listeria, E. coli, Salmonella, and Campylobacter illnesses, based on CDC data and the highest number of outbreaks selected for reports or investigations.
+
+The tool call history contains compiled CDC outbreak data for 2011-2021. Key findings:
+- Listeria outbreaks peaked in 2011 (12 outbreaks).
+- E. coli (STEC) outbreaks peaked in 2013 (35 outbreaks).
+- Salmonella data (melon-associated) shows no single clear peak year; multiple years had 2-3 outbreaks.
+- Campylobacter outbreaks peaked in 2012 and 2015 (37 outbreaks each), but analysis in step 7 notes 2013 likely had significant activity and is part of the increasing trend.
+
+The final analysis in step 7 concludes 2013 was the overall most dangerous year because it had the highest E. coli outbreak count (35) and maintained significant activity across all four pathogens. The user's phrase "highest number of foodborne outbreaks selected for reports or investigations" aligns with identifying the peak outbreak year for the pathogens collectively; 2013 is identified as that year based on the compiled data.
+
+The answer is a year (2013), so no special casing rules apply beyond standard numeric representation.]]></reasoning>
+<final_answer><![CDATA[2013]]></final_answer>
+</result>

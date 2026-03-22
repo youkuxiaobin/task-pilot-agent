@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step_2 analyzed the graphed functions in Python MatPlotLib and identified the letter shapes: function 1 (y = 3x^2 + 2x + 2) resembles 'U', function 2 (y = -3x^2 + 2x + 2) resembles 'n', and function 3 (x = 3y^2 + 2y + 2) resembles 'C'. In order, these spell the acronym 'UNC'. Step_3 and step_4 confirmed 'UNC' as the acronym for the University of North Carolina at Chapel Hill, the flagship university. Step_5 provided the motto of this university as "Lux Libertas". The casing of the motto is preserved as found in the authoritative source. Applied casing rule: authoritative casing preserved as "Lux Libertas".]]></reasoning>
+  <final_answer><![CDATA[Lux Libertas]]></final_answer>
+</result>

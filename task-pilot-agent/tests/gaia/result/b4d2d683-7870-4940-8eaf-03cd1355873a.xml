@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[I reviewed the tool call history. Step 1's output concludes that the seaside town proposed in the BASE Search query for a UK CC0 video about poor youths is Harwich, citing specific sources. Steps 3 and 4 reinforce this by discussing Harwich in the context of youth poverty initiatives. The source text consistently capitalizes "Harwich", so I use that authoritative casing. Applied casing rule: authoritative source casing used.]]></reasoning>
+  <final_answer><![CDATA[Harwich]]></final_answer>
+</result>

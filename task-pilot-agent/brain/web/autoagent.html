@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agent 控制台 (Gaia流式版)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    /* -------------------- 全局变量与重置 -------------------- */
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      
+      /* 核心色彩 - 深空灰主题 */
+      --bg-app: #0f172a;           /* 应用背景 */
+      --bg-sidebar: #1e293b;       /* 侧边栏背景 */
+      --bg-card: #334155;          /* 卡片背景 */
+      --bg-input: #1e293b;         /* 输入框背景 */
+      
+      --text-main: #f1f5f9;        /* 主要文字 */
+      --text-muted: #94a3b8;       /* 次要文字 */
+      --border: rgba(148, 163, 184, 0.15);
+      
+      /* 语义化色彩 */
+      --color-plan: #3b82f6;       /* 蓝色 - 计划 */
+      --color-tool: #10b981;       /* 绿色 - 工具 */
+      --color-task: #f59e0b;       /* 黄色 - 任务 */
+      --color-thought: #8b5cf6;    /* 紫色 - 思考 */
+      --color-error: #ef4444;      /* 红色 - 错误 */
+      --color-accent: #38bdf8;     /* 提亮色 */
+      
+      --radius-md: 12px;
+      --radius-lg: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+    
+    body {
+      background-color: var(--bg-app);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* -------------------- 布局结构 -------------------- */
+    .app-layout { display: flex; width: 100%; height: 100%; }
+
+    /* 侧边栏 */
+    .sidebar {
+      width: 260px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      transition: transform 0.3s ease;
+      z-index: 20;
+    }
+    .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border); }
+    .brand { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-accent); margin-bottom: 1rem; }
+    .btn-new {
+      width: 100%; padding: 0.75rem; border-radius: var(--radius-md);
+      border: 1px solid rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1);
+      color: var(--color-accent); font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-new:hover { background: rgba(56, 189, 248, 0.2); }
+    
+    .session-list { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .session-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.75rem 1rem; border-radius: var(--radius-md); cursor: pointer;
+      color: var(--text-muted); transition: all 0.2s; font-size: 0.9rem;
+    }
+    .session-item:hover { background: rgba(255,255,255,0.05); color: var(--text-main); }
+    .session-item.active { background: var(--bg-card); color: var(--text-main); font-weight: 500; border-left: 3px solid var(--color-accent); }
+    .session-del { background: none; border: none; color: inherit; opacity: 0; cursor: pointer; padding: 0 4px; }
+    .session-item:hover .session-del { opacity: 1; }
+    .session-del:hover { color: #f87171; }
+
+    /* 主工作区 */
+    .workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+    
+    /* 顶部状态栏 */
+    .top-bar {
+      padding: 1rem 2rem; border-bottom: 1px solid var(--border); display: flex;
+      justify-content: space-between; align-items: center;
+      background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 10;
+    }
+    .status-indicator { font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; transition: background 0.3s; }
+    .status-dot.active { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+
+    /* 聊天区域 */
+    .chat-container { flex: 1; overflow-y: auto; padding: 2rem; display: flex; flex-direction: column; gap: 2rem; scroll-behavior: smooth; }
+    .chat-empty { text-align: center; color: var(--text-muted); margin-top: 10vh; }
+
+    /* 消息行 */
+    .msg-row { display: flex; gap: 1rem; max-width: 900px; margin: 0 auto; width: 100%; }
+    .msg-row.user { flex-direction: row-reverse; }
+    
+    .avatar {
+      width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+      font-size: 1.2rem; flex-shrink: 0;
+    }
+    .avatar.ai { background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; }
+    .avatar.user { background: #334155; color: #cbd5e1; }
+
+    /* 消息气泡基础样式 */
+    .bubble { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+
+    /* 用户气泡 */
+    .msg-row.user .bubble-content {
+      background: #3b82f6; color: white; padding: 0.8rem 1.2rem;
+      border-radius: 16px 16px 4px 16px; font-size: 1rem; line-height: 1.6;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    /* AI 最终结果气泡 */
+    .result-content { font-size: 1rem; line-height: 1.7; color: var(--text-main); }
+    
+    /* -------------------- Markdown & Gaia 样式 -------------------- */
+    .markdown-body { width: 100%; }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 600; line-height: 1.25; }
+    .markdown-body h1 { font-size: 1.6em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+    .markdown-body p { margin-bottom: 1em; }
+    .markdown-body ul, .markdown-body ol { padding-left: 1.5em; margin-bottom: 1em; }
+    .markdown-body blockquote { border-left: 4px solid var(--color-accent); padding-left: 1em; color: var(--text-muted); margin: 1em 0; }
+    .markdown-body pre { background: #111; padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); margin: 1em 0; }
+    .markdown-body code { font-family: 'SF Mono', Consolas, monospace; background: rgba(255,255,255,0.1); padding: 0.2em 0.4em; border-radius: 4px; font-size: 0.9em; }
+    .markdown-body pre code { background: transparent; padding: 0; border-radius: 0; color: #e2e8f0; }
+    .markdown-body table { width: 100%; border-collapse: collapse; margin: 1em 0; border: 1px solid var(--border); font-size: 0.95em; }
+    .markdown-body th { background: rgba(56, 189, 248, 0.1); font-weight: 600; text-align: left; padding: 10px; border: 1px solid var(--border); }
+    .markdown-body td { padding: 8px 10px; border: 1px solid var(--border); }
+    .markdown-body tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+
+    /* Gaia 结构化结果样式 */
+    .gaia-container { display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem; }
+    
+    /* 推理过程 */
+    .gaia-reasoning {
+        background: rgba(255,255,255,0.03);
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 3px solid var(--color-thought);
+        font-size: 0.95em;
+        color: var(--text-muted);
+    }
+    .gaia-label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    /* 最终答案 */
+    .gaia-answer {
+        background: rgba(16, 185, 129, 0.1);
+        padding: 1.25rem;
+        border-radius: 8px;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .gaia-answer .gaia-label { color: var(--color-tool); }
+    .gaia-answer .answer-text {
+        font-size: 1.15em;
+        font-weight: 600;
+        color: var(--text-main);
+        line-height: 1.6;
+    }
+
+    /* -------------------- 智能卡片 (Agent Card) 样式 -------------------- */
+    details.agent-card {
+      background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+      border-radius: var(--radius-md); overflow: hidden; margin-bottom: 0.5rem; transition: all 0.2s ease;
+    }
+    details.agent-card:hover { border-color: rgba(255,255,255,0.1); }
+    details.agent-card[open] { background: rgba(0, 0, 0, 0.2); }
+
+    summary.card-header {
+      list-style: none; padding: 0.6rem 1rem; cursor: pointer; display: flex; align-items: center;
+      gap: 0.75rem; font-size: 0.9rem; font-weight: 600; user-select: none; transition: background 0.2s;
+    }
+    summary.card-header::-webkit-details-marker { display: none; }
+    summary.card-header:hover { background: rgba(255,255,255,0.05); }
+
+    details.agent-card.type-plan { border-left: 3px solid var(--color-plan); }
+    details.agent-card.type-plan summary { color: var(--color-plan); }
+    details.agent-card.type-tool { border-left: 3px solid var(--color-tool); }
+    details.agent-card.type-tool summary { color: var(--color-tool); }
+    details.agent-card.type-thought { border-left: 3px solid var(--color-thought); }
+    details.agent-card.type-thought summary { color: var(--color-thought); }
+    details.agent-card.type-task { border-left: 3px solid var(--color-task); }
+    details.agent-card.type-task summary { color: var(--color-task); }
+
+    .card-icon { font-size: 1.1em; }
+    .card-title { flex: 1; opacity: 0.9; }
+    .card-time { font-size: 0.75rem; color: var(--text-muted); font-weight: normal; opacity: 0.7; }
+    .card-arrow { transition: transform 0.2s; opacity: 0.5; }
+    details[open] .card-arrow { transform: rotate(90deg); }
+    
+    .card-body { padding: 1rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: #cbd5e1; line-height: 1.6; }
+    .card-body.markdown-body { padding: 1rem; }
+    
+    .step-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .step-item { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.4rem 0.6rem; border-radius: 6px; }
+    .step-item.completed { color: var(--text-muted); opacity: 0.9; text-decoration: none; }
+    .step-item.completed .step-icon { color: var(--color-tool); font-weight: bold; }
+    .step-item.pending { color: var(--text-main); font-weight: 500; }
+    .step-icon { font-family: monospace; min-width: 1.2em; }
+    
+    .field-block { margin-bottom: 1rem; text-align: left; }
+    .field-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.3rem; font-weight: 700; }
+    .field-value { color: var(--text-main); line-height: 1.5; white-space: pre-wrap; font-family: 'SF Mono', Consolas, monospace; font-size: 0.9rem; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
+    .field-value.highlight { border-left: 2px solid var(--color-accent); }
+
+    .thinking-bubble {
+        display: inline-flex; align-items: center; gap: 6px; padding: 12px 16px;
+        background: rgba(255, 255, 255, 0.05); border-radius: 12px; border-bottom-left-radius: 2px;
+    }
+    .typing-dot {
+        width: 8px; height: 8px; background-color: var(--color-accent); border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out both; opacity: 0.6;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typing { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    
+    /* -------------------- 输入区域 -------------------- */
+    .composer-area { background: var(--bg-app); border-top: 1px solid var(--border); padding: 1.5rem 2rem; z-index: 20; }
+    .composer-box {
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      padding: 0.5rem; box-shadow: 0 -4px 20px rgba(0,0,0,0.2); transition: border-color 0.2s;
+    }
+    .composer-box:focus-within { border-color: var(--color-accent); }
+    textarea#query {
+      width: 100%; background: transparent; border: none; color: white; font-size: 1rem;
+      padding: 0.8rem 1rem; resize: none; min-height: 56px; max-height: 200px;
+    }
+    .controls { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 0.5rem; }
+    .settings-group { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .select-style {
+      background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted);
+      padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer;
+    }
+    .select-style option { background: var(--bg-card); color: var(--text-main); }
+    .btn-send {
+      background: var(--color-accent); color: #0f172a; border: none; padding: 0.5rem 1.5rem;
+      border-radius: 8px; font-weight: 600; cursor: pointer; transition: filter 0.2s;
+    }
+    .btn-send:hover { filter: brightness(1.1); }
+    .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-stop { background: transparent; color: #ef4444; border: 1px solid rgba(239,68,68,0.3); margin-right: 0.5rem; }
+    .btn-stop:hover { background: rgba(239,68,68,0.1); }
+
+    @media (max-width: 768px) {
+      .sidebar { position: absolute; height: 100%; transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .chat-container { padding: 1rem; }
+      .msg-row { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">🤖 Agent Console</div>
+      <button id="new-session" class="btn-new" type="button">+ 新建对话</button>
+    </div>
+    <div id="session-list" class="session-list"></div>
+  </aside>
+
+  <main class="workspace">
+    <div class="top-bar">
+      <div class="status-indicator">
+        <div id="status-dot" class="status-dot"></div>
+        <span id="status-text">就绪</span>
+      </div>
+    </div>
+
+    <div id="chat-messages" class="chat-container">
+      <div class="chat-empty">
+        <h2 style="margin-bottom:1rem;color:var(--text-main)">欢迎使用智能 Agent</h2>
+        <p>在下方输入问题，开始您的探索之旅</p>
+      </div>
+    </div>
+
+    <div class="composer-area">
+      <form id="request-form" class="composer-box">
+        <textarea id="query" placeholder="输入您的问题... (Shift+Enter 换行)" rows="1"></textarea>
+        
+        <div class="controls">
+          <div class="settings-group">
+            <select id="output-style" class="select-style" title="输出格式">
+              <option value="markdown">Markdown</option>
+              <option value="html">HTML</option>
+              <option value="table">Table</option>
+              <option value="ppt">PPT</option>
+              <option value="gaia">Gaia</option>
+            </select>
+            <select id="mode" class="select-style" title="运行模式">
+              <option value="plans_executor">Plans Executor</option>
+              <option value="react">ReAct</option>
+            </select>
+            <input id="user-id" type="hidden" placeholder="User ID">
+            <input id="agent-id" type="hidden" placeholder="Agent ID">
+            <input id="endpoint" type="hidden" value="/agent/autoagent">
+          </div>
+          
+          <div>
+            <button id="stop" class="btn-send btn-stop" type="button" disabled>停止</button>
+            <button id="send" class="btn-send" type="submit">发送</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js"></script>
+
+<script>
+(() => {
+  const dom = {
+    sessionList: document.getElementById('session-list'),
+    newSession: document.getElementById('new-session'),
+    chatMessages: document.getElementById('chat-messages'),
+    statusText: document.getElementById('status-text'),
+    statusDot: document.getElementById('status-dot'),
+    form: document.getElementById('request-form'),
+    query: document.getElementById('query'),
+    send: document.getElementById('send'),
+    stop: document.getElementById('stop'),
+    outputStyle: document.getElementById('output-style'),
+    mode: document.getElementById('mode'),
+    userId: document.getElementById('user-id'),
+    agentId: document.getElementById('agent-id'),
+    endpoint: document.getElementById('endpoint'),
+  };
+
+  const state = {
+    sessions: [],
+    activeSessionId: null,
+    nextSessionIndex: 1,
+    stream: null,
+    running: false,
+  };
+
+  const markedLib = window.marked;
+  if (markedLib?.setOptions) markedLib.setOptions({ breaks:true, gfm:true });
+  const purifier = window.DOMPurify;
+  let controller = null;
+
+  const generateId = () => `sess_${Date.now().toString(36)}`;
+  const getSession = id => state.sessions.find(s=>s.id===id);
+  const getActiveSession = () => getSession(state.activeSessionId);
+  const escapeHTML = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function createSession(){
+    const s = { id: generateId(), title: `对话 ${state.nextSessionIndex++}`, messages: [] };
+    state.sessions.push(s); 
+    return s;
+  }
+
+  function activateSession(s){
+    if(!s) return; 
+    state.activeSessionId = s.id;
+    renderSessionList();
+    renderMessages(true);
+    if(!state.running) setUIStatus('就绪', false);
+    dom.query.focus();
+  }
+
+  function deleteSession(id){
+    const idx = state.sessions.findIndex(s=>s.id===id);
+    if(idx === -1) return;
+    if(state.running && state.activeSessionId === id) onStop();
+    state.sessions.splice(idx, 1);
+    if(state.sessions.length === 0) activateSession(createSession());
+    else if(state.activeSessionId === id) activateSession(state.sessions[Math.max(0, idx-1)]);
+    else renderSessionList();
+  }
+
+  function renderSessionList(){
+    dom.sessionList.innerHTML = '';
+    state.sessions.forEach(s => {
+      const div = document.createElement('div');
+      div.className = `session-item ${s.id === state.activeSessionId ? 'active' : ''}`;
+      div.innerHTML = `<span>${s.title}</span><span class="session-del">×</span>`;
+      div.onclick = (e) => {
+        if(e.target.classList.contains('session-del')) { e.stopPropagation(); deleteSession(s.id); }
+        else if(!state.running) activateSession(s);
+      };
+      dom.sessionList.appendChild(div);
+    });
+  }
+
+  // --- 核心渲染 ---
+  function renderMessages(scroll=false){
+    const session = getActiveSession();
+    if(!session || (session.messages.length === 0 && !state.running)) {
+      dom.chatMessages.innerHTML = `
+        <div class="chat-empty">
+          <h2 style="margin-bottom:1rem;color:var(--text-main)">欢迎使用智能 Agent</h2>
+          <p>在下方输入问题，开始您的探索之旅</p>
+        </div>`;
+      return;
+    }
+
+    dom.chatMessages.innerHTML = '';
+    
+    // 聚合消息组
+    const groups = [];
+    let currentGroup = null;
+
+    session.messages.forEach(msg => {
+      const isUser = msg.role === 'user';
+      if(!currentGroup || currentGroup.isUser !== isUser) {
+        currentGroup = { isUser, messages: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.messages.push(msg);
+    });
+
+    groups.forEach(group => {
+      const row = document.createElement('div');
+      row.className = `msg-row ${group.isUser ? 'user' : 'ai'}`;
+      
+      const avatar = document.createElement('div');
+      avatar.className = `avatar ${group.isUser ? 'user' : 'ai'}`;
+      avatar.textContent = group.isUser ? '👤' : '🤖';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+
+      if(group.isUser) {
+        const content = document.createElement('div');
+        content.className = 'bubble-content';
+        content.innerHTML = renderMarkdown(group.messages[0].content);
+        bubble.appendChild(content);
+      } else {
+        group.messages.forEach(msg => {
+          if(msg.type === 'reason') {
+             bubble.appendChild(createAgentCard(msg));
+          } else {
+             const resDiv = document.createElement('div');
+             resDiv.className = 'result-content markdown-body'; 
+             // 【核心修改】检测 Gaia/XML 格式并渲染
+             const finalHTML = renderFinalResultContent(msg.rendered || msg.content);
+             resDiv.innerHTML = finalHTML;
+             bubble.appendChild(resDiv);
+          }
+        });
+      }
+      row.appendChild(avatar);
+      row.appendChild(bubble);
+      dom.chatMessages.appendChild(row);
+    });
+
+    if(state.running) {
+        const thinkingRow = document.createElement('div');
+        thinkingRow.className = 'msg-row ai thinking-indicator-row';
+        thinkingRow.innerHTML = `
+            <div class="avatar ai">🤖</div>
+            <div class="bubble">
+                <div class="thinking-bubble">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            </div>
+        `;
+        dom.chatMessages.appendChild(thinkingRow);
+    }
+
+    if(scroll) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  }
+
+  // --- Gaia / Result 渲染器 (流式支持) ---
+  function renderFinalResultContent(text) {
+     if(!text) return '';
+     
+     // 检测是否存在 XML 标签 (loose check for streaming)
+     if(text.includes('<result') || text.includes('<reasoning') || text.includes('<final_answer')) {
+         return renderGaiaXML(text);
+     }
+     // 默认 markdown
+     return renderMarkdown(text);
+  }
+
+  function renderGaiaXML(xml) {
+      // 流式正则：即使标签未闭合，也要尝试捕获内容
+      // <tag>... (optional: </tag>)
+      const extract = (tag) => {
+          const re = new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?(?:<\\/${tag}>|$)`, 'i');
+          const match = xml.match(re);
+          return match ? match[1] : null;
+      }
+
+      const reasoning = extract('reasoning');
+      const answer = extract('final_answer');
+      
+      let html = '<div class="gaia-container">';
+      
+      if(reasoning) {
+          html += `
+          <div class="gaia-reasoning">
+              <div class="gaia-label">🧠 推理过程</div>
+              <div class="markdown-body">${renderMarkdown(reasoning)}</div>
+          </div>`;
+      }
+      
+      if(answer) {
+          html += `
+          <div class="gaia-answer">
+              <div class="gaia-label">🎯 最终答案</div>
+              <div class="answer-text markdown-body">${renderMarkdown(answer)}</div>
+          </div>`;
+      }
+      
+      // 如果还没解析出任何结构化内容，但确定是 XML 流的开头
+      if(!reasoning && !answer) {
+         // 尝试直接显示原文（去除外层 result 标签如果存在）
+         const inner = xml.replace(/<\/?result>/g, '');
+         if(inner.trim()) return renderMarkdown(inner);
+      }
+      
+      html += '</div>';
+      return html;
+  }
+
+
+  // --- 卡片生成器 ---
+  function createAgentCard(msg) {
+    const details = document.createElement('details');
+    let typeClass = 'type-thought', icon = '💭', title = '思考过程';
+
+    switch(msg.kind) {
+      case 'plan': typeClass = 'type-plan'; icon = '🗺️'; title = '任务计划 (Plan)'; break;
+      case 'plan_thought': typeClass = 'type-plan'; icon = '💡'; title = '计划思考 (Thinking)'; break;
+      case 'tool_thought': typeClass = 'type-thought'; icon = '🧠'; title = '工具调用思考'; break;
+      case 'task': typeClass = 'type-task'; icon = '⚙️'; title = '执行任务'; break;
+      case 'tool_result': typeClass = 'type-tool'; icon = '✅'; title = '工具返回结果'; break;
+      case 'notifications': typeClass = 'type-task'; icon = '🔔'; title = '系统通知'; break;
+    }
+
+    details.className = `agent-card ${typeClass}`;
+    if(msg.isOpen) details.open = true;
+
+    const summary = document.createElement('summary');
+    summary.className = 'card-header';
+    summary.innerHTML = `<span class="card-icon">${icon}</span><span class="card-title">${title}</span><span class="card-time">${formatTime(msg.ts)}</span><span class="card-arrow">▶</span>`;
+    details.addEventListener('toggle', () => { msg.isOpen = details.open; });
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    if(msg.kind === 'tool_result') body.classList.add('markdown-body');
+    body.innerHTML = msg.html; 
+
+    details.appendChild(summary);
+    details.appendChild(body);
+    return details;
+  }
+
+  function formatTime(ts) { return new Date(ts || Date.now()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
+  
+  function renderMarkdown(text) {
+    if(!text) return '';
+    try { return purifier.sanitize(markedLib.parse(text)); } 
+    catch { return escapeHTML(text).replace(/\n/g, '<br>'); }
+  }
+
+  // --- 渲染逻辑 ---
+  function renderPlanHTML(plan) {
+    let html = '';
+    if(plan.title) html += `<h4>${escapeHTML(plan.title)}</h4>`;
+    if(plan.steps && Array.isArray(plan.steps)) {
+        html += `<ul class="step-list">`;
+        plan.steps.forEach((step, idx) => {
+            const status = plan.step_status && plan.step_status[idx] ? plan.step_status[idx] : 'pending';
+            let icon = '○';
+            let statusClass = 'pending';
+            if(status === 'completed') { icon = '✅'; statusClass = 'completed'; }
+            else if(status === 'failed') { icon = '❌'; statusClass = 'error'; }
+            html += `<li class="step-item ${statusClass}"><span class="step-icon">${icon}</span><span>${escapeHTML(step)}</span></li>`;
+        });
+        html += `</ul>`;
+    }
+    if(plan.command) html += `<div style="margin-top:0.5rem;font-size:0.85em;opacity:0.8">Command: ${escapeHTML(plan.command)}</div>`;
+    return html;
+  }
+
+  function renderPlanThoughtHTML(pt) {
+    let html = '';
+    if(pt.tool_calls && Array.isArray(pt.tool_calls)) {
+        pt.tool_calls.forEach(call => {
+            const args = call.arguments || {};
+            const renderField = (label, val) => {
+                if(!val) return '';
+                const valStr = (typeof val === 'object') ? JSON.stringify(val, null, 2) : String(val);
+                return `<div class="field-block"><span class="field-label">${escapeHTML(label)}</span><div class="field-value">${escapeHTML(valStr)}</div></div>`;
+            };
+            if(args.command) html += renderField('Command', args.command);
+            if(args.summary) html += renderField('Summary', args.summary);
+            if(args.current_step) html += renderField('Current Step', args.current_step);
+            if(args.rationale) {
+                const r = args.rationale; let rText = '';
+                if(r.decision) rText += `Decision: ${r.decision}\n`;
+                if(r.complexity_score) rText += `Complexity: ${r.complexity_score}\n`;
+                if(Array.isArray(r.evidence)) rText += `Evidence:\n${r.evidence.map(e=>'- '+e).join('\n')}`;
+                html += renderField('Rationale', rText.trim());
+            }
+            if(Array.isArray(args.steps)) html += renderField('Steps', args.steps.join('\n'));
+        });
+    }
+    return html;
+  }
+
+  function renderToolThoughtHTML(tt) {
+    let html = '';
+    if(tt.current_step) html += `<div class="field-block"><span class="field-label">Current Step</span><div class="field-value highlight">${escapeHTML(tt.current_step)}</div></div>`;
+    if(tt.tool_calls && Array.isArray(tt.tool_calls)) {
+        tt.tool_calls.forEach((call, i) => {
+            let name, args;
+            if(Array.isArray(call)) { name = call[0]; args = call[1]; }
+            else { name = call.name || call.tool; args = call.arguments; }
+            const argStr = (typeof args === 'string') ? args : JSON.stringify(args, null, 2);
+            html += `<div class="field-block"><span class="field-label">Tool Call #${i+1}: ${escapeHTML(name)}</span><div class="field-value">${escapeHTML(argStr)}</div></div>`;
+        });
+    }
+    return html;
+  }
+
+  function renderToolResultHTML(raw) {
+    if(!raw) return '';
+    if(typeof raw === 'string' && raw.trim().startsWith('{')) {
+        try {
+            const json = JSON.parse(raw);
+            if(json.isError && Array.isArray(json.content)) {
+                const errorText = json.content.map(c => c.text || '').join('');
+                return `<div style="color:var(--color-error);font-weight:bold">❌ 执行错误</div><pre style="border-color:var(--color-error)">${escapeHTML(errorText)}</pre>`;
+            }
+            return renderMarkdown("```json\n" + JSON.stringify(json, null, 2) + "\n```");
+        } catch(e) {}
+    }
+    return renderMarkdown(raw);
+  }
+
+  function renderNotificationHTML(taskStr) {
+    let msg = taskStr;
+    try { const jsonStr = taskStr.replace(/'/g, '"'); const obj = JSON.parse(jsonStr); if(obj.process_message) msg = obj.process_message; } catch {}
+    return `<div style="display:flex;align-items:center;gap:0.5rem"><span>ℹ️</span> <span>${escapeHTML(msg)}</span></div>`;
+  }
+
+  // --- SSE Logic ---
+  function upsertReasonMessage(session, kind, html, ts, replaceable) {
+    const streamState = state.stream;
+    if(replaceable) {
+       const idx = streamState.lastIndexByKind[kind];
+       if(idx !== undefined && idx > streamState.baseIndex) {
+         session.messages[idx].html = html; session.messages[idx].ts = ts;
+         renderMessages(true); return;
+       }
+    }
+    const msg = { role: 'assistant', type: 'reason', kind, html, ts, isOpen: true };
+    session.messages.push(msg);
+    streamState.lastIndexByKind[kind] = session.messages.length - 1;
+    renderMessages(true);
+  }
+
+  function handleEvent(event) {
+    const session = getActiveSession(); if(!session) return;
+    const ts = Number(event.time) || Date.now();
+    const payload = event.json || {};
+    const getResultMapStr = () => { if(payload.resultMap && payload.resultMap.result) return payload.resultMap.result; return ''; };
+
+    if(['tool_result', 'result', 'done'].includes(event.type)) { delete state.stream.lastIndexByKind['plan_thought']; delete state.stream.lastIndexByKind['plan']; }
+
+    switch(event.type) {
+      case 'plan': if(payload.plan) upsertReasonMessage(session, 'plan', renderPlanHTML(payload.plan), ts, true); break;
+      case 'plan_thought': if(payload.planThought) upsertReasonMessage(session, 'plan_thought', renderPlanThoughtHTML(payload.planThought), ts, true); break;
+      case 'tool_thought': if(payload.toolThought) upsertReasonMessage(session, 'tool_thought', renderToolThoughtHTML(payload.toolThought), ts, false); break;
+      case 'tool_result': upsertReasonMessage(session, 'tool_result', renderToolResultHTML(getResultMapStr()), ts, false); break;
+      case 'task': if(payload.task) upsertReasonMessage(session, 'task', renderMarkdown(payload.task), ts, false); break;
+      case 'notifications': if(payload.task) upsertReasonMessage(session, 'notifications', renderNotificationHTML(payload.task), ts, false); break;
+      case 'ppt': case 'file': case 'knowledge': case 'image': case 'browser': case 'code': case 'deep_search': upsertReasonMessage(session, 'tool_result', renderToolResultHTML(getResultMapStr()), ts, false); break;
+      
+      case 'agent_stream': case 'result':
+        const chunk = payload.result || ''; if(!chunk) break;
+        if(!state.stream.gotAnyResult) { 
+            session.messages.push({ role: 'assistant', messageType: 'result', content: '' }); 
+            state.stream.messageIndex = session.messages.length - 1; 
+            state.stream.gotAnyResult = true; 
+        }
+        // 【核心修改】确保是追加模式，支持流式
+        state.stream.buffer += chunk;
+        const msg = session.messages[state.stream.messageIndex];
+        msg.content = state.stream.buffer; 
+        // 渲染时交给 renderFinalResultContent 处理 Gaia
+        msg.rendered = null; // 清空缓存，强制重绘
+        renderMessages(true);
+        break;
+      
+      case 'done': onStop(); break;
+    }
+  }
+
+  async function onSubmit(e){
+    e.preventDefault(); if(state.running) return;
+    const text = dom.query.value.trim(); if(!text) return;
+    const session = getActiveSession();
+    session.messages.push({ role: 'user', content: text });
+    if(session.messages.length === 1) session.title = text.slice(0, 20);
+    dom.query.value = '';
+    
+    setUIStatus('Agent 思考中...', true);
+    renderMessages(true);
+    renderSessionList();
+    
+    state.stream = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: session.messages.length - 1, lastIndexByKind: {}, gotAnyResult: false };
+    controller = new AbortController();
+
+    const contextMessages = session.messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.messageType === 'result')).map(m => ({ role: m.role, content: m.content }));
+    const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
+
+    try {
+       const resp = await fetch(dom.endpoint.value, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
+       if(!resp.ok) throw new Error(`Server Error: ${resp.status}`);
+       const reader = resp.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
+       while(true) {
+         const { done, value } = await reader.read(); if(done) break;
+         buffer += decoder.decode(value, {stream: true});
+         let idx;
+         while((idx = buffer.indexOf('\n\n')) >= 0) { const chunk = buffer.slice(0, idx); buffer = buffer.slice(idx + 2); const event = parseSSE(chunk); if(event) handleEvent(event); }
+       }
+    } catch(err) { if(err.name !== 'AbortError') upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">Error: ${err.message}</span>`, Date.now(), false); } 
+    finally { setUIStatus('就绪', false); state.stream = null; controller = null; renderMessages(true); }
+  }
+
+  function onStop() { if(controller) controller.abort(); setUIStatus('就绪', false); renderMessages(true); }
+  function setUIStatus(text, running) {
+    state.running = running; dom.statusText.textContent = text; dom.statusDot.className = running ? 'status-dot active' : 'status-dot';
+    dom.send.disabled = running; dom.stop.disabled = !running;
+  }
+  function parseSSE(chunk) {
+    const lines = chunk.split('\n'); let event = { type: 'message', json: null, raw: chunk };
+    for(const line of lines) {
+       if(line.startsWith('event:')) event.type = line.slice(6).trim();
+       else if(line.startsWith('data:')) { const data = line.slice(5).trim(); try { event.json = JSON.parse(data); if(event.json.messageType) event.type = event.json.messageType; } catch { event.raw = data; } }
+    }
+    return event;
+  }
+
+  dom.newSession.onclick = () => activateSession(createSession());
+  dom.stop.onclick = onStop;
+  dom.form.onsubmit = onSubmit;
+  dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };
+  activateSession(createSession());
+})();
+</script>
+</body>
+</html>

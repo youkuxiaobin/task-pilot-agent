@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, step_1 provides the ingredient list from the original 2017 label. The list is given line by line: 1. SESAME SEEDS, 2. SEA SALT FLAKES, 3. DRIED MINCED GARLIC, 4. DRIED MINCED ONION, 5. BLACK SESAME SEEDS, 6. POPPY SEEDS. The third line is DRIED MINCED GARLIC. The user asks for the only ingredient that appears in its entirety on the third line, so the answer is DRIED MINCED GARLIC. Casing decision: the string is provided in uppercase, so authoritative casing is preserved.]]></reasoning>
+  <final_answer><![CDATA[DRIED MINCED GARLIC]]></final_answer>
+</result>

@@ -1,0 +1,13 @@
+<result>
+  <reasoning><![CDATA[I reviewed the tool call history to extract each statistic as per the user's list:
+
+1. Percent change in suicide rate from 2020 to 2021: From step_1, workplace suicides decreased by 8.9% (from 259 to 236), so the value is -8.9.
+2. Lowest age in the age demographic accounting for about 20% of fatalities: From step_2, the 45-54 age group accounted for 20.9% of fatalities, with the lowest age being 45.
+3. Fatal occupational injury rate in 2021: From step_3, the rate was 3.6 fatalities per 100,000 FTE workers.
+4. Actual change of violent fatalities from 2020 to 2021: From step_4, violent fatalities increased by 56 (from 705 to 761), so the change is 56.
+5. Change in fishing and hunting workers' fatal injuries per 100,000 FTEs from 2020 to 2021: From step_5, the rate decreased from 132.1 to 75.2, a change of -56.9.
+6. Percent change in deaths for driver/sales workers and truck drivers: From step_6, fatalities increased by 16.3%, so the value is 16.3.
+
+All values are derived directly from the tool call history, which references USDL-22-2309. For decreases, negative signs are used as instructed. The final answer is a comma-separated list of numbers, so no textual casing is required; numeric formatting follows the user's specifications.]]></reasoning>
+  <final_answer><![CDATA[-8.9, 45, 3.6, 56, -56.9, 16.3]]></final_answer>
+</result>

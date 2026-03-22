@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history shows that in step 2, the analysis of the Wikipedia page (or a simulated version) identified the first onomatopoeia link as "meow", with link text "meow" and address "/wiki/Meow". The word "meow" is commonly associated with the animal cat. The question asks for the animal in singular form without articles, so the answer is "cat". No authoritative casing is provided, so the sentence‑case fallback applies: a single‑word answer is capitalised. Applied casing rule: sentence‑case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Cat]]></final_answer>
+</result>

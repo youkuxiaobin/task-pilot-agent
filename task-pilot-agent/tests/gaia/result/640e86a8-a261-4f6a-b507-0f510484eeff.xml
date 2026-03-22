@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The hyp2f0 function was deprecated in SciPy 1.2.0 (step 1). The release notes for SciPy 1.2.0 list closed issues (step 2). From the extracted list of closed issue titles (step 3), step 4 counted the titles that end with a question mark, yielding a count of 4. The final answer is a numeric value, so no text casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[4]]></final_answer>
+</result>

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history contains a recipe analysis for StormBeforeDawn's Cherry Superfruit melomel. The analysis states the recipe is for a 5-gallon batch and uses 17 lbs of tart cherries and 8 lbs of sweet cherries, totaling 25 lbs of whole cherries with pits. It also indicates the recipe was last updated before July 14, 2022 and has not been updated after that date. For a 10-gallon batch made in two 5-gallon carboys, the total cherry amount is scaled by a factor of 2, resulting in 50 lbs. The final answer is an integer, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[50]]></final_answer>
+</result>

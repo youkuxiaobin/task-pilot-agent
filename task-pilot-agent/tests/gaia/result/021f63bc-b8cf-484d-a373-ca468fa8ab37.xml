@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The comet featured in the Astronomy Picture of the Day for March 24, 2023 is Comet C/2022 E3 (ZTF). From Step 2, its eccentricity e_comet = 1.000301905819192. The first detected interstellar object is 'Oumuamua, with eccentricity e_interstellar = 1.20113 from Step 3. The hypothetical new object's eccentricity e_new = e_interstellar - e_comet = 1.20113 - 1.000301905819192 = 0.20082809418080805. A parabolic trajectory has eccentricity e = 1. The shortfall from parabolic is 1 - e_new = 1 - 0.20082809418080805 = 0.799171905819192. Rounding to two decimal places yields 0.80. Applied casing rule: not applicable as final answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[0.80]]></final_answer>
+</result>

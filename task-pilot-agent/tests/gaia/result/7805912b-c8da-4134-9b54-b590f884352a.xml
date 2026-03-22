@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The user asks which borough got more precipitation in the given year, based on the attached CSV file. The tool call history includes step_2, which calculates the total annual precipitation for each borough: Brooklyn 362, Bronx 332, Queens 453, Staten Island 379, Manhattan 372. Queens has the highest total precipitation of 453 inches. Therefore, Queens is the borough with the most precipitation. The borough name "Queens" is provided with authoritative casing in the tool output, so I preserve it exactly as "Queens" in the final answer.]]></reasoning>
+  <final_answer><![CDATA[Queens]]></final_answer>
+</result>

@@ -1,0 +1,32 @@
+<result>
+  <reasoning><![CDATA[The task is to verify and correct five ISBN-13 numbers. The tool call history is empty, so I must compute directly. ISBN-13 check digit is calculated by summing each of the first 12 digits multiplied by alternating weights 1 and 3 (starting with 1), then finding the digit needed so the total sum modulo 10 equals 0.
+
+1. 9783518188156
+   Sum of first 12 digits (weights:1,3,1,3,1,3,1,3,1,3,1,3): (9*1)+(7*3)+(8*1)+(3*3)+(5*1)+(1*3)+(8*1)+(1*3)+(8*1)+(8*3)+(1*1)+(5*3) = 9+21+8+9+5+3+8+3+8+24+1+15 = 114.
+   Add check digit (6): 114 + 6 = 120. 120 mod 10 = 0 → valid.
+
+2. 9788476540746
+   Sum first 12: (9*1)+(7*3)+(8*1)+(8*3)+(4*1)+(7*3)+(6*1)+(5*3)+(4*1)+(0*3)+(7*1)+(4*3) = 9+21+8+24+4+21+6+15+4+0+7+12 = 131.
+   Add check digit (6): 131 + 6 = 137. 137 mod 10 = 7 → invalid.
+   Correct check digit: (10 - (131 mod 10)) mod 10 = (10 - 1) mod 10 = 9.
+   Corrected ISBN: 9788476540749.
+
+3. 9788415091004
+   Sum first 12: (9*1)+(7*3)+(8*1)+(8*3)+(4*1)+(1*3)+(5*1)+(0*3)+(9*1)+(1*3)+(0*1)+(0*3) = 9+21+8+24+4+3+5+0+9+3+0+0 = 86.
+   Add check digit (4): 86 + 4 = 90. 90 mod 10 = 0 → valid.
+
+4. 9788256014590
+   Sum first 12: (9*1)+(7*3)+(8*1)+(8*3)+(2*1)+(5*3)+(6*1)+(0*3)+(1*1)+(4*3)+(5*1)+(9*3) = 9+21+8+24+2+15+6+0+1+12+5+27 = 130.
+   Add check digit (0): 130 + 0 = 130. 130 mod 10 = 0 → valid.
+
+5. 9782046407331
+   Sum first 12: (9*1)+(7*3)+(8*1)+(2*3)+(0*1)+(4*3)+(6*1)+(4*3)+(0*1)+(7*3)+(3*1)+(3*3) = 9+21+8+6+0+12+6+12+0+21+3+9 = 107.
+   Add check digit (1): 107 + 1 = 108. 108 mod 10 = 8 → invalid.
+   Correct check digit: (10 - (107 mod 10)) mod 10 = (10 - 7) mod 10 = 3.
+   Corrected ISBN: 9782046407333.
+
+List in original order, replacing invalid ones with corrected versions: 9783518188156, 9788476540749, 9788415091004, 9788256014590, 9782046407333.
+Comma separated, no spaces as shown in examples.
+Casing does not apply as all are numeric strings. Applied casing rule: sentence-case capitalised first word is not applicable because the final answer is a list of numbers.]]></reasoning>
+  <final_answer><![CDATA[9783518188156,9788476540749,9788415091004,9788256014590,9782046407333]]></final_answer>
+</result>

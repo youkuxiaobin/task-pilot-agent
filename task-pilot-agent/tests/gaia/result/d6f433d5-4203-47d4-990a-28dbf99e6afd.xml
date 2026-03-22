@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history: Step 1 and Step 2 identify the destination city of the train trip as Braunschweig. Step 3 provides the population of Braunschweig in 2016 as 248,292. Step 4 rounds this figure to the nearest ten thousand: 248,292 rounded to the nearest ten thousand is 250,000. The answer is numeric, so no textual casing decision is required.]]></reasoning>
+  <final_answer><![CDATA[250000]]></final_answer>
+</result>

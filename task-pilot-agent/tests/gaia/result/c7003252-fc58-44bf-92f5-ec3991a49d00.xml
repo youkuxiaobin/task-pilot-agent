@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history shows that step 2 analyzed the spreadsheet, grouping by street and city, extracting house numbers, and looking for consecutive addresses (differing by exactly 1) while excluding same-building residents (by ensuring street addresses are different). The analysis found exactly one pair of next-door neighbors: Pam Beasley at 6232 Plumeria Lane and Jim Halpert at 6233 Plumeria Lane. Thus, two employees are next-door neighbors of another employee. Applied casing rule: not applicable because the answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[2]]></final_answer>
+</result>

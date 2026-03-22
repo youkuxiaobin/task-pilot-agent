@@ -1,0 +1,214 @@
+## TaskPilotAgent 配置示例
+# 用法：
+#   1) 复制示例为正式配置
+#      cp config/config.yaml.example config/config.yaml
+#   2) 从 `task-pilot-agent/` 目录启动（推荐），相对路径按该目录解析：
+#      cd task-pilot-agent && uv run main.py
+#
+# 必改项清单（建议直接全文搜索 `CHANGE_ME`）：
+#   - db.password 或 db.url
+#   - llm.config.api_key / llm.config.site_url / llm.config.model
+#   - llm.configs[].config.api_key（如果启用了 contexts/configs 分阶段模型）
+#   - embedder.config.api_key / embedder.config.openai_base_url
+#   - vector_store.config.url（Qdrant 地址）
+# 按功能启用时再配置：
+#   - search[].api_key（或环境变量 JINA/BOCHA/SERPER_*）
+#   - browser_use.sandbox_url 与 browser_use.config.*
+#   - audio_llm/image_llm/video_llm 的 config.*
+#
+# 配置加载优先级（高 -> 低）：
+#   1) 环境变量（前缀 `APP_`，嵌套字段用 `__`，例如 APP_SERVER__PORT=9010）
+#   2) `task-pilot-agent/.env`
+#   3) YAML（由环境变量 APP_CONFIG_FILE 指定；默认 ../config/config.yaml）
+#
+# 注意：本示例里的 api_key/password 都是占位符，必须替换为真实值或用环境变量覆盖。
+
+env: dev                # dev/staging/prod
+lang: ch                # ch/en；用于选择 prompt 语言覆盖（见 prompt_file 的 *_en.yaml）
+prompt_file: "../config/prompt.yaml"  # PromptStore 会尝试加载 prompt_en.yaml 作为覆盖
+
+core:
+  agent_id: "task-pilot-agent"
+  upload_dir: "./uploads"            # 上传/生成文件存放目录（相对启动目录）
+  output_styles:
+    html: ""
+    markdown: "，最后以 markdown 展示最终结果"
+    table: "，最后以excel 展示最终结果"
+    ppt: "，最后以 ppt 展示最终结果"
+    gaia: ""
+  default_output_style: "gaia"       # 请求未指定 outputStyle 时的默认值
+  planer_max_steps: 20               # PlanningAgent 最大规划步数（字段名为 planer_* 是历史拼写）
+  planer_min_steps: 1                # PlanningAgent 最小规划步数
+  executor_max_steps: 10             # ExecutorAgent 最大执行步数
+  react_max_steps: 6                 # ReAct 模式最大循环次数
+  planner_replan_each_step: true
+  planner_replan_on_failure: true
+  planner_max_replans: 10            # 最大重规划次数（=0 表示不重规划）
+
+server:
+  host: 0.0.0.0
+  port: 9010
+  debug: false
+  cors_allow_origins:
+    - "*"
+
+logging:
+  level: debug                       # debug/info/warning/error
+  directory: "./logs"
+  filename_prefix: "task-pilot-agent"
+  max_bytes: 314572800
+  backup_count: 10
+
+
+db:
+  # 二选一：
+  # 1) 使用 url（推荐）
+  # url: "mysql://user:password@127.0.0.1:3306/meta_agent"
+  # 2) 使用 host/port/user/password/name 组合
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "CHANGE_ME"              # 必填；也可用 APP_DB__PASSWORD 环境变量覆盖
+  name: "meta_agent"
+  pool_pre_ping: true                # 连接出池前检测
+  pool_recycle: 1800                 # 连接回收秒数
+
+
+summary_agent:
+  enable_thinking: false             # summary 阶段是否启用“思考/推理”输出（依赖模型）
+  discard_reasoning_content: true    # 流式总结时丢弃 reasoning_content 字段（更省 token）
+
+memory:
+  search_memory: true                # 是否启用 mem0 记忆检索
+  search_rag: true                   # 是否启用 RAG 检索（需 rag_retriever_config）
+  # rag_retriever_config 为可选项；启用 RAG 时建议配置。
+  rag_retriever_config:
+    provider: "milvus"               # milvus / qdrant
+    config:
+      top_k: 10
+      query_field: "query_emb"
+      query_result: "query_result"   # 注意：字段名是 query_result（不是 retrieval_field）
+      collection: "example_collection"
+      dimension: 128
+      distance_metric: "L2"
+      index_type: "IVF"
+      timeout: 30
+      enable_fallback: true
+      address: "127.0.0.1:19530"
+      # Milvus 特有
+      metric_type: "L2"
+      index_file_size: 1024
+      # Qdrant 特有
+      batch_size: 32
+      replication_factor: 2
+
+# 搜索配置：为空表示不启用/仅依赖环境变量（JINA_SEARCH_API_KEY / BOCHA_SEARCH_API_KEY / SERPER_SEARCH_API_KEY）。
+search: []
+# search:
+#   - provider: "jina"               # jina / bocha / serper
+#     api_key: "CHANGE_ME"
+#     proxy: "http://127.0.0.1:7890" # 可选；serper 也会读取 SERPER_SEARCH_PROXY/HTTP(S)_PROXY
+
+llm:
+  # 支持 provider: openai / openai_thinking / claude(anthropic) / gemini(google)
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"   # OpenAI 兼容接口 base_url（示例为 SiliconFlow）
+    model: "Pro/deepseek-ai/DeepSeek-V3.2-Exp"
+    temperature: 0.0
+    context_length: 128000                      # 用于自动压缩上下文的预算上限
+  # 可选：不同模型启用“思考/推理”的字段名映射（OpenAI 兼容接口常见差异）
+  # model_thinking_field:
+  #   "pro/deepseek-ai/deepseek-r1": "enable_reasoning"
+  #   "zai-org/glm-4.6": "enable_thinking"
+  contexts:
+    default: "deepseek_chat"
+    planner: "deepseek_reasoner"
+    executor: "deepseek_chat"
+    summary: "deepseek_reasoner"
+    react: "deepseek_reasoner"
+  configs:
+    - name: "deepseek_chat"
+      provider: "openai"
+      config:
+        api_key: "CHANGE_ME"
+        site_url: "https://api.siliconflow.cn/v1"
+        model: "Pro/deepseek-ai/DeepSeek-V3.2-Exp"
+        temperature: 0.0
+        context_length: 128000
+    - name: "deepseek_reasoner"
+      provider: "openai_thinking"
+      config:
+        api_key: "CHANGE_ME"
+        site_url: "https://api.siliconflow.cn/v1"
+        model: "Pro/deepseek-ai/DeepSeek-V3.2-Exp"
+        temperature: 0.0
+        context_length: 128000
+
+
+audio_llm:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+image_llm:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+
+video_llm:
+  provider: "openai" # 支持 openai / google（Gemini）
+  config:
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+browser_use:
+  sandbox_url: "http://127.0.0.1:30080"         # browser-use 沙盒服务地址（需可访问）
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Pro/deepseek-ai/DeepSeek-V3.2-Exp"
+    temperature: 0.0
+    context_length: 128000
+
+embedder: 
+  provider: "openai"                      # 仍然走 OpenAI 兼容接口
+  config:
+    api_key: "CHANGE_ME"
+    model: "Qwen/Qwen3-Embedding-8B"       # SiliconFlow 支持的嵌入模型
+    openai_base_url: "https://api.siliconflow.cn/v1"
+    embedding_dims: 1024                  # 该模型的维度
+
+vector_store: 
+  provider: "qdrant"
+  config: 
+    collection_name: "mem0_bge1024_v1"
+    embedding_model_dims: 1024
+    url: "http://localhost:6333"          # Qdrant 服务地址
+
+mcp:
+  mcp_local:
+    transport: streamable-http            # streamable-http / sse
+    host: 0.0.0.0
+    port: 9009
+  mcp_market:
+    refresh_interval_seconds: 600
+    mcp_servers:
+      - url: "http://127.0.0.1:9009/mcp"
+        transport: "streamable-http"
+        authorization: ""
+        tool_prefix: "mcp_local"

@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history: Step 1 extracted library book data. Step 2 identified the series with a main character made out of beads as "Can You See What I See?". Step 3 filtered the books to that series, showing 2 books. Step 4 counted 1 overdue book out of 2 total. Step 5 calculated the overdue percentage as (1/2)*100 = 50%. Thus, the answer is 50%. Applied casing rule: not applicable; answer is a percentage value.]]></reasoning>
+  <final_answer><![CDATA[50%]]></final_answer>
+</result>

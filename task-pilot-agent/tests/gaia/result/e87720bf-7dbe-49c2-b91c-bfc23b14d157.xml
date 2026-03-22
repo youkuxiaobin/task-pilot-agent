@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history contains the needed information. Step 1 includes the tweet content, which explicitly states the event was "expanded to accommodate 1,000 participants." Step 2 extracts and confirms this number. The user's question asks for the new expanded capacity, which is directly given as 1,000 attendees. No rounding or unit conversion is required. The answer is a numeric value, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[1000]]></final_answer>
+</result>

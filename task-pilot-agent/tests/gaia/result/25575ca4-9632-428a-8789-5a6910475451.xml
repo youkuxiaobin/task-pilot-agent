@@ -1,0 +1,13 @@
+<result>
+  <reasoning><![CDATA[Based on the tool call history:
+- Step 1 and Step 2 provide construction employment percentages: 2017: 7.0%, 2018: 7.1%, 2019: 7.0%.
+- Step 3 provides total employment for October 2020: 279,057.
+- Step 4 provides median annual earnings for construction workers in 2019: $36,860.
+- Step 5 calculates the relative percentage change from 2017 to 2018: ((7.1 - 7.0) / 7.0) * 100 = 1.43%.
+- Step 6 applies this change to the 2019 percentage to project the 2020 percentage: 7.0% * (1 + 1.43/100) = 7.1001%.
+- Step 7 calculates the number of construction workers in 2020: 7.1001% of 279,057 = 19,813.33 workers.
+- Step 8 computes total earnings: 19,813.33 * $36,860 = $730,319,343.80.
+- Step 9 converts to millions and rounds to the nearest million: $730,319,343.80 / 1,000,000 = 730.3193438 million, rounded to 730 million.
+Thus, the entire Wyoming construction industry would pay 730 million dollars to the nearest million. The final answer is a number, so no text casing applied.]]></reasoning>
+  <final_answer><![CDATA[730]]></final_answer>
+</result>

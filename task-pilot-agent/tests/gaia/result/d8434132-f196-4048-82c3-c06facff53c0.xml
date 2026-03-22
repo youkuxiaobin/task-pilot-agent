@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Step 1 loaded the Excel file and showed the data structure. Step 2 computed average ratings per genre, yielding: Historical Fiction 5.0, Literary Fiction 5.0, Fantasy 4.5, Dystopia 4.0, Science Fiction 4.0, Horror 3.0, Thriller 3.0. Step 3 identified the highest average rating (5.0) and found two genres tied: Historical Fiction and Literary Fiction. Sorted alphabetically, they are Historical Fiction, Literary Fiction. The output from Step 3 provides the exact formatted answer. The casing of the genre names is preserved from the tool output, which capitalizes each word as proper nouns. No sentence-case fallback needed because authoritative casing is available. Applied casing rule: preserved authoritative casing from tool output.]]></reasoning>
+  <final_answer><![CDATA[Historical Fiction, Literary Fiction]]></final_answer>
+</result>

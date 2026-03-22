@@ -1,0 +1,4 @@
+<result>
+<reasoning><![CDATA[From tool call history Step 4, the early version (earliest snapshot 2015-01-15) has 3 external website links and 4 media elements. The 2019 version (snapshot 2019-12-30) has 4 external website links and 8 media elements. Added website links: 4 - 3 = 1. Added media elements: 8 - 4 = 4. Difference (added links minus added media): 1 - 4 = -3. Thus, 3 more media elements were added than website links, resulting in a difference of -3. Applied casing rule: not applicable as final answer is numeric.]]></reasoning>
+<final_answer><![CDATA[-3]]></final_answer>
+</result>

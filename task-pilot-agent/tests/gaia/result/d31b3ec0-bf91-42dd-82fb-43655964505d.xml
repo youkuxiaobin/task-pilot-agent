@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool_call_history includes a search of the USGS NAS database for Ichthyomyzon unicuspis occurrences in the Hudson River between 1980 and 2000. The search results list specific specimen records: one from 1985 and one from 1996, both within the timeframe. The 1974 record is outside the range and excluded. Step 2 of the tool history explicitly counts these as 2 instances. The final answer is a number, so no textual casing decision is needed.]]></reasoning>
+  <final_answer><![CDATA[2]]></final_answer>
+</result>

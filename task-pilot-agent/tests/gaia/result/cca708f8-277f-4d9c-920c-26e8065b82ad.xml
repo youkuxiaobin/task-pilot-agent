@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The particle を in Japanese marks the direct object of a verb. Applying this function to Esperanto, the direct object is indicated by the accusative case suffix "-n". In Esperanto, plural nouns are formed by changing the singular "-o" to "-oj". When the accusative case is applied to a plural noun, the suffix "-n" is added after "-oj", resulting in the ending "-ojn". Thus, the last three letters are "ojn". No authoritative casing is provided for the answer, so applying the sentence-casing fallback: for a single-word answer, capitalise the first word. Applied casing rule: sentence-case capitalised first word.]]></reasoning>
+  <final_answer><![CDATA[Ojn]]></final_answer>
+</result>

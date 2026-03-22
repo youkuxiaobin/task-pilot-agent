@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history includes a step_answer that states: "The artist for the Magic: The Gathering card 'Bedevil' is Seb McKinnon, who was born in **Montreal, Quebec, Canada**." This directly provides the requested city name. The user asks only for the city name. The source provides authoritative casing for the proper noun "Montreal," so I preserve that exact form. Casing compliance: authoritative casing from the source is used, so no sentence-case fallback is applied.]]></reasoning>
+  <final_answer><![CDATA[Montreal]]></final_answer>
+</result>

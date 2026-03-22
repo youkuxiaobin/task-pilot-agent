@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, the volume of Apple shares traded on April 6, 1987 is 288,960,000 shares, and on June 14, 2021 is 96,906,500 shares. Performing the division: 288,960,000 ÷ 96,906,500 ≈ 2.981. Rounding to one decimal place yields 3.0. The answer is numeric, so no textual casing decision is required.]]></reasoning>
+  <final_answer><![CDATA[3.0]]></final_answer>
+</result>

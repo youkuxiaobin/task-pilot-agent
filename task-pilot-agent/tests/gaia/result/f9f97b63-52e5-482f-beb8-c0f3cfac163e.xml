@@ -1,0 +1,14 @@
+<result>
+  <reasoning><![CDATA[The meal kit company originally funded by Rocket Internet is HelloFresh. From the 2021 annual report, the supervisory board members are John H. Rittenhouse, Michael Roth, Florian Schuhbauer, Oliver Tant, Arjan Dijk, and Melissa Kirmayer Eamer. The criteria are: (1) had an M in Diversity (interpreted as having a Master's degree and involvement in diversity initiatives), (2) no marketing experience, (3) holds an executive position.
+
+Evaluating each member:
+- John H. Rittenhouse: Master's degree not confirmed in provided information; involved in DEI training; no marketing experience mentioned; holds executive position as CEO. Unclear on Master's.
+- Michael Roth: Has a doctorate, not a Master's; involved in diversity initiatives; some communications/marketing experience as university president; holds executive position. Does not have a Master's.
+- Florian Schuhbauer: Has a Master's degree in Finance and Business Administration; involved in diversity through board governance; no marketing experience mentioned; holds executive position as Co-CIO. Meets all criteria.
+- Oliver Tant: No Master's degree; no diversity involvement mentioned; no marketing experience; holds executive position. Does not have a Master's.
+- Arjan Dijk: Has a Master's in Sociology (diversity-related) and MBA; extensive marketing experience; holds executive position. Fails "no marketing experience".
+- Melissa Kirmayer Eamer: Has an MBA (Master's); discusses diversity experiences; extensive marketing experience; holds executive position. Fails "no marketing experience".
+
+Only Florian Schuhbauer satisfies all three conditions: confirmed Master's degree, diversity involvement, no marketing experience, and executive position. The last name is "Schuhbauer". Applied casing rule: proper noun capitalization.]]></reasoning>
+  <final_answer><![CDATA[Schuhbauer]]></final_answer>
+</result>

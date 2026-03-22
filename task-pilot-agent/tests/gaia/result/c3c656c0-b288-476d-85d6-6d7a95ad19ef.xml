@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The task requires identifying the two U.S. states with the closest English language percentages listed in their English Wikipedia page infoboxes as of the end of May 2023, and returning them in alphabetical order, comma-separated. From the tool call history: Step 2 parsed a table from Wikipedia with state percentages, Step 4 computed pairwise differences and found the minimum absolute difference of 0.00% between Nevada and Maryland. Step 5 validated that the data is based on ACS 2023 estimates covering up to May 2023. Sorting "Nevada" and "Maryland" alphabetically gives "Maryland, Nevada". Authoritative casing is provided in the source data where state names are capitalized, so preserve that. Applied casing rule: authoritative capitalization from source data.]]></reasoning>
+  <final_answer><![CDATA[Maryland, Nevada]]></final_answer>
+</result>

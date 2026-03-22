@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[Based on the tool_call_history: Step 3 identified the optimal sequential Fibonacci subset of length 8 as [1, 2, 3, 5, 8, 13, 21, 34] summing to 87%. Step 4 mapped these percentages in reverse order to the ingredients, assigning 21% to distilled vinegar and leaving 13% for water (100% - 87% = 13%). Step 5 calculated the masses for a 907g bottle: vinegar mass = 190.47g, water mass = 117.91g. Step 6 computed vinegar volume using density 0.972 g/mL: 190.47g / 0.972 g/mL ≈ 195.96 mL, rounded to 196 mL. Step 7 computed water volume using density 1 g/mL: 117.91g / 1 g/mL = 117.91 mL, rounded to 118 mL. Step 8 found the difference: 196 mL - 118 mL = 78 mL. The final answer is a numeric value, so no casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[78]]></final_answer>
+</result>

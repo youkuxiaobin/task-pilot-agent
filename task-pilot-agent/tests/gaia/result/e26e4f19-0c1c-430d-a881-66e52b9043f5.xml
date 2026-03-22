@@ -1,0 +1,4 @@
+<result>
+<reasoning><![CDATA[The user asks for the birth name of the chief consort of the Turkish ruler mentioned in the Histomap 1931 as failing to arrest his empire's decline. From the tool call history: Step 5 OCR analysis extracted text from the Histomap image, identifying three rulers with phrases related to failing to arrest decline, including "Ibrahim I (1640-1648) - Turkish ruler failed to arrest the decline of the empire," which matches the query's description. Step 6 confirms Ibrahim I as the specific ruler. Step 7 searches for Ibrahim I's chief consort, finding Turhan Sultan, with birth name reported as Nadya. Step 8 concludes the birth name is Nadya. The evidence provides the name as "Nadya," so authoritative casing is used.]]></reasoning>
+<final_answer><![CDATA[Nadya]]></final_answer>
+</result>

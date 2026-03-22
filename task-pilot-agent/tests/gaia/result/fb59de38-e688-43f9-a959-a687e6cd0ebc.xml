@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, the Southern Living Chocolate Mayonnaise Cake recipe uses 1 cup of mayonnaise per cake (as extracted in step_2). The user has 1 gallon of mayonnaise. Using the standard US customary conversion where 1 gallon equals 16 cups, the number of cakes that can be baked is calculated as 16 cups / 1 cup per cake = 16 cakes. The final answer is numeric, so no textual casing is required. Applied casing rule: not applicable as answer is numeric.]]></reasoning>
+  <final_answer><![CDATA[16]]></final_answer>
+</result>

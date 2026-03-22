@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The tool call history contains metadata for the YouTube video with ID X-AjhXhk19U. Step 1 output explicitly states the character playing the violin is Belle, portrayed by Lindsey Stirling. Step 2 and step 3 further confirm this identification. Therefore, the character playing the violin throughout the video is Belle. Casing decision: The tool history provides the name "Belle" with authoritative capitalization, which is preserved in the final answer.]]></reasoning>
+  <final_answer><![CDATA[Belle]]></final_answer>
+</result>

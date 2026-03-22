@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From step_1 and step_2, the longest Writing Excuses seasons prior to 2020 are Season 7 and Season 13, both with 58 episodes. Step_3 identified microcasting episodes in these seasons. Step_4 determined the earliest microcasting episode is Season 7 Episode 9, as Season 7 aired before Season 13. Step_5 provided the transcript for Episode 7.9. Step_6 extracted the off-topic question from that transcript: "What kind of bacon is best?". The string is quoted verbatim from the source, preserving its exact capitalization and punctuation. Applied casing rule: preserved authoritative casing from source text.]]></reasoning>
+  <final_answer><![CDATA[What kind of bacon is best?]]></final_answer>
+</result>

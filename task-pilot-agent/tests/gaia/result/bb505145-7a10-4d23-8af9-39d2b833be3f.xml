@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[From the tool call history, the unemployment rates for June 2009 from BLS CPS are: men aged 20 years and over = 10.0%, women aged 20 years and over = 7.6%. The difference is calculated as 10.0% - 7.6% = 2.4 percentage points. The user asks for the difference in %, which is interpreted as the difference in percentage points. The result is 2.4. The answer is numeric, so no text casing rule applies.]]></reasoning>
+  <final_answer><![CDATA[2.4]]></final_answer>
+</result>

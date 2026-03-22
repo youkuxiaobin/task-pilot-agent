@@ -1,0 +1,4 @@
+<result>
+  <reasoning><![CDATA[The antipodal coordinates of (-48.8583701, -177.7077074) are (48.8583701, 2.2922926) per step 1. The tallest structure at this location is the Eiffel Tower, as identified in step 2. Step 3 provides the Eiffel Tower's precise coordinates as (48.858093, 2.294694). Step 4 calculates the bearing from the antipodal point to the Eiffel Tower as 99.95°. Step 5 converts this bearing to the cardinal direction "E" (East). Therefore, when facing the tallest structure, you are facing East. The tool output in step 5 provides "E" with authoritative casing, which is preserved in the final answer.]]></reasoning>
+  <final_answer><![CDATA[E]]></final_answer>
+</result>
