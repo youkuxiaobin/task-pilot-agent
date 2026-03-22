@@ -36,7 +36,7 @@ summary_agent:
   discard_reasoning_content: true
 
 db:
-  host: mysql11966w.yun.qianxin-inc.cn
+  host: "CHANGE_ME"
   port: 11966
   user: smartcrawler
   password: "CHANGE_ME"             # 可被 .env / env 覆盖
@@ -107,7 +107,7 @@ llm:
     #context_length: 160000
     
     #aip
-    #site_url: "https://aip.b.qianxin-inc.cn/v2/"
+    #site_url: "https://example.com/v2/"
     #api_key: "CHANGE_ME"
     #model: "GLM-4.6"
   contexts:

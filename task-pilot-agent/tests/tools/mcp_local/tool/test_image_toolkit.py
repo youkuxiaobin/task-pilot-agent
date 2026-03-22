@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 async def test_audio_toolkit_url():
     image_toolkit = ImageToolkit()
     result = await image_toolkit.image_qa(
-        image_path="https://static01-www.qianxin.com/qaxweb/eef43a411120081fa8dec41133ee8f9c.jpg",
-        question="图片中的会议名称是什么？"
+        image_path="https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg",
+        question="图片里主要是什么场景？"
     )
     logger.info(f"result: {result}")
 
