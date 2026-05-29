@@ -148,7 +148,17 @@ class ExecutorAgent(ReActAgent):
                 )
             )
 
-            self.context.printer.send(None, "tool_result",  {"result": result}, None, True)
+            self.context.printer.send(
+                None,
+                "tool_result",
+                {
+                    "tool": call.name,
+                    "arguments": call.arguments,
+                    "result": result,
+                },
+                None,
+                True,
+            )
 
         self.set_state(AgentState.FINISHED)
         return json.dumps(outputs)

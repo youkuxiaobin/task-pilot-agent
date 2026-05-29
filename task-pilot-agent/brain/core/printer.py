@@ -48,10 +48,12 @@ class SSEPrinter(Printer):
                 data["taskSummary"] = str(message.get("taskSummary", ""))
         elif message_type == "plan":
             data["plan"] = message if isinstance(message, dict) else {}
-        elif message_type in {"tool_result", "browser", "code", "html", "markdown", "ppt", "file", "knowledge", "deep_search"}:
+        elif message_type in {"tool_call", "tool_result", "stream", "browser", "code", "html", "markdown", "ppt", "file", "knowledge", "deep_search"}:
             # unify as resultMap payload
             payload = message if isinstance(message, dict) else json.loads(json.dumps(message, default=str))
             data["resultMap"] = payload
+            if message_type == "tool_call":
+                data["toolCall"] = payload
         elif message_type in {"agent_stream", "result"}:
             if isinstance(message, str):
                 data["result"] = message
@@ -67,4 +69,3 @@ class SSEPrinter(Printer):
 
     def update_agent_type(self, agent_type: int) -> None:
         self.agent_type = agent_type
-

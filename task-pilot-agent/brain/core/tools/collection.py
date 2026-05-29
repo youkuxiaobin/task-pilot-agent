@@ -30,8 +30,24 @@ class ToolCollection:
         if not tool:
             return None
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
+        self._emit_tool_call(name, input_obj)
         result = await tool.execute(input_obj)
         return result
+
+    def _emit_tool_call(self, name: str, input_obj: Dict[str, Any]) -> None:
+        printer = getattr(self.agentContext, "printer", None)
+        if printer is None:
+            return
+        printer.send(
+            None,
+            "tool_call",
+            {
+                "tool": name,
+                "arguments": input_obj,
+            },
+            self.getDigitalEmployee(name),
+            False,
+        )
 
     def to_openai_tools(self) -> List[Dict[str, Any]]:
         """将ToolCollection中的MCPTool转换为OpenAI function call格式"""

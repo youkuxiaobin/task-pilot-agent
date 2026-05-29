@@ -274,7 +274,7 @@ class ReActAgentImp(ReActAgent):
         try:
             raw = await self.context.toolCollection.execute(name, arguments) if getattr(self.context, "toolCollection", None) else None
             message_type = "tool_result"
-            payload = {"tool": name, "result": raw}
+            payload = {"tool": name, "arguments": arguments, "result": raw}
             observation = self._stringify(raw)
             evidence = f"工具 `{name}` 输出：{observation}"
         except Exception as exc:
@@ -300,5 +300,4 @@ class ReActAgentImp(ReActAgent):
             return json.dumps(value, ensure_ascii=False)
         except Exception:
             return str(value)
-
 

@@ -545,8 +545,10 @@
       case 'plan': typeClass = 'type-plan'; icon = '🗺️'; title = '任务计划 (Plan)'; break;
       case 'plan_thought': typeClass = 'type-plan'; icon = '💡'; title = '计划思考 (Thinking)'; break;
       case 'tool_thought': typeClass = 'type-thought'; icon = '🧠'; title = '工具调用思考'; break;
+      case 'tool_call': typeClass = 'type-tool'; icon = '🛠️'; title = '正在调用工具'; break;
       case 'task': typeClass = 'type-task'; icon = '⚙️'; title = '执行任务'; break;
       case 'tool_result': typeClass = 'type-tool'; icon = '✅'; title = '工具返回结果'; break;
+      case 'stream': typeClass = 'type-tool'; icon = '📡'; title = '工具输出片段'; break;
       case 'notifications': typeClass = 'type-task'; icon = '🔔'; title = '系统通知'; break;
     }
 
@@ -637,11 +639,29 @@
     return html;
   }
 
-  function renderToolResultHTML(raw) {
-    if(!raw) return '';
-    if(typeof raw === 'string' && raw.trim().startsWith('{')) {
+  function stringifyToolValue(value) {
+    if(value === undefined || value === null) return '';
+    if(typeof value === 'string') return value;
+    try { return JSON.stringify(value, null, 2); }
+    catch { return String(value); }
+  }
+
+  function renderFieldBlock(label, value, options={}) {
+    const valueText = stringifyToolValue(value);
+    if(!valueText) return '';
+    const classes = options.highlight ? 'field-value highlight' : 'field-value';
+    return `<div class="field-block"><span class="field-label">${escapeHTML(label)}</span><div class="${classes}">${escapeHTML(valueText)}</div></div>`;
+  }
+
+  function renderToolOutputHTML(value) {
+    if(value === undefined || value === null) return '';
+    if(typeof value !== 'string') {
+        return renderMarkdown("```json\n" + stringifyToolValue(value) + "\n```");
+    }
+    const trimmed = value.trim();
+    if(trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
-            const json = JSON.parse(raw);
+            const json = JSON.parse(trimmed);
             if(json.isError && Array.isArray(json.content)) {
                 const errorText = json.content.map(c => c.text || '').join('');
                 return `<div style="color:var(--color-error);font-weight:bold">❌ 执行错误</div><pre style="border-color:var(--color-error)">${escapeHTML(errorText)}</pre>`;
@@ -649,7 +669,35 @@
             return renderMarkdown("```json\n" + JSON.stringify(json, null, 2) + "\n```");
         } catch(e) {}
     }
-    return renderMarkdown(raw);
+    return renderMarkdown(value);
+  }
+
+  function renderToolCallHTML(raw) {
+    if(!raw) return '';
+    const toolName = raw.tool || raw.name || raw.tool_name || '';
+    const args = raw.arguments || raw.input || raw.args || {};
+    let html = '';
+    html += renderFieldBlock('Tool', toolName, {highlight: true});
+    html += renderFieldBlock('Arguments', args);
+    return html || renderToolOutputHTML(raw);
+  }
+
+  function renderToolResultHTML(raw) {
+    if(!raw) return '';
+    if(typeof raw === 'object') {
+        const toolName = raw.tool || raw.name || raw.tool_name || '';
+        const args = raw.arguments || raw.input || raw.args;
+        const result = raw.result !== undefined ? raw.result : (raw.output !== undefined ? raw.output : raw.chunk);
+        let html = '';
+        html += renderFieldBlock('Tool', toolName, {highlight: true});
+        html += renderFieldBlock('Arguments', args);
+        if(result !== undefined) {
+            html += `<div class="field-block"><span class="field-label">Result</span><div class="field-value markdown-body">${renderToolOutputHTML(result)}</div></div>`;
+            return html;
+        }
+        return html || renderToolOutputHTML(raw);
+    }
+    return renderToolOutputHTML(raw);
   }
 
   function renderNotificationHTML(taskStr) {
@@ -676,17 +724,20 @@
 
   function handleEvent(event) {
     const session = getActiveSession(); if(!session) return;
-    const ts = Number(event.time) || Date.now();
     const payload = event.json || {};
+    const ts = Number(payload.messageTime || event.time) || Date.now();
+    const getResultMap = () => payload.resultMap || {};
     const getResultMapStr = () => { if(payload.resultMap && payload.resultMap.result) return payload.resultMap.result; return ''; };
 
-    if(['tool_result', 'result', 'done'].includes(event.type)) { delete state.stream.lastIndexByKind['plan_thought']; delete state.stream.lastIndexByKind['plan']; }
+    if(['tool_call', 'tool_result', 'result', 'done'].includes(event.type)) { delete state.stream.lastIndexByKind['plan_thought']; delete state.stream.lastIndexByKind['plan']; }
 
     switch(event.type) {
       case 'plan': if(payload.plan) upsertReasonMessage(session, 'plan', renderPlanHTML(payload.plan), ts, true); break;
       case 'plan_thought': if(payload.planThought) upsertReasonMessage(session, 'plan_thought', renderPlanThoughtHTML(payload.planThought), ts, true); break;
       case 'tool_thought': if(payload.toolThought) upsertReasonMessage(session, 'tool_thought', renderToolThoughtHTML(payload.toolThought), ts, false); break;
-      case 'tool_result': upsertReasonMessage(session, 'tool_result', renderToolResultHTML(getResultMapStr()), ts, false); break;
+      case 'tool_call': upsertReasonMessage(session, 'tool_call', renderToolCallHTML(getResultMap()), ts, false); break;
+      case 'tool_result': upsertReasonMessage(session, 'tool_result', renderToolResultHTML(getResultMap()), ts, false); break;
+      case 'stream': upsertReasonMessage(session, 'stream', renderToolResultHTML(getResultMap()), ts, true); break;
       case 'task': if(payload.task) upsertReasonMessage(session, 'task', renderMarkdown(payload.task), ts, false); break;
       case 'notifications': if(payload.task) upsertReasonMessage(session, 'notifications', renderNotificationHTML(payload.task), ts, false); break;
       case 'ppt': case 'file': case 'knowledge': case 'image': case 'browser': case 'code': case 'deep_search': upsertReasonMessage(session, 'tool_result', renderToolResultHTML(getResultMapStr()), ts, false); break;

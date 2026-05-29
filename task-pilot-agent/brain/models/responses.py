@@ -30,6 +30,6 @@ class AgentResponse(BaseModel):
     planThought: Optional[str] = None
     taskSummary: Optional[str] = None
     plan: Optional[Dict[str, Any]] = None
+    toolCall: Optional[Dict[str, Any]] = None
     toolResult: Optional[Dict[str, Any]] = None
     result: Optional[str] = None
-
