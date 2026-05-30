@@ -16,3 +16,21 @@ cases:
     input: 把一个多步骤自动化任务拆解、执行并在中途根据结果调整计划。
     expected: 应调用 builtin:plan_tool 维护计划，并记录工具调用过程。
     tags: [planning, tool, regression]
+
+  - id: browser_workflow
+    name: 浏览器任务
+    input: 打开一个网页，提取页面上的关键信息，并把过程和结果写入任务时间线。
+    expected: 应使用浏览器或网页类工具完成访问、提取和结果记录；失败时应保留可回看的错误原因。
+    tags: [browser, web, tool, regression]
+
+  - id: code_analysis
+    name: 代码执行与数据分析
+    input: 使用代码处理一小段结构化数据，计算汇总指标，并说明计算步骤。
+    expected: 应在允许策略下调用代码或数据分析工具，记录工具调用和结果，最终答案包含计算结论。
+    tags: [code, data, sandbox, regression]
+
+  - id: report_generation
+    name: 报告生成
+    input: 基于给定主题生成一份结构清晰的报告，并把报告作为最终结果或任务产物返回。
+    expected: 应调用报告或文件产物相关能力，任务详情中能看到产物、最终答案和生成过程。
+    tags: [report, artifact, file, regression]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -302,3 +303,12 @@ def test_default_agents_dir_uses_app_config_file(tmp_path, monkeypatch):
     monkeypatch.delenv("AGENT_CONFIG_DIR", raising=False)
 
     assert default_agents_dir() == config_dir / "agents"
+
+
+def test_default_eval_cases_cover_core_task_categories():
+    agents_root = Path(__file__).resolve().parents[3] / "config" / "agents"
+    registry = AgentRegistry(agents_root)
+
+    tags = {tag for case in registry.list_evals() for tag in case.tags}
+
+    assert {"search", "file", "data", "browser", "code", "report"}.issubset(tags)
