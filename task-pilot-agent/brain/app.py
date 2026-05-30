@@ -548,6 +548,19 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
 
             tc = await build_tool_collection(ctx)
             ctx.toolCollection = tc
+            task_store.add_event(
+                task_id,
+                "tool_policy_applied",
+                {
+                    "agentId": ctx.agent_id,
+                    "selectedTools": selected_tools,
+                    "availableTools": sorted(tc.tool_map.keys()),
+                    "blockedTools": sorted(set(tc.blocked_tools)),
+                    "runEnvironment": request.run_environment,
+                },
+                trace_id=trace_id,
+                source="policy",
+            )
 
             handler = agentFactory.get_handler(ctx, request)  # type: ignore[arg-type]
             if not handler:

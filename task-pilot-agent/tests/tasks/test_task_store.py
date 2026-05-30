@@ -352,6 +352,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert "task_created" in event_types
     assert "task_running" in event_types
     assert "agent_started" in event_types
+    assert "tool_policy_applied" in event_types
     assert "tool_result" in event_types
     assert "task_artifact_added" in event_types
     assert "result" in event_types
