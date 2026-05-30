@@ -169,6 +169,28 @@ def _resolve_agent_config(agent_id: str) -> Optional[AgentConfig]:
         return None
 
 
+def _validate_user_message(request: GptQueryReq) -> List[AgentMessage]:
+    messages = list(getattr(request, "messages", []) or [])
+    if not messages:
+        raise ValueError("messages is required")
+    last_role = (messages[-1].role or "").strip().lower()
+    if last_role != RoleType.USER.value:
+        raise ValueError("last message must be user role")
+    return messages
+
+
+def _fill_request_defaults(request: GptQueryReq) -> None:
+    if not request.trace_id:
+        request.trace_id = str(uuid.uuid4())
+    if not request.user_id:
+        request.user_id = str(uuid.uuid4())
+    if not request.agent_id:
+        request.agent_id = agentSettings.core.agent_id
+    if not request.conversation_id:
+        request.conversation_id = str(uuid.uuid4())
+    fill_output_styles(request)
+
+
 def _convert_agent_messages(ctx: AgentContext, messages: Optional[List[AgentMessage]]) -> None:
     if not messages:
         return
@@ -232,24 +254,13 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
     configure_log_context(trace_id=trace_id)
 
     try:
-        messages = list(getattr(request, "messages", []) or [])
-        if not messages:
-            logger.warning("messages is empty")
+        try:
+            messages = _validate_user_message(request)
+        except ValueError as exc:
+            logger.warning(str(exc))
             return
 
-        last_role = (messages[-1].role or "").strip().lower()
-        if last_role != RoleType.USER.value:
-            logger.warning("last message must be user role")
-            return
-        
-        if not request.user_id:
-            request.user_id = str(uuid.uuid4())
-        if not request.agent_id:
-            request.agent_id = agentSettings.core.agent_id
-        if not request.conversation_id:
-            request.conversation_id = str(uuid.uuid4())
-
-        fill_output_styles(request)
+        _fill_request_defaults(request)
         agent_config = _resolve_agent_config(request.agent_id)
         resolved_mode = request.mode or (agent_config.mode if agent_config else None) or "plans_executor"
         selected_tools = _normalize_tool_selection(request.selected_tools)
@@ -517,6 +528,57 @@ async def list_agent_tasks(
         offset=offset,
     )
     return {"items": [serialize_task(task) for task in tasks], "limit": limit, "offset": offset}
+
+
+@agent_router.post("/tasks")
+async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
+    request = _clone_gpt_request(req)
+    try:
+        messages = _validate_user_message(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _fill_request_defaults(request)
+    trace_id = request.trace_id or str(uuid.uuid4())
+    agent_config = _resolve_agent_config(request.agent_id or "")
+    resolved_mode = request.mode or (agent_config.mode if agent_config else None) or "plans_executor"
+    selected_tools = _normalize_tool_selection(request.selected_tools)
+    latest_input = (messages[-1].content or "").strip()
+    input_files = _serialize_file_items(messages[-1].uploadFile if messages else None)
+
+    store = TaskStore()
+    task = store.create_task(
+        task_id=trace_id,
+        trace_id=trace_id,
+        conversation_id=request.conversation_id,
+        user_id=request.user_id,
+        agent_id=request.agent_id,
+        mode=resolved_mode,
+        output_style=request.outputStyle,
+        input_text=latest_input,
+        metadata={
+            "source": "api",
+            "agentConfigId": agent_config.id if agent_config else None,
+            "selectedTools": selected_tools,
+            "inputFiles": input_files,
+        },
+    )
+    store.add_event(
+        trace_id,
+        "task_queued",
+        {
+            "status": AgentTaskStatus.QUEUED,
+            "mode": resolved_mode,
+            "outputStyle": request.outputStyle,
+            "agentConfigId": agent_config.id if agent_config else None,
+            "selectedTools": selected_tools,
+            "inputFiles": input_files,
+        },
+        trace_id=trace_id,
+        source="api",
+    )
+    asyncio.create_task(_run_autoagent(request, lambda _data: None))
+    return serialize_task(task)
 
 
 @agent_router.get("/tasks/{task_id}")

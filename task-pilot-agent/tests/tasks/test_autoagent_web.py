@@ -103,3 +103,11 @@ def test_websocket_disconnect_keeps_background_worker_detached():
     assert "except WebSocketDisconnect:" in ws_block
     assert "detached = True" in ws_block
     assert "worker.cancel()" not in ws_block
+
+
+def test_tasks_api_has_background_create_endpoint():
+    source = APP_PATH.read_text(encoding="utf-8")
+
+    assert '@agent_router.post("/tasks")' in source
+    assert "async def create_agent_task" in source
+    assert "task_queued" in source

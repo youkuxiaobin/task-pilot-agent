@@ -91,6 +91,48 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     assert parent_events[-1].event_type == "task_retry_requested"
 
 
+def test_create_task_api_persists_task_and_starts_background_run(app_modules, monkeypatch):
+    app, tasks = app_modules
+    created_background = []
+
+    def fake_create_task(coro):
+        created_background.append(coro)
+
+        class DoneTask:
+            def done(self):
+                return True
+
+            def cancel(self):
+                return None
+
+        return DoneTask()
+
+    monkeypatch.setattr(app.asyncio, "create_task", fake_create_task)
+    payload = asyncio.run(
+        app.create_agent_task(
+            app.GptQueryReq(
+                trace_id="create-task",
+                user_id="user-1",
+                agent_id="task-pilot-agent",
+                conversation_id="conversation-1",
+                outputStyle="markdown",
+                mode="react",
+                messages=[app.AgentMessage(role="user", content="run in background")],
+            )
+        )
+    )
+
+    assert payload["taskId"] == "create-task"
+    assert payload["status"] == tasks.AgentTaskStatus.QUEUED
+    assert payload["metadata"]["source"] == "api"
+    assert created_background
+    created_background[0].close()
+
+    store = tasks.TaskStore()
+    events = store.list_events("create-task")
+    assert events[-1].event_type == "task_queued"
+
+
 def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
     app, _tasks = app_modules
     cancelled = False
