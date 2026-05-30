@@ -582,6 +582,21 @@ def _resolve_agent_config(agent_id: str) -> Optional[AgentConfig]:
         return None
 
 
+def _agent_config_error_detail(exc: Exception) -> Dict[str, Any]:
+    return {
+        "error": "agent_config_invalid",
+        "message": str(exc),
+        "diagnostics": agentRegistry.diagnostics(),
+    }
+
+
+def _reload_agent_registry_or_raise() -> None:
+    try:
+        agentRegistry.reload()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=_agent_config_error_detail(exc)) from exc
+
+
 def _validate_user_message(request: GptQueryReq) -> List[AgentMessage]:
     messages = list(getattr(request, "messages", []) or [])
     if not messages:
@@ -1036,7 +1051,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
 
 @agent_router.get("/agents")
 async def list_agents() -> Dict[str, Any]:
-    agentRegistry.reload()
+    _reload_agent_registry_or_raise()
     return {
         "items": [agent.to_dict() for agent in agentRegistry.list_agents()],
         "defaultAgentId": agentSettings.core.agent_id,
@@ -1050,7 +1065,7 @@ async def get_agent_diagnostics() -> Dict[str, Any]:
 
 @agent_router.get("/agents/{agent_id}")
 async def get_agent(agent_id: str) -> Dict[str, Any]:
-    agentRegistry.reload()
+    _reload_agent_registry_or_raise()
     agent = agentRegistry.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
@@ -1059,7 +1074,7 @@ async def get_agent(agent_id: str) -> Dict[str, Any]:
 
 @agent_router.get("/tools")
 async def list_agent_tools(agent_id: Optional[str] = Query(default=None)) -> Dict[str, Any]:
-    agentRegistry.reload()
+    _reload_agent_registry_or_raise()
     resolved_agent_id = agent_id or agentSettings.core.agent_id
     agent_config = agentRegistry.get(resolved_agent_id)
     ctx = AgentContext(
@@ -1089,7 +1104,7 @@ async def list_agent_tools(agent_id: Optional[str] = Query(default=None)) -> Dic
 
 @agent_router.get("/agents/{agent_id}/evals")
 async def list_agent_evals(agent_id: str) -> Dict[str, Any]:
-    agentRegistry.reload()
+    _reload_agent_registry_or_raise()
     agent = agentRegistry.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
@@ -1137,7 +1152,7 @@ async def run_agent_evals(
     user_id: str = Query(default="eval-runner"),
     output_style: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
-    agentRegistry.reload()
+    _reload_agent_registry_or_raise()
     agent = agentRegistry.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
@@ -1160,7 +1175,7 @@ async def run_agent_eval(
     user_id: str = Query(default="eval-runner"),
     output_style: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
-    agentRegistry.reload()
+    _reload_agent_registry_or_raise()
     agent = agentRegistry.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
@@ -1230,7 +1245,7 @@ async def list_agent_tasks(
     )
     if agent_type:
         normalized_agent_type = agent_type.strip()
-        agentRegistry.reload()
+        _reload_agent_registry_or_raise()
         def task_matches_agent_type(task: Any) -> bool:
             agent = agentRegistry.get(task.agent_id)
             return bool(agent and agent.type == normalized_agent_type)

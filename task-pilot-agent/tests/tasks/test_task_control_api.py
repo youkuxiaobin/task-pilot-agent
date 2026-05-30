@@ -305,6 +305,27 @@ def test_agent_diagnostics_api_reports_config_errors(app_modules, tmp_path, monk
     assert "Unsupported agent type" in bad_agent["error"]
 
 
+def test_agent_api_returns_diagnostics_when_config_is_invalid(app_modules, tmp_path, monkeypatch):
+    app, _tasks = app_modules
+    agents_root = tmp_path / "agents"
+    router_dir = agents_root / "router_agent"
+    router_dir.mkdir(parents=True)
+    (router_dir / "agent.yaml").write_text(
+        "id: router_agent\nname: Router Agent\ntype: supervisor\nhandoffs:\n  allowed: [missing_agent]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app.agentRegistry, "root_dir", agents_root)
+
+    with pytest.raises(app.HTTPException) as exc_info:
+        asyncio.run(app.list_agents())
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["error"] == "agent_config_invalid"
+    assert "handoff target not found" in exc_info.value.detail["message"]
+    assert exc_info.value.detail["diagnostics"]["status"] == "invalid"
+    assert exc_info.value.detail["diagnostics"]["invalidCount"] == 1
+
+
 def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, monkeypatch):
     app, tasks = app_modules
     timestamps = iter([1_000, 1_100, 1_800, 5_000, 5_100, 8_000])
