@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -230,6 +231,57 @@ def test_blocked_tool_reasons_include_policy_and_selection(app_modules, monkeypa
     assert app._blocked_tool_reasons(["mcp_local:deepsearch"], agent, ["mcp_local:weather"]) == {
         "mcp_local:deepsearch": "not_selected"
     }
+
+
+def test_list_agent_tools_returns_builtin_and_mcp_tools(app_modules, monkeypatch):
+    app, _tasks = app_modules
+    from brain.core.agent_registry import AgentToolSpec
+
+    agent = app.AgentConfig(
+        id="tool-agent",
+        name="Tool Agent",
+        tools=[
+            AgentToolSpec(name="builtin:plan_tool"),
+            AgentToolSpec(name="mcp_local:deepsearch"),
+            AgentToolSpec(name="mcp_local:code_interpreter", policy={"risk": "high"}),
+        ],
+    )
+
+    async def fake_fetch_tools(_self):
+        return [
+            SimpleNamespace(
+                name="mcp_local:deepsearch",
+                description="Search",
+                input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+                output_schema={"type": "object", "properties": {"summary": {"type": "string"}}},
+            ),
+            SimpleNamespace(
+                name="mcp_local:code_interpreter",
+                description="Code",
+                input_schema={"type": "object"},
+                output_schema={},
+            ),
+        ]
+
+    monkeypatch.delenv("APP_ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.delenv("ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.setattr(app.agentRegistry, "reload", lambda: None)
+    monkeypatch.setattr(app.agentRegistry, "get", lambda agent_id: agent if agent_id == "tool-agent" else None)
+    monkeypatch.setattr(app.MCPToolFetcher, "fetch_tools", fake_fetch_tools)
+
+    payload = asyncio.run(app.list_agent_tools(agent_id="tool-agent"))
+
+    names = [item["name"] for item in payload["items"]]
+    assert "builtin:plan_tool" in names
+    assert "mcp_local:deepsearch" in names
+    assert payload["items"][names.index("mcp_local:deepsearch")]["inputSchema"]["properties"]["query"]["type"] == "string"
+    assert payload["blockedTools"] == [
+        {
+            "name": "mcp_local:code_interpreter",
+            "allowed": False,
+            "blockReason": "high_risk_requires_enable",
+        }
+    ]
 
 
 def test_remote_artifact_download_redirects_to_recorded_url(app_modules):

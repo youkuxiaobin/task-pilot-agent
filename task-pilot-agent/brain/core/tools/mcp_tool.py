@@ -21,6 +21,7 @@ class MCPTool(BaseTool):
     name: str
     description: str
     input_schema: Optional[Dict[str, Any]]
+    output_schema: Optional[Dict[str, Any]]
     server_url: str
     protocol: str
     tool_prefix: str
@@ -219,6 +220,7 @@ class MCPToolFetcher:
                     name=tool_data["name"],
                     description=tool_data.get("description", ""),
                     input_schema=tool_data.get("input_schema"),
+                    output_schema=tool_data.get("output_schema"),
                     server_url=tool_data["server_url"],
                     protocol=tool_data["protocol"],
                     tool_prefix=tool_data["tool_prefix"],

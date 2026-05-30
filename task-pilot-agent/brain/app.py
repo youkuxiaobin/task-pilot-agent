@@ -79,6 +79,17 @@ def _blocked_tool_reasons(
     return reasons
 
 
+def _serialize_available_tool(tool: Any) -> Dict[str, Any]:
+    return {
+        "name": str(getattr(tool, "name", "") or getattr(tool, "full_name", "")),
+        "description": str(getattr(tool, "description", "") or ""),
+        "allowed": True,
+        "blockReason": "",
+        "inputSchema": getattr(tool, "input_schema", None) or {},
+        "outputSchema": getattr(tool, "output_schema", None) or {},
+    }
+
+
 def _normalize_run_environment(value: Optional[str]) -> str:
     normalized = (value or "").strip().lower()
     if normalized in {"local", "sandbox"}:
@@ -739,6 +750,40 @@ async def get_agent(agent_id: str) -> Dict[str, Any]:
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
     return agent.to_dict()
+
+
+@agent_router.get("/tools")
+async def list_agent_tools(agent_id: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    agentRegistry.reload()
+    resolved_agent_id = agent_id or agentSettings.core.agent_id
+    agent_config = agentRegistry.get(resolved_agent_id)
+    ctx = AgentContext(
+        requestId=f"tool-list-{uuid.uuid4()}",
+        sessionId="tool-list",
+        user_id="",
+        agent_id=resolved_agent_id,
+        run_id="tool-list",
+        query="",
+        task=None,
+        printer=None,
+        toolCollection=None,
+        dateInfo=time.strftime("%Y-%m-%d"),
+        isStream=False,
+    )
+    tc = await build_tool_collection(ctx)
+    blocked = sorted(set(tc.blocked_tools))
+    return {
+        "agentId": resolved_agent_id,
+        "items": [_serialize_available_tool(tool) for tool in tc.tool_map.values()],
+        "blockedTools": [
+            {
+                "name": tool_name,
+                "allowed": False,
+                "blockReason": reason,
+            }
+            for tool_name, reason in _blocked_tool_reasons(blocked, agent_config, None).items()
+        ],
+    }
 
 
 @agent_router.get("/agents/{agent_id}/evals")

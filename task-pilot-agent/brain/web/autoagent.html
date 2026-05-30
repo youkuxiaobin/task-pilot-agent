@@ -518,6 +518,7 @@
     running: false,
     tasks: [],
     agents: [],
+    toolCatalog: {},
     defaultAgentId: '',
     activeTaskId: null,
     replaying: false,
@@ -738,6 +739,7 @@
     renderAgentSummary();
     renderToolOptions();
     renderEvalOptions();
+    refreshToolCatalog();
   }
 
   function renderTaskAgentFilter() {
@@ -839,7 +841,8 @@
 
   function renderToolOptions() {
     const agent = getSelectedAgentConfig();
-    const tools = Array.isArray(agent?.tools) ? agent.tools : [];
+    const catalogTools = agent?.id ? state.toolCatalog[agent.id] : null;
+    const tools = Array.isArray(catalogTools) ? catalogTools : (Array.isArray(agent?.tools) ? agent.tools : []);
     dom.toolOptions.innerHTML = '';
     if(!tools.length) {
       dom.toolSummary.textContent = '工具';
@@ -873,6 +876,21 @@
     dom.toolOptions.querySelectorAll('input[type="checkbox"]').forEach(input => {
       input.addEventListener('change', updateToolSummary);
     });
+  }
+
+  async function refreshToolCatalog() {
+    const agent = getSelectedAgentConfig();
+    if(!agent?.id) return;
+    try {
+      const resp = await fetch(`/agent/tools?agent_id=${encodeURIComponent(agent.id)}`);
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      state.toolCatalog[agent.id] = Array.isArray(data.items) ? data.items.concat(Array.isArray(data.blockedTools) ? data.blockedTools : []) : [];
+      if(getSelectedAgentConfig()?.id === agent.id) renderToolOptions();
+    } catch(err) {
+      delete state.toolCatalog[agent.id];
+      renderToolOptions();
+    }
   }
 
   function getSelectedTools() {
@@ -1625,7 +1643,7 @@
   dom.taskCreatedFilter.onchange = refreshTaskList;
   dom.taskDurationFilter.onchange = refreshTaskList;
   dom.taskErrorFilter.onchange = refreshTaskList;
-  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderAgentSummary(); renderToolOptions(); renderEvalOptions(); };
+  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderAgentSummary(); renderToolOptions(); renderEvalOptions(); refreshToolCatalog(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;
   dom.runAllEvals.onclick = runAllEvals;
