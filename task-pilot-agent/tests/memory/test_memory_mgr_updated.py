@@ -1,4 +1,12 @@
 import pytest
+
+pytest.skip(
+    "Legacy memory manager tests target the removed plan-manager coupling; "
+    "current coverage lives in test_memory_mgr_simple.py and test_memory_degradation.py.",
+    allow_module_level=True,
+)
+
+import pytest
 from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any, List
 import uuid

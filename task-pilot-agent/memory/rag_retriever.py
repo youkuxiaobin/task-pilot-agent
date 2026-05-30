@@ -1,20 +1,29 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 import numpy as np
 import asyncio
 from abc import ABC, abstractmethod
+from types import SimpleNamespace
+import logging
+import uuid
 
 # Import config
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from config.config import AgentSettings
+if TYPE_CHECKING:
+    from config.config import AgentSettings
+
+AgentSettings = None
+logger = logging.getLogger(__name__)
 
 # Qdrant imports
 try:
     from qdrant_client import QdrantClient
-    from qdrant_client.models import Filter, FieldCondition, MatchValue, SearchRequest
+    from qdrant_client.models import PointStruct
     QDRANT_AVAILABLE = True
 except ImportError:
+    QdrantClient = None
+    PointStruct = None
     QDRANT_AVAILABLE = False
 
 # Milvus imports
@@ -40,8 +49,8 @@ class QdrantClientWrapper(VectorDBClient):
     def __init__(self, config):
         self.client = QdrantClient(url=config.url)
         self.collection_name = config.collection_name
-        self.retrieval_field = config.retrieval_field  # 通过embedding检索出来的文本内容字段
-        self.query_field = config.query_field  # embedding向量存储字段
+        self.retrieval_field = getattr(config, "retrieval_field", getattr(config, "query_result", "content"))
+        self.query_field = getattr(config, "query_field", "query_emb")
     
     async def search(self, query_embedding: List[float], top_k: int) -> List[Dict[str, Any]]:
         """使用 Qdrant 进行搜索"""
@@ -69,8 +78,33 @@ class QdrantClientWrapper(VectorDBClient):
             return results
             
         except Exception as e:
-            print(f"Qdrant search error: {e}")
+            logger.warning("Qdrant search failed because of %s", e.__class__.__name__)
             return []
+
+    async def add_document(
+        self,
+        document_id: str,
+        embedding: List[float],
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if PointStruct is None:
+            return ""
+        point = PointStruct(
+            id=document_id,
+            vector=embedding,
+            payload={
+                self.retrieval_field: content,
+                "content": content,
+                "metadata": metadata or {},
+            },
+        )
+        self.client.upsert(collection_name=self.collection_name, points=[point])
+        return document_id
+
+    async def delete_document(self, document_id: str) -> bool:
+        self.client.delete(collection_name=self.collection_name, points_selector=[document_id])
+        return True
 
 
 class MilvusClientWrapper(VectorDBClient):
@@ -79,8 +113,8 @@ class MilvusClientWrapper(VectorDBClient):
     def __init__(self, config):
         self.address = config.address
         self.collection_name = config.collection
-        self.retrieval_field = config.retrieval_field  # 通过embedding检索出来的文本内容字段
-        self.query_field = config.query_field  # embedding向量存储字段
+        self.retrieval_field = getattr(config, "retrieval_field", getattr(config, "query_result", "content"))
+        self.query_field = getattr(config, "query_field", "query_emb")
         self.dimension = config.dimension
         self.metric_type = config.metric_type
         self.timeout = config.timeout
@@ -125,16 +159,30 @@ class MilvusClientWrapper(VectorDBClient):
             return results
             
         except Exception as e:
-            print(f"Milvus search error: {e}")
+            logger.warning("Milvus search failed because of %s", e.__class__.__name__)
             return []
 
 
 class RAGRetriever:
     """RAG retrieval functionality supporting both Qdrant and Milvus"""
     
-    def __init__(self, settings: Optional[AgentSettings] = None):
-        self.settings = settings or AgentSettings()
+    def __init__(self, settings: Optional["AgentSettings"] = None):
+        self.settings = settings or self._load_default_settings()
         self.vector_client = self._initialize_vector_client()
+
+    def _load_default_settings(self):
+        try:
+            if AgentSettings is not None:
+                return AgentSettings()
+            from config.config import AgentSettings
+
+            return AgentSettings()
+        except Exception:
+            return SimpleNamespace(
+                memory=SimpleNamespace(rag_retriever_config=None),
+                vector_store=SimpleNamespace(config=SimpleNamespace(url="", collection_name="")),
+                embedder=SimpleNamespace(config=SimpleNamespace(embedding_dims=0)),
+            )
     
     def _initialize_vector_client(self) -> VectorDBClient:
         """根据配置初始化相应的向量数据库客户端"""
@@ -190,7 +238,7 @@ class RAGRetriever:
             return results
             
         except Exception as e:
-            print(f"Error in RAG search: {e}")
+            logger.warning("RAG search failed because of %s", e.__class__.__name__)
             return []
     
     async def _generate_embedding(self, text: str) -> List[float]:
@@ -208,9 +256,37 @@ class RAGRetriever:
         embedding_dim = self.settings.embedder.config.embedding_dims
         return np.random.rand(embedding_dim).tolist()
 
+    async def add_to_knowledge_base(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Add a document when the configured vector client supports writes."""
+        try:
+            document_id = str(uuid.uuid4())
+            embedding = await self._generate_embedding(content)
+            add_document = getattr(self.vector_client, "add_document", None)
+            if not add_document:
+                return ""
+            return await add_document(document_id, embedding, content, metadata or {})
+        except Exception as e:
+            logger.warning("RAG write failed because of %s", e.__class__.__name__)
+            return ""
+
+    async def delete_from_knowledge_base(self, document_id: str) -> bool:
+        """Delete a document when the configured vector client supports deletes."""
+        try:
+            delete_document = getattr(self.vector_client, "delete_document", None)
+            if not delete_document:
+                return False
+            return await delete_document(document_id)
+        except Exception as e:
+            logger.warning("RAG delete failed because of %s", e.__class__.__name__)
+            return False
+
 
 # 工厂函数
-def create_rag_retriever(settings: Optional[AgentSettings] = None) -> RAGRetriever:
+def create_rag_retriever(settings: Optional["AgentSettings"] = None) -> RAGRetriever:
     """创建 RAG 检索器实例"""
     return RAGRetriever(settings)
 

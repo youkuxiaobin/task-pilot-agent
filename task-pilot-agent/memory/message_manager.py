@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from sqlalchemy import create_engine, Column, String, Text, BigInteger, DateTime, func
 from sqlalchemy.sql import text as sql_text
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -12,7 +12,8 @@ from datetime import datetime
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from config.config import AgentSettings, agentSettings
+if TYPE_CHECKING:
+    from config.config import AgentSettings
 
 Base = declarative_base()
 
@@ -35,15 +36,20 @@ class Message(Base):
 class MessageManager:
     """Message management with database storage"""
     
-    def __init__(self, settings: Optional[AgentSettings] = None):
-        self.settings = settings or agentSettings
+    def __init__(self, settings: Optional["AgentSettings"] = None):
+        self.settings = settings or self._load_default_settings()
         self.engine = self._create_engine()
         self.Session = sessionmaker(bind=self.engine)
         self._create_tables()
+
+    def _load_default_settings(self):
+        from config.config import agentSettings
+
+        return agentSettings
     
     def _create_engine(self):
         """Create database engine from settings"""
-        db_cfg = getattr(self.settings, 'db', agentSettings.db)
+        db_cfg = getattr(self.settings, 'db')
         pool_pre_ping = getattr(db_cfg, 'pool_pre_ping', True)
         pool_recycle = getattr(db_cfg, 'pool_recycle', 1800)
         return create_engine(

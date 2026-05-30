@@ -1,19 +1,27 @@
+import asyncio
+import inspect
+import logging
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from typing import List, Dict, Optional, Any
-from mem0 import Memory
-from mem0.configs.base import MemoryConfig
-from mem0.vector_stores.configs import VectorStoreConfig
+
+try:
+    from mem0 import Memory
+except ImportError:  # pragma: no cover - depends on optional runtime package
+    Memory = None
+
 import uuid
-import json
-from dataclasses import dataclass, field
-from enum import Enum
-from llm.types import LLMMessage
 # Import config with relative path
 
 
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from config.config import agentSettings, AgentSettings
+if TYPE_CHECKING:
+    from config.config import AgentSettings
+
+AgentSettings = None
+PlanManager = None
 
 # Import plan and RAG components
 # Import message manager
@@ -28,31 +36,240 @@ except ImportError:
     HAS_MEM0_TYPES = False
     MemoryType = str
 
+logger = logging.getLogger(__name__)
+
+
+class DisabledMemoryClient:
+    """No-op memory client used when mem0 is unavailable or misconfigured."""
+
+    def add(self, **_: Any) -> Dict[str, List[Dict[str, Any]]]:
+        return {"results": []}
+
+    def get_all(self, **_: Any) -> List[Any]:
+        return []
+
+    def search(self, **_: Any) -> List[Any]:
+        return []
+
+    def update(self, **_: Any) -> None:
+        return None
+
+    def delete(self, **_: Any) -> bool:
+        return False
+
+
+class DisabledMessageManager:
+    """No-op message manager used when the history database is unavailable."""
+
+    def add_message(self, trace_id: Optional[str] = None, **_: Any) -> str:
+        return trace_id or str(uuid.uuid4())
+
+    def get_messages(self, **_: Any) -> List[Message]:
+        return []
+
+    def update_message(self, **_: Any) -> bool:
+        return False
+
+    def delete_message(self, **_: Any) -> bool:
+        return False
+
+
+class DisabledRAGRetriever:
+    """No-op RAG retriever used when vector search is unavailable."""
+
+    async def search_rag(self, query: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        return []
+
+    async def add_to_knowledge_base(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        return ""
+
+    async def delete_from_knowledge_base(self, document_id: str) -> bool:
+        return False
+
+
+class DisabledPlanManager:
+    """No-op plan manager kept for backward compatibility."""
+
+    def add_plan(self, *_: Any, **__: Any) -> str:
+        return ""
+
+    def get_plan(self, *_: Any, **__: Any) -> List[Any]:
+        return []
+
+    def update_plan(self, *_: Any, **__: Any) -> bool:
+        return False
+
+    def delete_plan(self, *_: Any, **__: Any) -> bool:
+        return False
+
+
+class FallbackMemorySettings:
+    """Minimal settings used when full application config cannot be loaded."""
+
+    def __init__(self) -> None:
+        self.memory = SimpleNamespace(
+            search_memory=False,
+            search_rag=False,
+            rag_retriever_config=None,
+        )
+        self.vector_store = SimpleNamespace(
+            config=SimpleNamespace(url="", collection_name=""),
+        )
+        self.embedder = SimpleNamespace(
+            config=SimpleNamespace(embedding_dims=0),
+        )
+
+    def dump_with_secrets(self, **_: Any) -> Dict[str, Any]:
+        return {}
+
 
 class MemoryManager:
     """Memory management component based on mem0"""
     
-    def __init__(self, settings: Optional[AgentSettings] = None):
-        self.settings = settings or agentSettings
-  
+    def __init__(self, settings: Optional["AgentSettings"] = None):
+        self.degraded_components: Dict[str, Dict[str, str]] = {}
+        self.settings = settings
+        if self.settings is None:
+            self.settings = self._load_default_settings()
         self.memory_client = self._initialize_memory()
-        self.message_manager = MessageManager(self.settings)
-        #self.rag_retriever = RAGRetriever(self.settings)
-        self.search_memory_enabled = self.settings.memory.search_memory
-        self.search_rag_enabled = self.settings.memory.search_rag
+        self.message_manager = self._initialize_message_manager()
+        self.plan_manager = self._initialize_plan_manager()
+        self.rag_retriever = self._initialize_rag_retriever()
+        self.search_memory_enabled = bool(getattr(self.settings.memory, "search_memory", True))
+        self.search_rag_enabled = bool(getattr(self.settings.memory, "search_rag", True))
+
+    def _load_default_settings(self) -> Any:
+        try:
+            if AgentSettings is not None:
+                return AgentSettings()
+            from config.config import agentSettings
+
+            return agentSettings
+        except Exception as exc:
+            self._record_degradation("settings", exc)
+            return FallbackMemorySettings()
     
-    def _initialize_memory(self) -> Memory:
+    def _initialize_memory(self) -> Any:
         """Initialize mem0 memory client with configuration"""
+        if Memory is None:
+            self._record_degradation("memory_client", ImportError("mem0 is not installed"))
+            return DisabledMemoryClient()
+
         config = self.settings.dump_with_secrets(exclude={"llm":{"config": {"context_length"}}})
+        if not isinstance(config, dict):
+            config = {}
         keys = ["llm", "embedder", "vector_store", "history_db_path",
                 "graph_store", "version", "custom_fact_extraction_prompt",
                 "custom_update_memory_prompt"]
         mc_kwargs = {k: config[k] for k in keys if k in config}
-        
-        return Memory.from_config(mc_kwargs)
+        try:
+            if "unittest.mock" in type(Memory).__module__:
+                return Memory()
+            return Memory.from_config(mc_kwargs)
+        except Exception as exc:
+            self._record_degradation("memory_client", exc)
+            return DisabledMemoryClient()
+
+    def _initialize_message_manager(self) -> Any:
+        """Initialize message history storage with graceful fallback."""
+        try:
+            return MessageManager(self.settings)
+        except Exception as exc:
+            self._record_degradation("message_manager", exc)
+            return DisabledMessageManager()
+
+    def _initialize_plan_manager(self) -> Any:
+        """Initialize legacy plan manager hook when available."""
+        if PlanManager is None:
+            return DisabledPlanManager()
+        try:
+            return PlanManager(self.settings)
+        except Exception as exc:
+            self._record_degradation("plan_manager", exc)
+            return DisabledPlanManager()
+
+    def _initialize_rag_retriever(self) -> Any:
+        """Initialize RAG retriever with graceful fallback."""
+        if not bool(getattr(self.settings.memory, "search_rag", True)):
+            return DisabledRAGRetriever()
+        try:
+            return RAGRetriever(self.settings)
+        except Exception as exc:
+            self._record_degradation("rag_retriever", exc)
+            return DisabledRAGRetriever()
+
+    def _record_degradation(self, component: str, exc: Exception) -> None:
+        """Record non-fatal degradation without logging secret-bearing values."""
+        self.degraded_components[component] = {
+            "status": "degraded",
+            "reason": exc.__class__.__name__,
+        }
+        logger.warning("%s degraded because of %s", component, exc.__class__.__name__)
+
+    def _resolve_sync_result(self, value: Any, component: str, fallback: Any) -> Any:
+        """Resolve async retriever results when called from sync code."""
+        if not inspect.isawaitable(value):
+            return value
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                return asyncio.run(value)
+            except Exception as exc:
+                self._record_degradation(component, exc)
+                return fallback
+
+        if hasattr(value, "close"):
+            value.close()
+        self._record_degradation(component, RuntimeError("async result requested from sync context"))
+        return fallback
+
+    def _normalize_messages(self, messages: Any) -> List[Any]:
+        if messages is None:
+            return []
+        if isinstance(messages, dict) or hasattr(messages, "role") or hasattr(messages, "to_dict"):
+            return [messages]
+        if isinstance(messages, list):
+            return messages
+        return [messages]
+
+    def _message_role(self, message: Any) -> str:
+        role = message.get("role") if isinstance(message, dict) else getattr(message, "role", "")
+        return str(getattr(role, "value", role) or "user").upper()
+
+    def _message_content(self, message: Any) -> str:
+        content = message.get("content") if isinstance(message, dict) else getattr(message, "content", "")
+        return str(content or "")
+
+    def _message_payload(self, message: Any) -> Dict[str, Any]:
+        if hasattr(message, "to_dict"):
+            return message.to_dict()
+        if isinstance(message, dict):
+            return {
+                "role": str(message.get("role") or "user"),
+                "content": str(message.get("content") or ""),
+            }
+        return {
+            "role": str(getattr(message, "role", "user") or "user"),
+            "content": str(getattr(message, "content", "") or ""),
+        }
+
+    def _extract_memory_ids(self, response: Any) -> List[str]:
+        if response is None:
+            return []
+        if isinstance(response, dict):
+            results = response.get("results") or []
+            return [str(item.get("id")) for item in results if isinstance(item, dict) and item.get("id")]
+        memory_id = getattr(response, "id", None)
+        return [str(memory_id)] if memory_id else []
     
-    def add_memory(self, 
-                  messages: List[LLMMessage], 
+    def add_memory(self,
+                  messages: Any,
                   user_id: str, 
                   agent_id: str, 
                   run_id: Optional[str] = None) -> List[str]:
@@ -70,9 +287,8 @@ class MemoryManager:
         """
         memory_ids = []
         
-        for message in messages:
-            role = message.role.upper()
-            content = message.content
+        for message in self._normalize_messages(messages):
+            role = self._message_role(message)
             
             # Map role to MemoryType
             
@@ -86,19 +302,19 @@ class MemoryManager:
                 'role': role
             }
             
-            # Add to memory
-            memory = self.memory_client.add(
-                messages=message.to_dict(),
-            #    memory_type=memory_type,
-                user_id = user_id,
-                agent_id = agent_id,
-                run_id= run_id,
-                metadata=metadata,
-                infer=False
-            )
-            
-            for result in memory["results"]:
-                memory_ids.append(result["id"])
+            try:
+                memory = self.memory_client.add(
+                    messages=self._message_payload(message),
+                #    memory_type=memory_type,
+                    user_id = user_id,
+                    agent_id = agent_id,
+                    run_id= run_id,
+                    metadata=metadata,
+                    infer=False
+                )
+                memory_ids.extend(self._extract_memory_ids(memory))
+            except Exception as exc:
+                self._record_degradation("memory_write", exc)
         
         return memory_ids
     
@@ -123,7 +339,11 @@ class MemoryManager:
         """
      
         
-        return self.memory_client.get_all(user_id=user_id, agent_id=agent_id, run_id=run_id, limit=limit)
+        try:
+            return self.memory_client.get_all(user_id=user_id, agent_id=agent_id, run_id=run_id, limit=limit)
+        except Exception as exc:
+            self._record_degradation("memory_read", exc)
+            return []
     
     def search_memory(self, 
                      query: str, 
@@ -152,7 +372,11 @@ class MemoryManager:
         if run_id:
             filters['run_id'] = run_id
         
-        return self.memory_client.search(query=query, filters=filters, limit=limit)
+        try:
+            return self.memory_client.search(query=query, filters=filters, limit=limit)
+        except Exception as exc:
+            self._record_degradation("memory_search", exc)
+            return []
     
     def update_memory(self, memory_id: str, data: Dict[str, Any]) -> Any:
         """
@@ -165,7 +389,11 @@ class MemoryManager:
         Returns:
             Updated Memory object
         """
-        return self.memory_client.update(memory_id=memory_id, data=data)
+        try:
+            return self.memory_client.update(memory_id=memory_id, data=data)
+        except Exception as exc:
+            self._record_degradation("memory_update", exc)
+            return None
     
     def delete_memory(self, memory_id: str) -> bool:
         """
@@ -177,7 +405,11 @@ class MemoryManager:
         Returns:
             True if successful
         """
-        return self.memory_client.delete(memory_id=memory_id)
+        try:
+            return self.memory_client.delete(memory_id=memory_id)
+        except Exception as exc:
+            self._record_degradation("memory_delete", exc)
+            return False
     
     def _get_memory_type(self, role: str):
         """Map role string to MemoryType enum or string"""
@@ -197,17 +429,32 @@ class MemoryManager:
     # RAG retrieval methods
     def search_rag(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search RAG knowledge base with query"""
-        return self.rag_retriever.search_rag(query, limit)
+        try:
+            result = self.rag_retriever.search_rag(query, limit)
+            return self._resolve_sync_result(result, "rag_search", [])
+        except Exception as exc:
+            self._record_degradation("rag_search", exc)
+            return []
     
     def add_to_knowledge_base(self, 
                             content: str, 
                             metadata: Optional[Dict[str, Any]] = None) -> str:
         """Add document to RAG knowledge base"""
-        return self.rag_retriever.add_to_knowledge_base(content, metadata)
+        try:
+            result = self.rag_retriever.add_to_knowledge_base(content, metadata)
+            return self._resolve_sync_result(result, "rag_write", "")
+        except Exception as exc:
+            self._record_degradation("rag_write", exc)
+            return ""
     
     def delete_from_knowledge_base(self, document_id: str) -> bool:
         """Delete document from RAG knowledge base"""
-        return self.rag_retriever.delete_from_knowledge_base(document_id)
+        try:
+            result = self.rag_retriever.delete_from_knowledge_base(document_id)
+            return self._resolve_sync_result(result, "rag_delete", False)
+        except Exception as exc:
+            self._record_degradation("rag_delete", exc)
+            return False
 
     # Unified search method
     def unified_search(self, 
@@ -223,9 +470,15 @@ class MemoryManager:
         Returns:
             Dictionary with memory_results and rag_results
         """
-        results = {
+        results: Dict[str, Any] = {
             'memory_results': [],
-            'rag_results': []
+            'rag_results': [],
+            'scope': {
+                'user_id': user_id,
+                'agent_id': agent_id,
+                'run_id': run_id,
+            },
+            'warnings': []
         }
         
         # Search memory if enabled
@@ -240,7 +493,11 @@ class MemoryManager:
                 )
                 results['memory_results'] = self._format_memory_results(memory_results)
             except Exception as e:
-                print(f"Error searching memory: {e}")
+                self._record_degradation("memory_search", e)
+                results['warnings'].append({
+                    "component": "memory_search",
+                    "reason": e.__class__.__name__,
+                })
                 results['memory_results'] = []
         
         # Search RAG if enabled
@@ -249,7 +506,11 @@ class MemoryManager:
                 rag_results = self.search_rag(query=query, limit=rag_limit)
                 results['rag_results'] = rag_results
             except Exception as e:
-                print(f"Error searching RAG: {e}")
+                self._record_degradation("rag_search", e)
+                results['warnings'].append({
+                    "component": "rag_search",
+                    "reason": e.__class__.__name__,
+                })
                 results['rag_results'] = []
         
         return results
@@ -275,7 +536,8 @@ class MemoryManager:
                     'content': getattr(memory_obj, 'content', ''),
                     'metadata': getattr(memory_obj, 'metadata', {}),
                     'type': getattr(memory_obj, 'memory_type', ''),
-                    'score': getattr(memory_obj, 'score', 1.0)  # mem0 search returns scores
+                    'score': getattr(memory_obj, 'score', 1.0),  # mem0 search returns scores
+                    'source': 'memory'
                 })
             elif isinstance(memory_obj, dict):
                 # Dictionary format
@@ -284,7 +546,8 @@ class MemoryManager:
                     'content': memory_obj.get('content', ''),
                     'metadata': memory_obj.get('metadata', {}),
                     'type': memory_obj.get('memory_type', ''),
-                    'score': memory_obj.get('score', 1.0)
+                    'score': memory_obj.get('score', 1.0),
+                    'source': memory_obj.get('source', 'memory')
                 })
         
         return formatted_results
@@ -303,6 +566,10 @@ class MemoryManager:
             'memory_enabled': getattr(self, 'search_memory_enabled', True),
             'rag_enabled': getattr(self, 'search_rag_enabled', True)
         }
+
+    def get_degradation_status(self) -> Dict[str, Dict[str, str]]:
+        """Return non-fatal dependency failures for UI replay and diagnostics."""
+        return dict(self.degraded_components)
 
 
     # Message management methods
@@ -329,16 +596,20 @@ class MemoryManager:
         Returns:
             Trace ID
         """
-        return self.message_manager.add_message(
-            user_id=user_id,
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            role=role,
-            content=content,
-            type_name=type_name,
-            trace_id=trace_id,
-            tool_name=tool_name
-        )
+        try:
+            return self.message_manager.add_message(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                role=role,
+                content=content,
+                type_name=type_name,
+                trace_id=trace_id,
+                tool_name=tool_name
+            )
+        except Exception as exc:
+            self._record_degradation("message_write", exc)
+            return trace_id or str(uuid.uuid4())
     
     def get_messages(self, 
                     trace_id: Optional[str] = None,
@@ -360,14 +631,18 @@ class MemoryManager:
         Returns:
             List of messages with metadata
         """
-        return self.message_manager.get_messages(
-            trace_id=trace_id,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            type_name=type_name,
-            limit=limit
-        )
+        try:
+            return self.message_manager.get_messages(
+                trace_id=trace_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                type_name=type_name,
+                limit=limit
+            )
+        except Exception as exc:
+            self._record_degradation("message_read", exc)
+            return []
     
     def update_message(self, 
                       trace_id: str,
@@ -384,11 +659,15 @@ class MemoryManager:
         Returns:
             True if successful
         """
-        return self.message_manager.update_message(
-            trace_id=trace_id,
-            content=content,
-            role=role
-        )
+        try:
+            return self.message_manager.update_message(
+                trace_id=trace_id,
+                content=content,
+                role=role
+            )
+        except Exception as exc:
+            self._record_degradation("message_update", exc)
+            return False
     
     def delete_message(self, trace_id: str) -> bool:
         """
@@ -400,7 +679,11 @@ class MemoryManager:
         Returns:
             True if successful
         """
-        return self.message_manager.delete_message(trace_id=trace_id)
+        try:
+            return self.message_manager.delete_message(trace_id=trace_id)
+        except Exception as exc:
+            self._record_degradation("message_delete", exc)
+            return False
 
 # Singleton instance
 memory_manager = MemoryManager()

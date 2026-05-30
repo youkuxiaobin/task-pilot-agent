@@ -13,8 +13,7 @@ def run_memory_tests():
     """Run all memory module tests"""
     test_files = [
         "test_memory_mgr_simple.py",
-        "test_memory_mgr_updated.py", 
-        "test_plan_manager.py",
+        "test_memory_degradation.py",
         "test_rag_retriever.py"
     ]
     
