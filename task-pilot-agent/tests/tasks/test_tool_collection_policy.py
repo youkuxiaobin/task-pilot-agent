@@ -203,6 +203,52 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
     assert collection.last_execution["completedAt"]
 
 
+def test_tool_collection_blocks_sandbox_paths_outside_task_workspace(tmp_path):
+    work_dir = tmp_path / "task-work"
+    work_dir.mkdir()
+    outside_path = tmp_path / "outside.txt"
+    collection = ToolCollection()
+    tool = DummyTool("mcp_local:file_writer")
+    collection.add_tool(tool)
+    printer = FakePrinter()
+    collection.agentContext = SimpleNamespace(
+        printer=printer,
+        run_environment="sandbox",
+        work_dir=str(work_dir),
+        task_id="task-1",
+    )
+
+    result = asyncio.run(collection.execute("mcp_local:file_writer", {"output_path": str(outside_path)}))
+
+    assert "must stay inside task workspace" in result
+    assert tool.called is False
+    assert collection.last_execution is not None
+    assert collection.last_execution["failed"] is True
+    assert collection.last_execution["error"] == result
+    assert printer.events[-1]["message_type"] == "tool_call"
+
+
+def test_tool_collection_allows_sandbox_paths_inside_task_workspace(tmp_path):
+    work_dir = tmp_path / "task-work"
+    work_dir.mkdir()
+    collection = ToolCollection()
+    tool = DummyTool("mcp_local:file_writer")
+    collection.add_tool(tool)
+    collection.agentContext = SimpleNamespace(
+        printer=FakePrinter(),
+        run_environment="sandbox",
+        work_dir=str(work_dir),
+        task_id="task-1",
+    )
+
+    result = asyncio.run(collection.execute("mcp_local:file_writer", {"output_path": "nested/result.txt"}))
+
+    assert result == "ok:mcp_local:file_writer:None"
+    assert tool.called is True
+    assert collection.last_execution is not None
+    assert collection.last_execution["failed"] is False
+
+
 def test_agent_tool_result_metadata_includes_runtime_boundary():
     from brain.core.agents.ReActAgentImp import ReActAgentImp
     from brain.core.agents.executor_agent import ExecutorAgent

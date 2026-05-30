@@ -3,9 +3,10 @@ import asyncio
 import fnmatch
 import json
 import logging
+from pathlib import Path
 import time
 from datetime import datetime, timezone
-from typing import Callable, Dict, Any, Optional, List
+from typing import Callable, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 
 try:
@@ -124,6 +125,17 @@ class ToolCollection:
                 error="tool not found",
             )
             return None
+        boundary_error = self._validate_runtime_boundary(input_obj)
+        if boundary_error:
+            self.last_execution = self._execution_metadata(
+                name,
+                started_at,
+                started_at_wall,
+                failed=True,
+                error=boundary_error,
+            )
+            self._emit_tool_call(name, input_obj)
+            return boundary_error
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
         self._emit_tool_call(name, input_obj)
         try:
@@ -266,6 +278,61 @@ class ToolCollection:
             self.getDigitalEmployee(name),
             True,
         )
+
+    def _validate_runtime_boundary(self, input_obj: Dict[str, Any]) -> Optional[str]:
+        context = self.agentContext
+        if context is None:
+            return None
+        if getattr(context, "run_environment", None) != "sandbox":
+            return None
+        work_dir = getattr(context, "work_dir", None)
+        if not work_dir:
+            return None
+
+        root = Path(str(work_dir)).expanduser().resolve()
+        for key_path, value in self._iter_path_values(input_obj):
+            violation = self._path_boundary_violation(root, value)
+            if violation:
+                return f"path argument `{key_path}` must stay inside task workspace: {violation}"
+        return None
+
+    def _iter_path_values(self, value: Any, key_path: str = "") -> List[Tuple[str, str]]:
+        values: List[Tuple[str, str]] = []
+        if isinstance(value, dict):
+            for key, item in value.items():
+                next_path = f"{key_path}.{key}" if key_path else str(key)
+                key_name = str(key).lower()
+                if isinstance(item, str) and self._is_path_argument(key_name, item):
+                    values.append((next_path, item))
+                else:
+                    values.extend(self._iter_path_values(item, next_path))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                values.extend(self._iter_path_values(item, f"{key_path}[{index}]"))
+        return values
+
+    @staticmethod
+    def _is_path_argument(key_name: str, value: str) -> bool:
+        if not value or "://" in value:
+            return False
+        if any(part in key_name for part in ("path", "directory", "folder", "workspace", "work_dir")):
+            return True
+        if key_name == "dir" or key_name.endswith("_dir") or key_name.endswith("-dir"):
+            return True
+        return value.startswith(("/", "~", "../", "./"))
+
+    @staticmethod
+    def _path_boundary_violation(root: Path, value: str) -> Optional[str]:
+        try:
+            raw_path = Path(value).expanduser()
+            candidate = raw_path if raw_path.is_absolute() else root / raw_path
+            resolved = candidate.resolve()
+            resolved.relative_to(root)
+        except ValueError:
+            return str(Path(value).expanduser())
+        except OSError:
+            return str(Path(value).expanduser())
+        return None
 
     def to_openai_tools(self) -> List[Dict[str, Any]]:
         """将ToolCollection中的MCPTool转换为OpenAI function call格式"""
