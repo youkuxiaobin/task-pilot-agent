@@ -20,10 +20,11 @@ class PlanFunctionTool:
     def getDescription(self) -> str:
         return (
             "Create/maintain an executable plan via a deterministic state machine. "
-            "Supported commands: create / continue / update / finish. "
+            "Supported commands: create / continue / update / mark_step / finish. "
             "'create' starts a new plan - provide a title that explains the goal plus steps that describe the workflow. "
             "'update' adjusts the existing plan when it no longer matches the latest user question - explain why and supply the revised title and steps. "
             "'continue' keeps executing the current plan without structural changes. "
+            "'mark_step' records one step as running, completed, or failed. "
             "'finish' ends planning when the query is solved or no further tool work is needed; gather tool notes if available."
         )
 
@@ -38,7 +39,7 @@ class PlanFunctionTool:
                 },
                 "command": {
                     "type": "string",
-                    "enum": ["create", "continue", "update", "finish"],
+                    "enum": ["create", "continue", "update", "mark_step", "finish"],
                     "description": "Command to execute."
                 },
                 "rationale": {
@@ -67,6 +68,20 @@ class PlanFunctionTool:
                     "type": "string",
                     "description": "The next step id or description to execute (e.g., 'S1' or 'Step 3 ...')."
                 },
+                "step_index": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "1-based step index to update when command is mark_step."
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["running", "completed", "failed"],
+                    "description": "Step status for mark_step."
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Optional result, error, or progress note for mark_step."
+                },
                 "finish_reason": {
                     "type": "string",
                     "description": "Why planning can stop; cite concrete evidence anchors."
@@ -88,6 +103,11 @@ class PlanFunctionTool:
                 "title": "UPDATE",
                 "properties": { "command": { "const": "update" } },
                 "required": ["title", "steps", "current_step"]
+                },
+                {
+                "title": "MARK_STEP",
+                "properties": { "command": { "const": "mark_step" } },
+                "required": ["step_index", "status"]
                 },
                 {
                 "title": "FINISH",
@@ -122,14 +142,16 @@ class PlanFunctionTool:
         if not isinstance(params, dict):
             raise ValueError("Tool parameters must be dict")
         command = params.get("command")
-        if command not in {"create", "continue", "update", "finish"}:
-            raise ValueError("command 必须是 create/continue/update/finish 之一")
+        if command not in {"create", "continue", "update", "mark_step", "finish"}:
+            raise ValueError("command 必须是 create/continue/update/mark_step/finish 之一")
         if command == "create":
             return self._create(params)
         if command == "continue":
             return self._continue(params)
         if command == "update":
             return self._update(params)
+        if command == "mark_step":
+            return self._mark_step(params)
         return self._finish()
 
     # --- command handlers -------------------------------------------------
@@ -165,6 +187,18 @@ class PlanFunctionTool:
     def _continue(self, params: Dict[str, Any]) -> str:
         self.current_command = "continue"
         return "计划已继续执行"
+
+    def _mark_step(self, params: Dict[str, Any]) -> str:
+        self.current_command = "mark_step"
+        if self._plan is None:
+            raise ValueError("尚未创建 plan，无法标记步骤")
+        step_index = params.get("step_index")
+        if not isinstance(step_index, int):
+            raise ValueError("mark_step 命令需要 step_index")
+        status = str(params.get("status") or "")
+        note = params.get("note")
+        self._plan.mark_step(step_index, status, str(note) if note is not None else None)
+        return "计划步骤已更新"
 
     def _finish(self) -> str:
         self.current_command = "finish"

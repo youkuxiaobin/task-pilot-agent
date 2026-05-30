@@ -57,6 +57,43 @@ def test_builtin_plan_tool_creates_plan_and_emits_plan_event():
     assert printer.events[-1]["message"]["tool_result"] == "计划已创建"
 
 
+def test_builtin_plan_tool_marks_step_status_and_emits_plan_event():
+    printer = FakePrinter()
+    tool = BuiltinPlanTool(SimpleNamespace(printer=printer))
+
+    asyncio.run(
+        tool.execute(
+            {
+                "summary": "make a plan",
+                "command": "create",
+                "rationale": {"decision": "task needs steps"},
+                "title": "Demo Plan",
+                "steps": ["Search", "Write"],
+                "current_step": "Search",
+            }
+        )
+    )
+    result = asyncio.run(
+        tool.execute(
+            {
+                "summary": "search done",
+                "command": "mark_step",
+                "rationale": {"decision": "step finished"},
+                "step_index": 1,
+                "status": "completed",
+                "note": "found sources",
+            }
+        )
+    )
+
+    payload = json.loads(result)
+    assert payload["message"] == "计划步骤已更新"
+    assert payload["plan"]["step_status"] == ["completed", "not_started"]
+    assert payload["plan"]["notes"] == ["found sources", ""]
+    assert printer.events[-1]["message_type"] == "plan"
+    assert printer.events[-1]["message"]["command"] == "mark_step"
+
+
 def test_builtin_plan_tool_is_visible_as_openai_tool_when_allowed():
     collection = ToolCollection()
     collection.set_allowed_tool_patterns(["builtin:plan_tool"])
@@ -70,7 +107,13 @@ def test_builtin_plan_tool_is_visible_as_openai_tool_when_allowed():
         "create",
         "continue",
         "update",
+        "mark_step",
         "finish",
+    ]
+    assert specs[0]["function"]["parameters"]["properties"]["status"]["enum"] == [
+        "running",
+        "completed",
+        "failed",
     ]
 
 

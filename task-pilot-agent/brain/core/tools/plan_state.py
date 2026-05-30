@@ -39,6 +39,16 @@ class PlanState:
         self.notes = new_notes
         self._sync_lengths()
 
+    def mark_step(self, step_index: int, status: str, note: Optional[str] = None) -> None:
+        if status not in {"running", "completed", "failed"}:
+            raise ValueError("step status must be running/completed/failed")
+        if step_index < 1 or step_index > len(self.steps):
+            raise ValueError("step_index is out of range")
+        idx = step_index - 1
+        self.step_status[idx] = status
+        if note is not None:
+            self.notes[idx] = note
+
     def mark_finished(self) -> None:
         self.step_status = ["completed" for _ in self.steps]
 
