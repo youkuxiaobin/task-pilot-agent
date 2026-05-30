@@ -143,6 +143,7 @@ class ToolCollection:
                 failed=True,
                 error=error,
             )
+            self._emit_tool_result(name, input_obj)
             raise
         except Exception as exc:
             self.last_execution = self._execution_metadata(
@@ -152,6 +153,7 @@ class ToolCollection:
                 failed=True,
                 error=str(exc),
             )
+            self._emit_tool_result(name, input_obj)
             raise
 
     def _execution_metadata(
@@ -246,6 +248,23 @@ class ToolCollection:
             },
             None,
             False,
+        )
+
+    def _emit_tool_result(self, name: str, input_obj: Dict[str, Any]) -> None:
+        printer = getattr(self.agentContext, "printer", None)
+        if printer is None:
+            return
+        metadata = self.last_execution if isinstance(self.last_execution, dict) else {}
+        printer.send(
+            None,
+            "tool_result",
+            {
+                "tool": name,
+                "arguments": input_obj,
+                **metadata,
+            },
+            self.getDigitalEmployee(name),
+            True,
         )
 
     def to_openai_tools(self) -> List[Dict[str, Any]]:

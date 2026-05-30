@@ -148,6 +148,8 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
 
     failing_tool = FailingTool("mcp_local:broken")
     collection.add_tool(failing_tool)
+    printer = FakePrinter()
+    collection.agentContext = SimpleNamespace(printer=printer)
 
     with pytest.raises(RuntimeError):
         asyncio.run(collection.execute("mcp_local:broken", {"value": "query"}))
@@ -157,6 +159,10 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
     assert collection.last_execution["failed"] is True
     assert collection.last_execution["durationMs"] >= 0
     assert collection.last_execution["error"] == "boom"
+    assert printer.events[-1]["message_type"] == "tool_result"
+    assert printer.events[-1]["message"]["tool"] == "mcp_local:broken"
+    assert printer.events[-1]["message"]["failed"] is True
+    assert printer.events[-1]["message"]["error"] == "boom"
 
 
 def test_tool_collection_records_audit_context_in_events_and_metadata():
@@ -235,6 +241,8 @@ def test_tool_collection_enforces_configured_tool_timeout():
     slow_tool = SlowTool("mcp_local:slow")
     collection.add_tool(slow_tool)
     collection.set_tool_timeout_patterns({"mcp_local:slow": 0.01})
+    printer = FakePrinter()
+    collection.agentContext = SimpleNamespace(printer=printer)
 
     with pytest.raises(asyncio.TimeoutError):
         asyncio.run(collection.execute("mcp_local:slow", {"sleep": 0.2}))
@@ -244,3 +252,6 @@ def test_tool_collection_enforces_configured_tool_timeout():
     assert collection.last_execution["tool"] == "mcp_local:slow"
     assert collection.last_execution["failed"] is True
     assert collection.last_execution["error"] == "tool `mcp_local:slow` timed out"
+    assert printer.events[-1]["message_type"] == "tool_result"
+    assert printer.events[-1]["message"]["failed"] is True
+    assert printer.events[-1]["message"]["error"] == "tool `mcp_local:slow` timed out"
