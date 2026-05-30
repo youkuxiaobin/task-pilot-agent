@@ -3,6 +3,8 @@ import json
 import time
 from typing import Any, Dict, Optional, Callable
 
+from brain.core.sanitization import sanitize_payload
+
 
 class Printer:
     def send(self, message_id: Optional[str], message_type: str, message: Any, digital_employee: Optional[str], is_final: bool) -> None:
@@ -72,9 +74,10 @@ class SSEPrinter(Printer):
                 data["resultMap"] = payload
                 data["result"] = str(payload.get("taskSummary", ""))
 
+        sanitized_data = sanitize_payload(data)
         if self.event_sink:
-            self.event_sink(data)
-        self.enqueue("data: " + json.dumps(data, ensure_ascii=False) + "\n\n")
+            self.event_sink(sanitized_data)
+        self.enqueue("data: " + json.dumps(sanitized_data, ensure_ascii=False) + "\n\n")
 
     def close(self) -> None:
         self.enqueue("data: [DONE]\n\n")

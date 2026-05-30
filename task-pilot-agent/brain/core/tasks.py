@@ -5,6 +5,7 @@ import time
 import uuid
 from typing import Any, Dict, Iterable, List, Optional
 
+from brain.core.sanitization import sanitize_payload
 from sqlalchemy import BigInteger, Column, Integer, String, Text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -31,17 +32,6 @@ FINAL_STATUSES = {
     AgentTaskStatus.FAILED,
     AgentTaskStatus.CANCELLED,
 }
-
-SENSITIVE_KEYWORDS = (
-    "api_key",
-    "apikey",
-    "authorization",
-    "cookie",
-    "password",
-    "secret",
-    "token",
-)
-
 
 class AgentTaskRecord(Base):
     __tablename__ = "meta_agent_task"
@@ -93,23 +83,6 @@ def _json_loads(value: Optional[str], default: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return default
-
-
-def sanitize_payload(value: Any) -> Any:
-    if isinstance(value, dict):
-        sanitized: Dict[str, Any] = {}
-        for key, item in value.items():
-            normalized_key = str(key).lower()
-            if any(keyword in normalized_key for keyword in SENSITIVE_KEYWORDS):
-                sanitized[key] = "***"
-            else:
-                sanitized[key] = sanitize_payload(item)
-        return sanitized
-    if isinstance(value, list):
-        return [sanitize_payload(item) for item in value]
-    if isinstance(value, tuple):
-        return [sanitize_payload(item) for item in value]
-    return value
 
 
 def _detach_records(session: Session, records: Iterable[Any]) -> None:
