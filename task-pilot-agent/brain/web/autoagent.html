@@ -108,6 +108,8 @@
       background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 10;
     }
     .sidebar-toggle { display: none; border: 1px solid rgba(148, 163, 184, 0.25); background: rgba(255,255,255,0.04); color: var(--text-main); border-radius: 6px; padding: 0.25rem 0.55rem; font-size: 1rem; cursor: pointer; }
+    .task-actions { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+    .task-actions[hidden] { display: none; }
     .task-meta { color: var(--text-muted); font-size: 0.78rem; max-width: 48vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .status-indicator { font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; transition: background 0.3s; }
@@ -401,7 +403,10 @@
         <div id="status-dot" class="status-dot"></div>
         <span id="status-text">就绪</span>
       </div>
-      <div id="task-meta" class="task-meta"></div>
+      <div id="task-actions" class="task-actions" hidden>
+        <div id="task-meta" class="task-meta"></div>
+        <button id="retry-task" class="btn-small" type="button" hidden>重试</button>
+      </div>
     </div>
 
     <div id="chat-messages" class="chat-container">
@@ -489,7 +494,9 @@
     chatMessages: document.getElementById('chat-messages'),
     statusText: document.getElementById('status-text'),
     statusDot: document.getElementById('status-dot'),
+    taskActions: document.getElementById('task-actions'),
     taskMeta: document.getElementById('task-meta'),
+    retryTask: document.getElementById('retry-task'),
     taskInputPanel: document.getElementById('task-input-panel'),
     taskInputText: document.getElementById('task-input-text'),
     sendTaskInput: document.getElementById('send-task-input'),
@@ -586,9 +593,13 @@
   function updateTaskMeta(session) {
     if(!session || !session.taskId) {
       dom.taskMeta.textContent = '';
+      dom.taskActions.hidden = true;
+      dom.retryTask.hidden = true;
+      dom.retryTask.disabled = true;
       updateTaskInputPanel(null);
       return;
     }
+    dom.taskActions.hidden = false;
     const usageText = formatUsageMeta(session.usage);
     const parts = [
       `任务 ${session.taskId}`,
@@ -600,6 +611,9 @@
       usageText,
     ].filter(Boolean);
     dom.taskMeta.textContent = parts.join(' · ');
+    const retryable = ['completed', 'failed', 'cancelled'].includes(session.taskStatus || '');
+    dom.retryTask.hidden = !retryable;
+    dom.retryTask.disabled = state.running || !retryable;
     updateTaskInputPanel(session);
   }
 
@@ -1715,9 +1729,34 @@
     }
   }
 
+  async function retryTask() {
+    const session = getActiveSession();
+    if(!session?.taskId || state.running) return;
+    dom.retryTask.disabled = true;
+    setUIStatus('任务重试中...', true);
+    try {
+      const resp = await fetch(`/agent/tasks/${encodeURIComponent(session.taskId)}/retry`, { method: 'POST' });
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const task = await resp.json();
+      const retryTaskId = task.taskId || task.task_id;
+      await refreshTaskList();
+      if(retryTaskId) await loadTask(retryTaskId);
+    } catch(err) {
+      upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">重试任务失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
+    } finally {
+      setUIStatus('就绪', false);
+      updateTaskMeta(getActiveSession());
+    }
+  }
+
   function setUIStatus(text, running) {
-    state.running = running; dom.statusText.textContent = text; dom.statusDot.className = running ? 'status-dot active' : 'status-dot';
-    dom.send.disabled = running; dom.stop.disabled = !running;
+    state.running = running;
+    dom.statusText.textContent = text;
+    dom.statusDot.className = running ? 'status-dot active' : 'status-dot';
+    dom.send.disabled = running;
+    dom.stop.disabled = !running;
+    const session = getActiveSession();
+    if(session?.taskId) updateTaskMeta(session);
   }
   function parseSSE(chunk) {
     const lines = chunk.split('\n'); let event = { type: 'message', json: null, raw: chunk };
@@ -1745,6 +1784,7 @@
   dom.runAllEvals.onclick = runAllEvals;
   dom.fileInput.onchange = updateFileSummary;
   dom.sendTaskInput.onclick = sendTaskInput;
+  dom.retryTask.onclick = retryTask;
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;
   dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };
