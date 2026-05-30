@@ -173,6 +173,8 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
         requestId="request-1",
         run_id="run-1",
         sessionId="session-1",
+        run_environment="sandbox",
+        work_dir="/tmp/task-work",
     )
 
     result = asyncio.run(collection.execute("mcp_local:deepsearch", {"value": "query"}))
@@ -186,6 +188,8 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
         "requestId": "request-1",
         "runId": "run-1",
         "sessionId": "session-1",
+        "runEnvironment": "sandbox",
+        "workDir": "/tmp/task-work",
     }.items():
         assert collection.last_execution[key] == expected
         assert printer.events[-1]["message"][key] == expected

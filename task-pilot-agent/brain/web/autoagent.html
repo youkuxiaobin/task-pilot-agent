@@ -1046,7 +1046,7 @@
   function mapTaskEventType(eventType) {
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
-    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'tool_policy_applied' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
   }
 
@@ -1064,6 +1064,11 @@
     if(eventType === 'task_cancelled') return '任务已取消';
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
+    if(eventType === 'runtime_boundary_applied') {
+      const env = data.runEnvironment || 'local';
+      const rootCount = Array.isArray(data.writableRoots) ? data.writableRoots.length : 0;
+      return `运行边界已应用：${env}${rootCount ? ` · 可写目录 ${rootCount} 个` : ''}`;
+    }
     if(eventType === 'tool_policy_applied') {
       const available = Array.isArray(data.availableTools) ? data.availableTools.length : 0;
       const blocked = Array.isArray(data.blockedTools) ? data.blockedTools.length : 0;

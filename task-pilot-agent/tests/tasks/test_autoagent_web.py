@@ -53,6 +53,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "不可用",
         "tool_policy_applied",
         "工具策略已应用",
+        "runtime_boundary_applied",
+        "运行边界已应用",
         "run_environment",
         "runEnvironment",
         "renderEvalOptions",

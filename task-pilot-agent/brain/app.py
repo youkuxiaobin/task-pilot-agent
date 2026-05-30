@@ -546,6 +546,19 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             _convert_agent_messages(ctx, messages)
             logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
 
+            task_store.add_event(
+                task_id,
+                "runtime_boundary_applied",
+                {
+                    "runEnvironment": ctx.run_environment,
+                    "workDir": ctx.work_dir,
+                    "writableRoots": [ctx.work_dir] if ctx.work_dir else [],
+                    "artifactPolicy": "task_workspace_only",
+                },
+                trace_id=trace_id,
+                source="runtime",
+            )
+
             tc = await build_tool_collection(ctx)
             ctx.toolCollection = tc
             task_store.add_event(

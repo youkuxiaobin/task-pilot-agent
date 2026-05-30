@@ -194,6 +194,8 @@ class ToolCollection:
             "requestId": getattr(context, "requestId", None),
             "runId": getattr(context, "run_id", None),
             "sessionId": getattr(context, "sessionId", None),
+            "runEnvironment": getattr(context, "run_environment", None),
+            "workDir": getattr(context, "work_dir", None),
         }
         return {key: str(value) for key, value in values.items() if value}
 

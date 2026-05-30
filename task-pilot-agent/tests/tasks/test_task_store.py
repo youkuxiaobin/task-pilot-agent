@@ -214,6 +214,27 @@ def test_task_workspace_sanitizes_task_id(task_modules, tmp_path):
     assert Path(payload["workDir"]).is_dir()
 
 
+def test_task_create_forces_workspace_under_root(task_modules, tmp_path):
+    store = task_modules.TaskStore()
+    outside_dir = tmp_path / "outside-workspace"
+    outside_dir.mkdir()
+
+    task = store.create_task(
+        task_id="forced-workspace",
+        trace_id="trace-forced-workspace",
+        metadata={"workDir": str(outside_dir)},
+    )
+
+    payload = task_modules.serialize_task(task)
+    assert payload["workDir"].startswith(str(tmp_path / "workspaces"))
+    assert payload["workDir"] != str(outside_dir)
+
+    outside_file = outside_dir / "leak.txt"
+    outside_file.write_text("outside", encoding="utf-8")
+    with pytest.raises(ValueError, match="inside task workspace"):
+        store.add_artifact("forced-workspace", str(outside_file))
+
+
 def test_task_artifacts_are_scoped_to_task_workspace(task_modules, tmp_path):
     store = task_modules.TaskStore()
     task = store.create_task(task_id="artifact-task", trace_id="trace-artifact")
@@ -352,6 +373,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert "task_created" in event_types
     assert "task_running" in event_types
     assert "agent_started" in event_types
+    assert "runtime_boundary_applied" in event_types
     assert "tool_policy_applied" in event_types
     assert "tool_result" in event_types
     assert "task_artifact_added" in event_types
@@ -369,6 +391,13 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     task_payload = task_modules.serialize_task(store.get_task("trace-autoagent"))
     assert task_payload["usage"]["toolResults"] == 1
     assert task_payload["usage"]["toolDurationMs"] == 25
+    runtime_event = next(
+        event for event in store.list_events("trace-autoagent") if event.event_type == "runtime_boundary_applied"
+    )
+    runtime_payload = task_modules.serialize_event(runtime_event)["payload"]
+    assert runtime_payload["runEnvironment"] == "sandbox"
+    assert runtime_payload["workDir"] == task_payload["workDir"]
+    assert runtime_payload["artifactPolicy"] == "task_workspace_only"
 
     streamed_events = [
         json.loads(item.removeprefix("data: ").strip())

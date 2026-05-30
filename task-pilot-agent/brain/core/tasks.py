@@ -187,8 +187,9 @@ class TaskStore:
                 return existing
 
             metadata_payload = sanitize_payload(metadata or {})
-            if isinstance(metadata_payload, dict) and not metadata_payload.get("workDir"):
-                metadata_payload["workDir"] = str(prepare_task_workspace(resolved_task_id))
+            if not isinstance(metadata_payload, dict):
+                metadata_payload = {}
+            metadata_payload["workDir"] = str(prepare_task_workspace(resolved_task_id))
 
             record = AgentTaskRecord(
                 task_id=resolved_task_id,
@@ -597,11 +598,14 @@ class TaskStore:
 
 
 def _task_work_dir_from_record(record: AgentTaskRecord) -> Path:
+    expected_work_dir = prepare_task_workspace(record.task_id)
     metadata = _json_loads(record.metadata_json, {})
     work_dir = metadata.get("workDir") if isinstance(metadata, dict) else None
     if work_dir:
-        return Path(work_dir).expanduser().resolve()
-    return prepare_task_workspace(record.task_id)
+        resolved = Path(work_dir).expanduser().resolve()
+        if resolved == expected_work_dir:
+            return resolved
+    return expected_work_dir
 
 
 def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
