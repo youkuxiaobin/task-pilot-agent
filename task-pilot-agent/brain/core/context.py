@@ -36,6 +36,8 @@ class AgentContext:
     taskProductFiles: List[FileItem] = field(default_factory=list)
     mode: str = "plans_executor"
     outputStyle: str = "markdown"
+    task_id: Optional[str] = None
+    agent_system_prompt: Optional[str] = None
 
     def serialize_messages(self) -> List[Dict[str, str]]:
         """Convert stored conversation messages into a simple list for downstream prompts."""
@@ -53,4 +55,3 @@ class AgentContext:
                 continue
             serialized.append({"role": role, "content": content})
         return serialized
-

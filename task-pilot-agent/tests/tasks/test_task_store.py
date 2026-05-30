@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import importlib
+import asyncio
+import json
+from pathlib import Path
+from typing import Any, List
+
+import pytest
+
+
+@pytest.fixture()
+def task_modules(tmp_path, monkeypatch):
+    monkeypatch.setenv("FILE_DB_URL", f"sqlite:///{tmp_path / 'tasks.db'}")
+    monkeypatch.setenv(
+        "APP_CONFIG_FILE",
+        str(Path(__file__).resolve().parents[3] / "config" / "config.yaml"),
+    )
+
+    import file.db_engine as db_engine
+
+    db_engine.get_engine.cache_clear()
+
+    import brain.core.tasks as tasks
+
+    tasks = importlib.reload(tasks)
+    yield tasks
+
+    db_engine.get_engine.cache_clear()
+
+
+def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_modules):
+    store = task_modules.TaskStore()
+
+    created = store.create_task(
+        task_id="task-1",
+        trace_id="trace-1",
+        conversation_id="conversation-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        mode="react",
+        output_style="markdown",
+        input_text="search something",
+        metadata={
+            "source": "test",
+            "api_key": "sk-secret",
+            "nested": {"token": "hidden", "keep": "visible"},
+        },
+    )
+
+    created_payload = task_modules.serialize_task(created)
+    assert created_payload["status"] == task_modules.AgentTaskStatus.QUEUED
+    assert created_payload["metadata"]["api_key"] == "***"
+    assert created_payload["metadata"]["nested"]["token"] == "***"
+    assert created_payload["metadata"]["nested"]["keep"] == "visible"
+
+    running = store.update_status("task-1", task_modules.AgentTaskStatus.RUNNING)
+    assert running is not None
+    assert running.started_at is not None
+
+    store.add_event(
+        "task-1",
+        "tool_call",
+        {
+            "tool": "deepsearch",
+            "args": {"query": "public info", "authorization": "Bearer secret"},
+        },
+        trace_id="trace-1",
+        source="sse",
+        message_id="message-1",
+    )
+
+    completed = store.update_status(
+        "task-1",
+        task_modules.AgentTaskStatus.COMPLETED,
+        output_text="done",
+    )
+    assert completed is not None
+    assert completed.ended_at is not None
+
+    fetched = store.get_task("task-1")
+    assert fetched is not None
+    fetched_payload = task_modules.serialize_task(fetched)
+    assert fetched_payload["status"] == task_modules.AgentTaskStatus.COMPLETED
+    assert fetched_payload["output"] == "done"
+
+    events = store.list_events("task-1")
+    assert [event.event_type for event in events] == ["tool_call"]
+    event_payload = task_modules.serialize_event(events[0])["payload"]
+    assert event_payload["args"]["query"] == "public info"
+    assert event_payload["args"]["authorization"] == "***"
+
+
+def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
+    store = task_modules.TaskStore()
+
+    store.create_task(task_id="task-a", trace_id="trace-a", user_id="user-a", agent_id="agent-a")
+    store.create_task(task_id="task-b", trace_id="trace-b", user_id="user-a", agent_id="agent-b")
+    store.create_task(task_id="task-c", trace_id="trace-c", user_id="user-b", agent_id="agent-a")
+    store.update_status("task-a", task_modules.AgentTaskStatus.COMPLETED)
+    store.update_status("task-b", task_modules.AgentTaskStatus.FAILED, error_message="failed")
+
+    user_a_tasks = store.list_tasks(user_id="user-a")
+    assert {task.task_id for task in user_a_tasks} == {"task-a", "task-b"}
+
+    completed_tasks = store.list_tasks(status=task_modules.AgentTaskStatus.COMPLETED)
+    assert [task.task_id for task in completed_tasks] == ["task-a"]
+
+    agent_a_tasks = store.list_tasks(agent_id="agent-a")
+    assert {task.task_id for task in agent_a_tasks} == {"task-a", "task-c"}
+
+
+def test_sse_printer_adds_task_id_and_reports_events(task_modules):
+    from brain.core.printer import SSEPrinter
+
+    output: List[str] = []
+    events: List[Any] = []
+    printer = SSEPrinter(output.append, "request-1", task_id="task-1", event_sink=events.append)
+
+    printer.send("message-1", "tool_call", {"name": "deepsearch"}, None, False)
+
+    assert len(events) == 1
+    assert events[0]["requestId"] == "request-1"
+    assert events[0]["taskId"] == "task-1"
+    assert events[0]["messageType"] == "tool_call"
+
+    streamed_payload = json.loads(output[0].removeprefix("data: ").strip())
+    assert streamed_payload["taskId"] == "task-1"
+    assert streamed_payload["toolCall"]["name"] == "deepsearch"
+
+
+def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monkeypatch):
+    pytest.importorskip("fastapi")
+
+    import brain.app as app_module
+    from brain.core.tools.collection import ToolCollection
+
+    app_module = importlib.reload(app_module)
+
+    async def fake_build_tool_collection(_ctx):
+        return ToolCollection()
+
+    class FakeHandler:
+        async def handle(self, ctx, _request):
+            ctx.printer.send("result-1", "result", "final answer", None, True)
+
+    monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
+    monkeypatch.setattr(app_module.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
+
+    output: List[str] = []
+    req = app_module.GptQueryReq(
+        trace_id="trace-autoagent",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        outputStyle="markdown",
+        messages=[app_module.AgentMessage(role="user", content="hello")],
+    )
+
+    asyncio.run(app_module._run_autoagent(req, output.append))
+
+    store = task_modules.TaskStore()
+    task = store.get_task("trace-autoagent")
+    assert task is not None
+    assert task.status == task_modules.AgentTaskStatus.COMPLETED
+    assert task.output_text == "final answer"
+
+    event_types = [event.event_type for event in store.list_events("trace-autoagent")]
+    assert "task_created" in event_types
+    assert "task_running" in event_types
+    assert "result" in event_types
+    assert "task_completed" in event_types
+
+    streamed_events = [
+        json.loads(item.removeprefix("data: ").strip())
+        for item in output
+        if item.startswith("data: {")
+    ]
+    assert streamed_events[0]["taskId"] == "trace-autoagent"

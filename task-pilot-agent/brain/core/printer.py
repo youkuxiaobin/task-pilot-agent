@@ -16,9 +16,17 @@ class Printer:
 
 
 class SSEPrinter(Printer):
-    def __init__(self, enqueue: Callable[[str], None], request_id: str):
+    def __init__(
+        self,
+        enqueue: Callable[[str], None],
+        request_id: str,
+        task_id: Optional[str] = None,
+        event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ):
         self.enqueue = enqueue
         self.request_id = request_id
+        self.task_id = task_id
+        self.event_sink = event_sink
 
     def send(self, message_id: Optional[str], message_type: str, message: Any, digital_employee: Optional[str], is_final: bool) -> None:
         if not message_id:
@@ -32,6 +40,8 @@ class SSEPrinter(Printer):
             "finish": message_type == "result",
             "isFinal": is_final,
         }
+        if self.task_id:
+            data["taskId"] = self.task_id
 
         if digital_employee:
             data["digitalEmployee"] = digital_employee
@@ -62,6 +72,8 @@ class SSEPrinter(Printer):
                 data["resultMap"] = payload
                 data["result"] = str(payload.get("taskSummary", ""))
 
+        if self.event_sink:
+            self.event_sink(data)
         self.enqueue("data: " + json.dumps(data, ensure_ascii=False) + "\n\n")
 
     def close(self) -> None:
