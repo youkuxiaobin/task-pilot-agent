@@ -7,6 +7,10 @@ from brain.core.context import AgentContext
 from llm.manager import store as prompt_store, summary_mgr
 from llm.types import LLMMessage, RoleType, LLMResponse
 from config.config import agentSettings
+from utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class SummaryAgent(BaseAgent):
@@ -88,20 +92,31 @@ class SummaryAgent(BaseAgent):
         if final_text and not streamed_chunks:
             self.context.printer.send(None, "result", final_text, None, False)
 
-
-
-        #if final_text:
-            #TODO 这里应该记录 user query 和 answer 到数据库中
-            #self.context.printer.send(
-            #    None,
-            #    "task_summary",
-            #    {"taskSummary": final_text},
-            #    None,
-            #    True,
-            #)
+        if final_text:
+            self._record_summary_messages(query, final_text)
         return final_text
 
     async def step(self) -> str:  # type: ignore[override]
         history = [f"{msg.role}: {msg.content}" for msg in self.get_messages()]
         return await self.summarize(self.context.query, [], ["\n".join(history)] if history else [])
+
+    def _record_summary_messages(self, query: str, final_text: str) -> None:
+        for role, content in (
+            (RoleType.USER.value, query),
+            (RoleType.ASSISTANT.value, final_text),
+        ):
+            if not content:
+                continue
+            try:
+                self.memory.add_message(
+                    user_id=self.context.user_id,
+                    conversation_id=self.context.run_id,
+                    agent_id=self.context.agent_id,
+                    role=role,
+                    content=content,
+                    type_name=self.name,
+                    trace_id=self.context.requestId,
+                )
+            except Exception:  # pragma: no cover - MemoryManager already degrades, this protects custom managers.
+                logger.exception("failed to record summary message for request %s", self.context.requestId)
     
