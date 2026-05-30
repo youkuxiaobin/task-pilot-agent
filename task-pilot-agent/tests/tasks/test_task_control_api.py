@@ -118,6 +118,117 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     assert tasks.serialize_event(retry_events[0])["payload"]["agentSnapshot"]["name"] == "Retry Agent"
 
 
+def test_add_task_input_queues_resume_when_waiting(app_modules, monkeypatch):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(
+        task_id="wait-for-input",
+        trace_id="trace-wait-for-input",
+        user_id="user-1",
+        agent_id="agent-1",
+        input_text="need account lookup",
+    )
+    store.request_user_input(
+        "wait-for-input",
+        "请补充账号 ID",
+        trace_id="trace-wait-for-input",
+        source="agent",
+    )
+
+    created_background = []
+
+    def fake_create_task(coro):
+        created_background.append(coro)
+        coro.close()
+
+        class DoneTask:
+            def done(self):
+                return True
+
+            def cancel(self):
+                return None
+
+        return DoneTask()
+
+    monkeypatch.setattr(app.asyncio, "create_task", fake_create_task)
+
+    payload = asyncio.run(
+        app.add_agent_task_input(
+            "wait-for-input",
+            app.TaskUserInputReq(content=" account-123 ", user_id="user-2"),
+        )
+    )
+
+    assert payload["task"]["status"] == tasks.AgentTaskStatus.QUEUED
+    assert payload["event"]["eventType"] == "user_input"
+    assert payload["event"]["payload"]["content"] == "account-123"
+    assert created_background
+
+    events = store.list_events("wait-for-input")
+    event_types = [event.event_type for event in events]
+    assert event_types == [
+        "waiting_input",
+        "user_input",
+        "task_queued",
+        "task_resume_requested",
+    ]
+    queued_payload = tasks.serialize_event(events[-2])["payload"]
+    assert queued_payload["reason"] == "user_input_received"
+    assert tasks.serialize_event(events[-1])["payload"]["userInputEventId"] == payload["event"]["id"]
+
+
+def test_resume_task_after_input_replays_same_task_context(app_modules, monkeypatch):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(
+        task_id="resume-original-task",
+        trace_id="trace-resume-original-task",
+        conversation_id="conversation-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        mode="react",
+        output_style="markdown",
+        input_text="lookup account",
+        metadata={
+            "selectedTools": ["mcp_local:deepsearch"],
+            "approvedTools": ["mcp_local:code_interpreter"],
+            "runEnvironment": "sandbox",
+            "inputFiles": [
+                {
+                    "fileName": "source.csv",
+                    "description": "input data",
+                    "ossUrl": "https://files.example.test/source.csv",
+                    "fileSize": 10,
+                }
+            ],
+        },
+    )
+
+    captured = {}
+
+    async def fake_run_autoagent(req, enqueue):
+        captured["req"] = req
+        captured["enqueue"] = enqueue
+
+    monkeypatch.setattr(app, "_run_autoagent", fake_run_autoagent)
+
+    asyncio.run(app._resume_task_after_input("resume-original-task", " account-123 "))
+
+    req = captured["req"]
+    assert req.trace_id == "resume-original-task"
+    assert req.user_id == "user-1"
+    assert req.agent_id == "agent-1"
+    assert req.conversation_id == "conversation-1"
+    assert req.outputStyle == "markdown"
+    assert req.mode == "react"
+    assert req.selected_tools == ["mcp_local:deepsearch"]
+    assert req.approved_tools == ["mcp_local:code_interpreter"]
+    assert req.run_environment == "sandbox"
+    assert req.messages[0].content == "lookup account"
+    assert req.messages[0].uploadFile[0].fileName == "source.csv"
+    assert req.messages[1].content == "用户补充输入：account-123"
+
+
 def test_create_task_api_persists_task_and_starts_background_run(app_modules, monkeypatch):
     app, tasks = app_modules
     created_background = []

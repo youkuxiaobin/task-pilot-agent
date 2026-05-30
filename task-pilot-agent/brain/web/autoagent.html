@@ -1253,7 +1253,7 @@
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
     if(eventType === 'agent_phase') return 'agent_phase';
-    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'task_retry_requested' || eventType === 'eval_run_created' || eventType === 'eval_result' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_resumed' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'task_resume_requested' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'task_retry_requested' || eventType === 'eval_run_created' || eventType === 'eval_result' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
   }
 
@@ -1278,6 +1278,7 @@
       const env = data.runEnvironment ? ` · 环境：${data.runEnvironment}` : '';
       return `任务已创建：${data.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}${approved}`;
     }
+    if(eventType === 'task_resumed') return `任务已恢复运行：${data.mode || ''}`;
     if(eventType === 'task_queued') return `任务排队中：${data.mode || ''}`;
     if(eventType === 'task_running') return '任务运行中';
     if(eventType === 'task_completed') return '任务已完成';
@@ -1287,6 +1288,7 @@
     if(eventType === 'task_retry_requested') return `任务已重试：${data.retryTaskId || ''}`;
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
+    if(eventType === 'task_resume_requested') return '任务恢复请求已发送';
     if(eventType === 'memory_context_loaded') {
       if(data.memoryEnabled === false && data.ragEnabled === false) return '上下文检索已按 Agent 配置关闭';
       const memoryCount = Number(data.memoryCount || 0);

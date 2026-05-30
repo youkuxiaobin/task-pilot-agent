@@ -583,3 +583,80 @@ def test_autoagent_keeps_task_waiting_when_agent_requests_input(task_modules, mo
     assert "waiting_input" in event_types
     assert "task_completed" not in event_types
     assert "agent_completed" not in event_types
+
+
+def test_autoagent_records_resume_event_for_existing_task(task_modules, monkeypatch):
+    pytest.importorskip("fastapi")
+
+    import brain.app as app_module
+    from brain.core.tools.collection import ToolCollection
+
+    app_module = importlib.reload(app_module)
+    store = task_modules.TaskStore()
+    store.create_task(
+        task_id="trace-resume-autoagent",
+        trace_id="trace-resume-autoagent",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        output_style="markdown",
+        input_text="original question",
+        metadata={
+            "inputFiles": [
+                {
+                    "fileName": "source.csv",
+                    "ossUrl": "https://files.example.test/source.csv",
+                    "fileSize": 10,
+                }
+            ],
+            "runEnvironment": "sandbox",
+        },
+    )
+
+    async def fake_build_tool_collection(_ctx):
+        return ToolCollection()
+
+    class FakeMemoryManager:
+        def get_search_config(self):
+            return {"memory_enabled": False, "rag_enabled": False}
+
+    class FakeHandler:
+        async def handle(self, ctx, _request):
+            assert ctx.query == "new account id"
+            assert ctx.messages[0].content == "original question"
+            ctx.printer.send("result-1", "result", "done", None, False)
+
+    monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
+    monkeypatch.setattr(app_module, "memory_manager", FakeMemoryManager())
+    monkeypatch.setattr(app_module.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
+
+    output: List[str] = []
+    req = app_module.GptQueryReq(
+        trace_id="trace-resume-autoagent",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        outputStyle="markdown",
+        run_environment="sandbox",
+        messages=[
+            app_module.AgentMessage(role="user", content="original question"),
+            app_module.AgentMessage(role="user", content="new account id"),
+        ],
+    )
+
+    asyncio.run(app_module._run_autoagent(req, output.append))
+
+    task = store.get_task("trace-resume-autoagent")
+    events = store.list_events("trace-resume-autoagent")
+    event_types = [event.event_type for event in events]
+    resume_event = next(event for event in events if event.event_type == "task_resumed")
+    resume_payload = task_modules.serialize_event(resume_event)["payload"]
+
+    assert task.status == task_modules.AgentTaskStatus.COMPLETED
+    assert task.input_text == "original question"
+    assert "task_resumed" in event_types
+    assert "task_created" not in event_types
+    assert resume_payload["status"] == task_modules.AgentTaskStatus.RUNNING
+    assert resume_payload["inputFiles"][0]["fileName"] == "source.csv"

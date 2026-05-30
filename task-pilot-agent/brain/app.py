@@ -713,6 +713,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             task_store = TaskStore()
             latest_input = (messages[-1].content or "").strip()
             input_files = _serialize_file_items(messages[-1].uploadFile if messages else None)
+            existing_task = task_store.get_task(task_id)
             created_task = task_store.create_task(
                 task_id=task_id,
                 trace_id=trace_id,
@@ -733,23 +734,38 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 },
             )
             created_task_payload = serialize_task(created_task)
+            persisted_metadata = (
+                created_task_payload.get("metadata")
+                if isinstance(created_task_payload.get("metadata"), dict)
+                else {}
+            )
+            event_input_files = (
+                persisted_metadata.get("inputFiles")
+                if existing_task and isinstance(persisted_metadata, dict)
+                else input_files
+            )
+            lifecycle_event = "task_resumed" if existing_task else "task_created"
+            lifecycle_source = "resume" if existing_task else "autoagent"
+            lifecycle_payload = {
+                "mode": resolved_mode,
+                "outputStyle": request.outputStyle,
+                "conversationId": request.conversation_id,
+                "agentConfigId": agent_config.id if agent_config else None,
+                "agentSnapshot": agent_snapshot,
+                "selectedTools": selected_tools,
+                "approvedTools": approved_tools,
+                "inputFiles": event_input_files,
+                "runEnvironment": request.run_environment,
+                "workDir": created_task_payload.get("workDir"),
+            }
+            if existing_task:
+                lifecycle_payload["status"] = AgentTaskStatus.RUNNING
             task_store.add_event(
                 task_id,
-                "task_created",
-                {
-                    "mode": resolved_mode,
-                    "outputStyle": request.outputStyle,
-                    "conversationId": request.conversation_id,
-                    "agentConfigId": agent_config.id if agent_config else None,
-                    "agentSnapshot": agent_snapshot,
-                    "selectedTools": selected_tools,
-                    "approvedTools": approved_tools,
-                    "inputFiles": input_files,
-                    "runEnvironment": request.run_environment,
-                    "workDir": created_task_payload.get("workDir"),
-                },
+                lifecycle_event,
+                lifecycle_payload,
                 trace_id=trace_id,
-                source="autoagent",
+                source=lifecycle_source,
             )
 
             def record_stream_event(event_data: Dict[str, Any]) -> None:
@@ -1380,6 +1396,45 @@ async def _start_handoff_task(
     return serialize_task(task)
 
 
+async def _resume_task_after_input(task_id: str, supplemental_input: str) -> None:
+    store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise ValueError(f"task not found: {task_id}")
+    task_payload = serialize_task(task)
+    metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
+    selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
+    approved_tools = _normalize_tool_selection(metadata.get("approvedTools") if metadata else None)
+    run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
+    input_files = metadata.get("inputFiles") if metadata else None
+    messages = [
+        AgentMessage(
+            role=RoleType.USER.value,
+            content=task.input_text or "",
+            uploadFile=_deserialize_file_items(input_files),
+        ),
+        AgentMessage(
+            role=RoleType.USER.value,
+            content=f"用户补充输入：{supplemental_input.strip()}",
+        ),
+    ]
+    await _run_autoagent(
+        GptQueryReq(
+            trace_id=task.task_id,
+            user_id=task.user_id,
+            agent_id=task.agent_id,
+            conversation_id=task.conversation_id,
+            outputStyle=task.output_style,
+            mode=task.mode,
+            selected_tools=selected_tools,
+            approved_tools=approved_tools,
+            run_environment=run_environment,
+            messages=messages,
+        ),
+        lambda _data: None,
+    )
+
+
 @agent_router.get("/tasks/{task_id}")
 async def get_agent_task(task_id: str) -> Dict[str, Any]:
     store = TaskStore()
@@ -1533,10 +1588,30 @@ async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str,
     task = store.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    was_waiting = task.status == AgentTaskStatus.WAITING_INPUT
     try:
         event = store.add_user_input(task_id, req.content, user_id=req.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if was_waiting:
+        store.add_event(
+            task_id,
+            "task_queued",
+            {
+                "status": AgentTaskStatus.QUEUED,
+                "reason": "user_input_received",
+            },
+            trace_id=task.trace_id,
+            source="api",
+        )
+        store.add_event(
+            task_id,
+            "task_resume_requested",
+            {"userInputEventId": event.id},
+            trace_id=task.trace_id,
+            source="api",
+        )
+        asyncio.create_task(_resume_task_after_input(task_id, req.content))
     updated_task = store.get_task(task_id) or task
     return {"task": serialize_task(updated_task), "event": serialize_event(event)}
 
