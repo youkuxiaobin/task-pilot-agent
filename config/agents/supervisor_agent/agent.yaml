@@ -1,10 +1,19 @@
 id: supervisor_agent
 name: 通用任务总控 Agent
+type: supervisor
 description: 面向通用问题解决的主 Agent，适合搜索研究、文件处理、数据分析、浏览器任务、报告生成和自动化流程。
 version: "1"
 enabled: true
 mode: react
 system_prompt_file: system_prompt.md
+model:
+  context: executor
+  max_steps: 8
+capabilities:
+  - route
+  - plan
+  - use_tools
+  - review_progress
 tools:
   - name: builtin:plan_tool
     description: 用于维护计划、步骤状态和下一步动作。
@@ -17,6 +26,26 @@ tools:
     description: 本地内置工具。
   - name: mcp_world:*
     description: 外部扩展工具。
+handoffs:
+  allowed: []
+memory:
+  read:
+    - user_profile
+    - task_history
+  write:
+    - research_findings
+permissions:
+  can_write_files: true
+  can_run_shell: false
+  can_access_network: true
+  require_approval_for:
+    - high_risk_tools
+output:
+  format: markdown
+  required_sections:
+    - 结论
+    - 过程
+    - 下一步
 metadata:
   owner: core
   role: supervisor

@@ -98,6 +98,113 @@ def test_agent_registry_blocks_high_risk_tools_until_enabled(tmp_path, monkeypat
     assert agent.allows_tool("mcp_local:code_interpreter")
 
 
+def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
+    agents_root = tmp_path / "agents"
+    target_dir = agents_root / "report_agent"
+    target_dir.mkdir(parents=True)
+    (target_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: report_agent
+            name: Report Agent
+            type: react_worker
+            system_prompt: Report safely.
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    agent_dir = agents_root / "search_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "system_prompt.md").write_text("search safely", encoding="utf-8")
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: search_agent
+            name: Search Agent
+            type: react_worker
+            mode: react
+            system_prompt_file: system_prompt.md
+            model:
+              context: executor
+              temperature: 0.2
+              max_steps: 5
+            capabilities: [search, research]
+            tools:
+              allowed:
+                - id: mcp_local:deepsearch
+                  alias: 深度搜索
+                  purpose: 搜索公开网页和资料。
+                  when_to_use: 需要最新信息时使用。
+                  risk_level: low
+                  timeout_seconds: 120
+              denied:
+                - mcp_local:shell
+            handoffs:
+              allowed:
+                - report_agent
+            memory:
+              read: [task_history]
+              write: [research_findings]
+            permissions:
+              can_write_files: false
+              can_run_shell: false
+              can_access_network: true
+            output:
+              format: markdown
+              required_sections: [结论, 来源]
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry(agents_root)
+    agent = registry.get("search_agent")
+
+    assert agent is not None
+    assert agent.type == "react_worker"
+    assert agent.model["context"] == "executor"
+    assert agent.capabilities == ["search", "research"]
+    assert agent.tools[0].name == "mcp_local:deepsearch"
+    assert agent.tools[0].alias == "深度搜索"
+    assert agent.tools[0].purpose == "搜索公开网页和资料。"
+    assert agent.tools[0].when_to_use == "需要最新信息时使用。"
+    assert agent.tools[0].timeout_seconds == 120
+    assert agent.tools[0].policy["risk"] == "low"
+    assert agent.denied_tools == ["mcp_local:shell"]
+    assert agent.handoffs["allowed"] == ["report_agent"]
+    assert agent.memory["read"] == ["task_history"]
+    assert agent.permissions["can_access_network"] is True
+    assert agent.output["required_sections"] == ["结论", "来源"]
+    assert agent.allows_tool("mcp_local:deepsearch")
+    assert not agent.allows_tool("mcp_local:shell")
+    payload = agent.to_dict()
+    assert payload["type"] == "react_worker"
+    assert payload["tools"][0]["timeoutSeconds"] == 120
+    assert payload["deniedTools"] == ["mcp_local:shell"]
+    assert payload["permissions"]["can_run_shell"] is False
+
+
+def test_agent_registry_rejects_missing_handoff_target(tmp_path):
+    agent_dir = tmp_path / "agents" / "router_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: router_agent
+            name: Router Agent
+            handoffs:
+              allowed:
+                - missing_agent
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="handoff target not found"):
+        AgentRegistry(tmp_path / "agents")
+
+
 def test_agent_registry_falls_back_to_all_tools_for_unknown_agent(tmp_path):
     registry = AgentRegistry(tmp_path / "missing")
 
@@ -130,6 +237,27 @@ def test_agent_registry_rejects_invalid_eval_case(tmp_path):
     (agent_dir / "evals.yaml").write_text("cases:\n  - id: bad\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="input is required"):
+        AgentRegistry(tmp_path / "agents")
+
+
+def test_agent_registry_rejects_id_directory_mismatch(tmp_path):
+    agent_dir = tmp_path / "agents" / "actual_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text("id: other_agent\nname: Other\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="id must match directory"):
+        AgentRegistry(tmp_path / "agents")
+
+
+def test_agent_registry_rejects_unsupported_agent_type(tmp_path):
+    agent_dir = tmp_path / "agents" / "bad_type_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        "id: bad_type_agent\nname: Bad Type\ntype: python.module.Agent\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported agent type"):
         AgentRegistry(tmp_path / "agents")
 
 

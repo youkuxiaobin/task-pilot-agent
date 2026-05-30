@@ -9,11 +9,24 @@ from typing import Any, Dict, Iterable, List, Optional
 import yaml
 
 
+SUPPORTED_AGENT_TYPES = {
+    "supervisor",
+    "react_worker",
+    "summary_worker",
+    "review_worker",
+    "plan_solve_worker",
+}
+
+
 @dataclass(frozen=True)
 class AgentToolSpec:
     name: str
     description: str = ""
+    alias: str = ""
+    purpose: str = ""
+    when_to_use: str = ""
     required: bool = False
+    timeout_seconds: Optional[int] = None
     policy: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -31,12 +44,20 @@ class AgentEvalCase:
 class AgentConfig:
     id: str
     name: str
+    type: str = "react_worker"
     description: str = ""
     version: str = "1"
     enabled: bool = True
     mode: str = "react"
     system_prompt: str = ""
+    model: Dict[str, Any] = field(default_factory=dict)
+    capabilities: List[str] = field(default_factory=list)
     tools: List[AgentToolSpec] = field(default_factory=list)
+    denied_tools: List[str] = field(default_factory=list)
+    handoffs: Dict[str, Any] = field(default_factory=dict)
+    memory: Dict[str, Any] = field(default_factory=dict)
+    permissions: Dict[str, Any] = field(default_factory=dict)
+    output: Dict[str, Any] = field(default_factory=dict)
     evals: List[AgentEvalCase] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     directory: Optional[Path] = None
@@ -45,6 +66,8 @@ class AgentConfig:
         return [tool.name for tool in self.tools if tool.name]
 
     def allows_tool(self, tool_name: str) -> bool:
+        if any(_matches_tool_pattern(pattern, tool_name) for pattern in self.denied_tools):
+            return False
         patterns = self.tool_patterns()
         if not patterns:
             return True
@@ -60,20 +83,32 @@ class AgentConfig:
         return {
             "id": self.id,
             "name": self.name,
+            "type": self.type,
             "description": self.description,
             "version": self.version,
             "enabled": self.enabled,
             "mode": self.mode,
             "systemPrompt": self.system_prompt,
+            "model": self.model,
+            "capabilities": self.capabilities,
             "tools": [
                 {
                     "name": tool.name,
                     "description": tool.description,
+                    "alias": tool.alias,
+                    "purpose": tool.purpose,
+                    "whenToUse": tool.when_to_use,
                     "required": tool.required,
+                    "timeoutSeconds": tool.timeout_seconds,
                     "policy": tool.policy,
                 }
                 for tool in self.tools
             ],
+            "deniedTools": self.denied_tools,
+            "handoffs": self.handoffs,
+            "memory": self.memory,
+            "permissions": self.permissions,
+            "output": self.output,
             "evals": [
                 {
                     "id": item.id,
@@ -112,6 +147,15 @@ def _high_risk_tools_enabled() -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _optional_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Expected integer value, got: {value!r}") from None
+
+
 def default_agents_dir() -> Path:
     explicit = os.getenv("APP_AGENT_CONFIG_DIR") or os.getenv("AGENT_CONFIG_DIR")
     if explicit:
@@ -142,6 +186,7 @@ class AgentRegistry:
                     raise ValueError(f"Duplicate agent id: {agent.id}")
                 agents[agent.id] = agent
 
+        self._validate_handoffs(agents)
         self._agents = agents
 
     def list_agents(self, *, include_disabled: bool = False) -> List[AgentConfig]:
@@ -181,6 +226,11 @@ class AgentRegistry:
         agent_id = str(raw.get("id") or agent_dir.name).strip()
         if not agent_id:
             raise ValueError(f"Agent id is required: {yaml_path}")
+        if agent_id != agent_dir.name:
+            raise ValueError(f"Agent id must match directory name: {yaml_path}")
+        agent_type = str(raw.get("type") or raw.get("agent_type") or "react_worker")
+        if agent_type not in SUPPORTED_AGENT_TYPES:
+            raise ValueError(f"Unsupported agent type `{agent_type}`: {yaml_path}")
 
         system_prompt = str(raw.get("system_prompt") or "")
         prompt_file = raw.get("system_prompt_file")
@@ -192,12 +242,24 @@ class AgentRegistry:
         return AgentConfig(
             id=agent_id,
             name=str(raw.get("name") or agent_id),
+            type=agent_type,
             description=str(raw.get("description") or ""),
             version=str(raw.get("version") or "1"),
             enabled=bool(raw.get("enabled", True)),
             mode=str(raw.get("mode") or "react"),
             system_prompt=system_prompt,
+            model=raw.get("model") if isinstance(raw.get("model"), dict) else {},
+            capabilities=(
+                [str(item) for item in raw.get("capabilities", [])]
+                if isinstance(raw.get("capabilities"), list)
+                else []
+            ),
             tools=tools,
+            denied_tools=self._parse_denied_tools(raw.get("tools") or []),
+            handoffs=raw.get("handoffs") if isinstance(raw.get("handoffs"), dict) else {},
+            memory=raw.get("memory") if isinstance(raw.get("memory"), dict) else {},
+            permissions=raw.get("permissions") if isinstance(raw.get("permissions"), dict) else {},
+            output=raw.get("output") if isinstance(raw.get("output"), dict) else {},
             evals=evals,
             metadata=raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {},
             directory=agent_dir,
@@ -205,6 +267,8 @@ class AgentRegistry:
 
     @staticmethod
     def _parse_tools(raw_tools: Any) -> List[AgentToolSpec]:
+        if isinstance(raw_tools, dict):
+            raw_tools = raw_tools.get("allowed") or []
         if not isinstance(raw_tools, list):
             raise ValueError("Agent tools must be a list")
 
@@ -215,19 +279,48 @@ class AgentRegistry:
                 continue
             if not isinstance(item, dict):
                 raise ValueError(f"Invalid tool spec: {item!r}")
-            name = str(item.get("name") or "").strip()
+            name = str(item.get("name") or item.get("id") or "").strip()
             if not name:
                 raise ValueError(f"Tool name is required: {item!r}")
             policy = item.get("policy") if isinstance(item.get("policy"), dict) else {}
+            risk_level = item.get("risk_level")
+            if risk_level and "risk" not in policy:
+                policy = {**policy, "risk": str(risk_level)}
             tools.append(
                 AgentToolSpec(
                     name=name,
                     description=str(item.get("description") or ""),
+                    alias=str(item.get("alias") or ""),
+                    purpose=str(item.get("purpose") or ""),
+                    when_to_use=str(item.get("when_to_use") or ""),
                     required=bool(item.get("required", False)),
+                    timeout_seconds=_optional_int(item.get("timeout_seconds")),
                     policy=policy,
                 )
             )
         return tools
+
+    @staticmethod
+    def _parse_denied_tools(raw_tools: Any) -> List[str]:
+        if isinstance(raw_tools, dict):
+            raw_denied = raw_tools.get("denied") or []
+        else:
+            raw_denied = []
+        if isinstance(raw_denied, str):
+            return [raw_denied]
+        if not isinstance(raw_denied, list):
+            raise ValueError("Agent denied tools must be a list")
+        denied: List[str] = []
+        for item in raw_denied:
+            if isinstance(item, str):
+                value = item.strip()
+            elif isinstance(item, dict):
+                value = str(item.get("name") or item.get("id") or "").strip()
+            else:
+                raise ValueError(f"Invalid denied tool spec: {item!r}")
+            if value:
+                denied.append(value)
+        return denied
 
     @staticmethod
     def _read_prompt_file(agent_dir: Path, prompt_file: str) -> str:
@@ -236,6 +329,19 @@ class AgentRegistry:
         if not prompt_path.is_relative_to(agent_root):
             raise ValueError(f"Agent prompt file must stay inside its directory: {prompt_file}")
         return prompt_path.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _validate_handoffs(agents: Dict[str, AgentConfig]) -> None:
+        for agent in agents.values():
+            allowed = agent.handoffs.get("allowed") if isinstance(agent.handoffs, dict) else None
+            if not allowed:
+                continue
+            if not isinstance(allowed, list):
+                raise ValueError(f"Agent handoffs.allowed must be a list: {agent.id}")
+            for target in allowed:
+                target_id = str(target).strip()
+                if target_id and target_id not in agents:
+                    raise ValueError(f"Agent handoff target not found: {agent.id} -> {target_id}")
 
     @classmethod
     def _load_evals(cls, agent_dir: Path) -> List[AgentEvalCase]:
