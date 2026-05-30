@@ -68,6 +68,13 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     agent_config = agentRegistry.get(ctx.agent_id)
     if agent_config:
         tc.set_allowed_tool_patterns(selected_tools if selected_tools is not None else agent_config.tool_patterns())
+        tc.set_tool_timeout_patterns(
+            {
+                tool.name: tool.timeout_seconds
+                for tool in agent_config.tools
+                if tool.timeout_seconds
+            }
+        )
         tc.set_tool_allowed_checker(
             lambda tool_name: agent_config.allows_tool(tool_name)
             and _matches_selected_tool(selected_tools, tool_name)

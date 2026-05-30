@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import fnmatch
 import json
 import logging
@@ -38,6 +39,7 @@ class ToolCollection:
     currentTask: Optional[str] = None
     digitalEmployees: Optional[Dict[str, str]] = None
     allowed_tool_patterns: Optional[List[str]] = None
+    tool_timeout_patterns: Dict[str, float] = field(default_factory=dict)
     tool_allowed_checker: Optional[Callable[[str], bool]] = None
     blocked_tools: List[str] = field(default_factory=list)
     last_execution: Optional[Dict[str, Any]] = None
@@ -47,6 +49,16 @@ class ToolCollection:
             self.allowed_tool_patterns = None
             return
         self.allowed_tool_patterns = [pattern for pattern in patterns if pattern]
+
+    def set_tool_timeout_patterns(self, timeouts: Optional[Dict[str, float]]) -> None:
+        self.tool_timeout_patterns = {}
+        for pattern, timeout in (timeouts or {}).items():
+            try:
+                timeout_value = float(timeout)
+            except (TypeError, ValueError):
+                continue
+            if pattern and timeout_value > 0:
+                self.tool_timeout_patterns[str(pattern)] = timeout_value
 
     def set_tool_allowed_checker(self, checker: Optional[Callable[[str], bool]]) -> None:
         self.tool_allowed_checker = checker
@@ -65,6 +77,12 @@ class ToolCollection:
             if fnmatch.fnmatch(name, pattern):
                 return True
         return False
+
+    def timeout_for_tool(self, name: str) -> Optional[float]:
+        for pattern, timeout in self.tool_timeout_patterns.items():
+            if pattern in {"*", "all"} or fnmatch.fnmatch(name, pattern):
+                return timeout
+        return None
 
     def add_tool(self, tool: BaseTool) -> bool:
         if not self.is_tool_allowed(tool.name):
@@ -109,9 +127,23 @@ class ToolCollection:
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
         self._emit_tool_call(name, input_obj)
         try:
-            result = await tool.execute(input_obj)
+            timeout = self.timeout_for_tool(name)
+            if timeout:
+                result = await asyncio.wait_for(tool.execute(input_obj), timeout=timeout)
+            else:
+                result = await tool.execute(input_obj)
             self.last_execution = self._execution_metadata(name, started_at, started_at_wall, result=result)
             return result
+        except asyncio.TimeoutError:
+            error = f"tool `{name}` timed out"
+            self.last_execution = self._execution_metadata(
+                name,
+                started_at,
+                started_at_wall,
+                failed=True,
+                error=error,
+            )
+            raise
         except Exception as exc:
             self.last_execution = self._execution_metadata(
                 name,

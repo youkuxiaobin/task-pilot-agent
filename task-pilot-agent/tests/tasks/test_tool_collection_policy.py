@@ -28,6 +28,13 @@ class FailingTool(DummyTool):
         raise RuntimeError("boom")
 
 
+class SlowTool(DummyTool):
+    async def execute(self, input_obj: Dict[str, Any]) -> str:
+        self.called = True
+        await asyncio.sleep(float(input_obj.get("sleep", 0.05)))
+        return "slow-ok"
+
+
 class FakePrinter:
     def __init__(self) -> None:
         self.events: List[Dict[str, Any]] = []
@@ -184,3 +191,19 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
         assert printer.events[-1]["message"][key] == expected
     assert collection.last_execution["startedAt"]
     assert collection.last_execution["completedAt"]
+
+
+def test_tool_collection_enforces_configured_tool_timeout():
+    collection = ToolCollection()
+    slow_tool = SlowTool("mcp_local:slow")
+    collection.add_tool(slow_tool)
+    collection.set_tool_timeout_patterns({"mcp_local:slow": 0.01})
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(collection.execute("mcp_local:slow", {"sleep": 0.2}))
+
+    assert slow_tool.called is True
+    assert collection.last_execution is not None
+    assert collection.last_execution["tool"] == "mcp_local:slow"
+    assert collection.last_execution["failed"] is True
+    assert collection.last_execution["error"] == "tool `mcp_local:slow` timed out"
