@@ -54,6 +54,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "upload_file_form",
         "uploadFile",
         "durationMs",
+        "formatUsageMeta",
+        "工具耗时",
         "renderToolAuditHTML",
         "Task ID",
         "Agent ID",

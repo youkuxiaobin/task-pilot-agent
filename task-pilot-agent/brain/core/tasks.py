@@ -108,6 +108,19 @@ def _json_loads(value: Optional[str], default: Any) -> Any:
         return default
 
 
+def _merge_usage_metrics(metadata: Dict[str, Any], increments: Dict[str, int]) -> Dict[str, Any]:
+    usage = metadata.get("usage") if isinstance(metadata.get("usage"), dict) else {}
+    merged_usage = dict(usage)
+    for key, value in increments.items():
+        try:
+            increment = int(value)
+        except (TypeError, ValueError):
+            continue
+        merged_usage[key] = int(merged_usage.get(key) or 0) + increment
+    metadata["usage"] = merged_usage
+    return metadata
+
+
 def _detach_records(session: Session, records: Iterable[Any]) -> None:
     for record in records:
         session.expunge(record)
@@ -378,6 +391,34 @@ class TaskStore:
             self.update_status(task_id, AgentTaskStatus.QUEUED)
         return event
 
+    def increment_usage_metrics(self, task_id: str, increments: Dict[str, int]) -> Optional[AgentTaskRecord]:
+        if not increments:
+            return self.get_task(task_id)
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
+            if not record:
+                return None
+            metadata = _json_loads(record.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            record.metadata_json = _json_dumps(sanitize_payload(_merge_usage_metrics(metadata, increments)))
+            record.updated_at = timestamp
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def add_event(
         self,
         task_id: str,
@@ -565,6 +606,7 @@ def _task_work_dir_from_record(record: AgentTaskRecord) -> Path:
 
 def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
     metadata = _json_loads(record.metadata_json, {})
+    usage = metadata.get("usage") if isinstance(metadata, dict) and isinstance(metadata.get("usage"), dict) else {}
     duration_ms = None
     if record.started_at is not None:
         duration_ms = (record.ended_at or record.updated_at or record.started_at) - record.started_at
@@ -589,6 +631,7 @@ def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
         "output": record.output_text,
         "error": record.error_message,
         "metadata": metadata,
+        "usage": usage,
         "workDir": metadata.get("workDir") if isinstance(metadata, dict) else None,
         "createdAt": record.created_at,
         "updatedAt": record.updated_at,

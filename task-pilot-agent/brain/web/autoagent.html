@@ -556,7 +556,8 @@
       updateTaskInputPanel(null);
       return;
     }
-    dom.taskMeta.textContent = `任务 ${session.taskId} · ${session.taskStatus || 'running'}`;
+    const usageText = formatUsageMeta(session.usage);
+    dom.taskMeta.textContent = `任务 ${session.taskId} · ${session.taskStatus || 'running'}${usageText ? ` · ${usageText}` : ''}`;
     updateTaskInputPanel(session);
   }
 
@@ -607,6 +608,15 @@
     if(value < 1000) return `${value}ms`;
     if(value < 60000) return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)}s`;
     return `${Math.round(value / 60000)}m`;
+  }
+
+  function formatUsageMeta(usage) {
+    if(!usage || typeof usage !== 'object') return '';
+    const parts = [];
+    if(usage.toolCalls) parts.push(`工具 ${usage.toolCalls}`);
+    if(usage.toolFailures) parts.push(`失败 ${usage.toolFailures}`);
+    if(usage.toolDurationMs) parts.push(`工具耗时 ${formatDuration(usage.toolDurationMs)}`);
+    return parts.join(' · ');
   }
 
   function taskCreatedRange(value) {
@@ -874,6 +884,7 @@
   function renderTaskToSession(session, task, events, artifacts=[]) {
     session.taskId = task.taskId || task.task_id;
     session.taskStatus = task.status || '';
+    session.usage = task.usage || task.metadata?.usage || null;
     session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
     session.messages = [];
     session.replayState = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: -1, lastIndexByKind: {}, gotAnyResult: false };

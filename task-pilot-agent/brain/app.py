@@ -253,6 +253,26 @@ def _extract_remote_artifacts(event_data: Dict[str, Any]) -> List[Dict[str, Any]
     return artifacts
 
 
+def _usage_increments_from_event(event_data: Dict[str, Any]) -> Dict[str, int]:
+    message_type = str(event_data.get("messageType") or "")
+    increments: Dict[str, int] = {"events": 1}
+    if message_type == "tool_call":
+        increments["toolCalls"] = 1
+    elif message_type == "tool_result":
+        result_map = event_data.get("resultMap") if isinstance(event_data.get("resultMap"), dict) else {}
+        increments["toolResults"] = 1
+        if result_map.get("failed") is True:
+            increments["toolFailures"] = 1
+        duration = _coerce_file_size(result_map.get("durationMs"))
+        if duration:
+            increments["toolDurationMs"] = duration
+    elif message_type == "notifications":
+        increments["notifications"] = 1
+    elif message_type == "stream":
+        increments["streamEvents"] = 1
+    return increments
+
+
 def _resolve_agent_config(agent_id: str) -> Optional[AgentConfig]:
     try:
         agentRegistry.reload()
@@ -417,6 +437,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                         source="sse",
                         message_id=str(event_data.get("messageId") or ""),
                     )
+                    task_store.increment_usage_metrics(task_id, _usage_increments_from_event(event_data))
                     for artifact in _extract_remote_artifacts(event_data):
                         artifact_record = task_store.add_remote_artifact(
                             task_id,

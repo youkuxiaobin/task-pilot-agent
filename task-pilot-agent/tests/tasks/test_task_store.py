@@ -87,6 +87,13 @@ def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_
     assert fetched_payload["status"] == task_modules.AgentTaskStatus.COMPLETED
     assert fetched_payload["output"] == "done"
 
+    store.increment_usage_metrics("task-1", {"events": 2, "toolCalls": 1})
+    store.increment_usage_metrics("task-1", {"events": 1, "toolDurationMs": 25})
+    usage_payload = task_modules.serialize_task(store.get_task("task-1"))["usage"]
+    assert usage_payload["events"] == 3
+    assert usage_payload["toolCalls"] == 1
+    assert usage_payload["toolDurationMs"] == 25
+
     events = store.list_events("task-1")
     assert [event.event_type for event in events] == ["tool_call"]
     event_payload = task_modules.serialize_event(events[0])["payload"]
@@ -298,8 +305,9 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
                 "tool-1",
                 "tool_result",
                 {
-                    "tool": "mcp_local:code_interpreter",
-                    "result": json.dumps(
+                        "tool": "mcp_local:code_interpreter",
+                        "durationMs": 25,
+                        "result": json.dumps(
                         {
                             "fileInfo": [
                                 {
@@ -352,6 +360,10 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert artifact_payload["filename"] == "analysis.txt"
     assert artifact_payload["remoteUrl"] == "https://files.example.test/analysis.txt"
     assert artifact_payload["isRemote"] is True
+
+    task_payload = task_modules.serialize_task(store.get_task("trace-autoagent"))
+    assert task_payload["usage"]["toolResults"] == 1
+    assert task_payload["usage"]["toolDurationMs"] == 25
 
     streamed_events = [
         json.loads(item.removeprefix("data: ").strip())
