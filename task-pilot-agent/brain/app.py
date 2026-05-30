@@ -211,7 +211,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 runningAgentTasks[task_id] = worker_task
             task_store = TaskStore()
             latest_input = (messages[-1].content or "").strip()
-            task_store.create_task(
+            created_task = task_store.create_task(
                 task_id=task_id,
                 trace_id=trace_id,
                 conversation_id=request.conversation_id,
@@ -225,6 +225,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "agentConfigId": agent_config.id if agent_config else None,
                 },
             )
+            created_task_payload = serialize_task(created_task)
             task_store.add_event(
                 task_id,
                 "task_created",
@@ -233,6 +234,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "outputStyle": request.outputStyle,
                     "conversationId": request.conversation_id,
                     "agentConfigId": agent_config.id if agent_config else None,
+                    "workDir": created_task_payload.get("workDir"),
                 },
                 trace_id=trace_id,
                 source="autoagent",
@@ -280,6 +282,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 outputStyle=request.outputStyle,
                 mode=resolved_mode,
                 task_id=task_id,
+                work_dir=created_task_payload.get("workDir"),
                 agent_system_prompt=agent_config.system_prompt if agent_config else None,
             )
             _convert_agent_messages(ctx, messages)

@@ -12,6 +12,7 @@ import pytest
 @pytest.fixture()
 def task_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("FILE_DB_URL", f"sqlite:///{tmp_path / 'tasks.db'}")
+    monkeypatch.setenv("TASK_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
     monkeypatch.setenv(
         "APP_CONFIG_FILE",
         str(Path(__file__).resolve().parents[3] / "config" / "config.yaml"),
@@ -29,7 +30,7 @@ def task_modules(tmp_path, monkeypatch):
     db_engine.get_engine.cache_clear()
 
 
-def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_modules):
+def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_modules, tmp_path):
     store = task_modules.TaskStore()
 
     created = store.create_task(
@@ -50,6 +51,8 @@ def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_
 
     created_payload = task_modules.serialize_task(created)
     assert created_payload["status"] == task_modules.AgentTaskStatus.QUEUED
+    assert created_payload["workDir"].endswith("task-1")
+    assert (tmp_path / "workspaces" / "task-1").is_dir()
     assert created_payload["metadata"]["api_key"] == "***"
     assert created_payload["metadata"]["nested"]["token"] == "***"
     assert created_payload["metadata"]["nested"]["keep"] == "visible"
@@ -108,6 +111,17 @@ def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
 
     agent_a_tasks = store.list_tasks(agent_id="agent-a")
     assert {task.task_id for task in agent_a_tasks} == {"task-a", "task-c"}
+
+
+def test_task_workspace_sanitizes_task_id(task_modules, tmp_path):
+    store = task_modules.TaskStore()
+
+    created = store.create_task(task_id="../unsafe/task", trace_id="trace-safe")
+    payload = task_modules.serialize_task(created)
+
+    assert payload["workDir"].startswith(str(tmp_path / "workspaces"))
+    assert ".." not in Path(payload["workDir"]).name
+    assert Path(payload["workDir"]).is_dir()
 
 
 def test_sse_printer_adds_task_id_and_reports_events(task_modules):

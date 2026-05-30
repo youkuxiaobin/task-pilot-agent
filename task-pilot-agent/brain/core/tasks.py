@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from brain.core.sanitization import sanitize_payload
+from config.config import agentSettings
 from sqlalchemy import BigInteger, Column, Integer, String, Text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -32,6 +36,8 @@ FINAL_STATUSES = {
     AgentTaskStatus.FAILED,
     AgentTaskStatus.CANCELLED,
 }
+
+TASK_ID_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_.-]+")
 
 class AgentTaskRecord(Base):
     __tablename__ = "meta_agent_task"
@@ -90,6 +96,29 @@ def _detach_records(session: Session, records: Iterable[Any]) -> None:
         session.expunge(record)
 
 
+def safe_task_dir_name(task_id: str) -> str:
+    sanitized = TASK_ID_SAFE_CHARS.sub("_", task_id).strip("._")
+    return sanitized or str(uuid.uuid4())
+
+
+def task_workspace_root() -> Path:
+    explicit = os.getenv("APP_TASK_WORKSPACE_ROOT") or os.getenv("TASK_WORKSPACE_ROOT")
+    if explicit:
+        root = Path(explicit).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return (agentSettings.core.upload_path / "tasks").resolve()
+
+
+def prepare_task_workspace(task_id: str) -> Path:
+    root = task_workspace_root()
+    work_dir = (root / safe_task_dir_name(task_id)).resolve()
+    if not work_dir.is_relative_to(root):
+        raise ValueError("task workspace must stay inside workspace root")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir
+
+
 class TaskStore:
     def __init__(self) -> None:
         self._engine = get_engine()
@@ -127,6 +156,10 @@ class TaskStore:
                 session.expunge(existing)
                 return existing
 
+            metadata_payload = sanitize_payload(metadata or {})
+            if isinstance(metadata_payload, dict) and not metadata_payload.get("workDir"):
+                metadata_payload["workDir"] = str(prepare_task_workspace(resolved_task_id))
+
             record = AgentTaskRecord(
                 task_id=resolved_task_id,
                 trace_id=resolved_trace_id,
@@ -137,7 +170,7 @@ class TaskStore:
                 output_style=output_style or "",
                 status=AgentTaskStatus.QUEUED,
                 input_text=input_text,
-                metadata_json=_json_dumps(sanitize_payload(metadata or {})),
+                metadata_json=_json_dumps(metadata_payload),
                 created_at=timestamp,
                 updated_at=timestamp,
             )
@@ -285,6 +318,7 @@ class TaskStore:
 
 
 def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
+    metadata = _json_loads(record.metadata_json, {})
     return {
         "id": record.id,
         "task_id": record.task_id,
@@ -303,7 +337,8 @@ def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
         "input": record.input_text,
         "output": record.output_text,
         "error": record.error_message,
-        "metadata": _json_loads(record.metadata_json, {}),
+        "metadata": metadata,
+        "workDir": metadata.get("workDir") if isinstance(metadata, dict) else None,
         "createdAt": record.created_at,
         "updatedAt": record.updated_at,
         "startedAt": record.started_at,
