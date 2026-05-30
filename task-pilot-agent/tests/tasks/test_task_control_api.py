@@ -570,6 +570,44 @@ def test_run_agent_evals_creates_task_for_each_case(app_modules, monkeypatch):
     assert tasks.serialize_event(first_events[-1])["payload"]["caseId"] == "case-a"
 
 
+def test_evaluate_eval_task_records_result_event(app_modules, tmp_path, monkeypatch):
+    app, tasks = app_modules
+    monkeypatch.setenv("TASK_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    store = tasks.TaskStore()
+    store.create_task(
+        task_id="eval-result-task",
+        trace_id="trace-eval-result",
+        input_text="run eval",
+        metadata={
+            "source": "eval",
+            "evalCaseId": "case-a",
+            "expected": "answer includes result",
+            "evalMetadata": {
+                "checks": {
+                    "final_status": "completed",
+                    "output_contains": ["result"],
+                    "required_event_types": ["tool_call"],
+                    "min_artifacts": 1,
+                }
+            },
+        },
+    )
+    store.update_status("eval-result-task", tasks.AgentTaskStatus.RUNNING)
+    store.add_event("eval-result-task", "tool_call", {"tool": "demo"}, trace_id="trace-eval-result", source="sse")
+    work_dir = tasks.serialize_task(store.get_task("eval-result-task"))["workDir"]
+    artifact_path = Path(work_dir) / "result.txt"
+    artifact_path.write_text("artifact", encoding="utf-8")
+    store.add_artifact("eval-result-task", str(artifact_path), filename="result.txt")
+    store.update_status("eval-result-task", tasks.AgentTaskStatus.COMPLETED, output_text="final result")
+
+    payload = asyncio.run(app.evaluate_agent_task("eval-result-task"))
+
+    assert payload["status"] == "passed"
+    assert payload["passed"] is True
+    eval_events = store.list_events("eval-result-task", event_type="eval_result")
+    assert tasks.serialize_event(eval_events[-1])["payload"]["status"] == "passed"
+
+
 def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
     app, _tasks = app_modules
     cancelled = False

@@ -41,6 +41,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "任务已重试",
         "eval_run_created",
         "评测任务已创建",
+        "eval_result",
+        "评测结果",
         'id="retry-task"',
         "retryTask",
         "/retry",

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse
 from brain.models.requests import AgentMessage, GptQueryReq, TaskUserInputReq
 from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext, FileItem
-from brain.core.eval_runner import build_eval_run
+from brain.core.eval_runner import build_eval_run, evaluate_eval_task
 from brain.core.printer import SSEPrinter
 from brain.core.sanitization import sanitize_payload
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
@@ -1111,6 +1111,30 @@ async def run_agent_eval(
     task = _create_eval_task(store, eval_run)
     _start_eval_task(eval_run)
     return {"task": serialize_task(task), "eval": eval_run.to_dict()}
+
+
+@agent_router.post("/tasks/{task_id}/eval-result")
+async def evaluate_agent_task(task_id: str) -> Dict[str, Any]:
+    store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    task_payload = serialize_task(task)
+    metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
+    if metadata.get("source") != "eval":
+        raise HTTPException(status_code=400, detail="task is not an eval task")
+
+    event_payloads = [serialize_event(event) for event in store.list_events(task_id, limit=2000)]
+    artifact_payloads = [serialize_artifact(artifact) for artifact in store.list_artifacts(task_id)]
+    result = evaluate_eval_task(task_payload, event_payloads, artifact_payloads).to_dict()
+    store.add_event(
+        task_id,
+        "eval_result",
+        result,
+        trace_id=task.trace_id,
+        source="eval",
+    )
+    return result
 
 
 @agent_router.get("/tasks")
