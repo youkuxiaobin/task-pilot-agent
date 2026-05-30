@@ -17,6 +17,7 @@ from brain.core.context import AgentContext, FileItem
 from brain.core.eval_runner import build_eval_run
 from brain.core.printer import SSEPrinter
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
+from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.collection import ToolCollection
     
@@ -89,6 +90,8 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
         )
         if agent_config.allows_tool("builtin:plan_tool"):
             tc.add_tool(BuiltinPlanTool(ctx))
+        if agent_config.allows_tool("builtin:handoff"):
+            tc.add_tool(BuiltinHandoffTool(ctx, _start_handoff_task))
     elif selected_tools is not None:
         tc.set_allowed_tool_patterns(selected_tools)
 
@@ -750,6 +753,78 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
         },
         trace_id=trace_id,
         source="api",
+    )
+    asyncio.create_task(_run_autoagent(request, lambda _data: None))
+    return serialize_task(task)
+
+
+async def _start_handoff_task(
+    parent_ctx: AgentContext,
+    target_agent_id: str,
+    task_text: str,
+    options: Dict[str, Any],
+) -> Dict[str, Any]:
+    parent_config = _resolve_agent_config(parent_ctx.agent_id)
+    allowed = parent_config.handoffs.get("allowed") if parent_config and isinstance(parent_config.handoffs, dict) else []
+    if target_agent_id not in (allowed or []):
+        raise ValueError(f"agent `{parent_ctx.agent_id}` cannot hand off to `{target_agent_id}`")
+
+    target_config = _resolve_agent_config(target_agent_id)
+    if not target_config:
+        raise ValueError(f"target agent not found: {target_agent_id}")
+
+    trace_id = str(uuid.uuid4())
+    output_style = str(options.get("outputStyle") or parent_ctx.outputStyle or "markdown")
+    mode = str(options.get("mode") or target_config.mode or "plans_executor")
+    selected_tools = _normalize_tool_selection(options.get("selected_tools"))
+    run_environment = _normalize_run_environment(parent_ctx.run_environment)
+
+    request = GptQueryReq(
+        trace_id=trace_id,
+        user_id=parent_ctx.user_id,
+        agent_id=target_agent_id,
+        conversation_id=parent_ctx.run_id or str(uuid.uuid4()),
+        outputStyle=output_style,
+        mode=mode,
+        selected_tools=selected_tools,
+        run_environment=run_environment,
+        messages=[AgentMessage(role=RoleType.USER.value, content=task_text)],
+    )
+    _fill_request_defaults(request)
+
+    store = TaskStore()
+    task = store.create_task(
+        task_id=trace_id,
+        trace_id=trace_id,
+        conversation_id=request.conversation_id,
+        user_id=request.user_id,
+        agent_id=target_agent_id,
+        mode=mode,
+        output_style=request.outputStyle,
+        input_text=task_text,
+        metadata={
+            "source": "handoff",
+            "parentTaskId": parent_ctx.task_id,
+            "parentAgentId": parent_ctx.agent_id,
+            "selectedTools": selected_tools,
+            "runEnvironment": run_environment,
+        },
+    )
+    store.add_event(
+        trace_id,
+        "task_queued",
+        {
+            "status": AgentTaskStatus.QUEUED,
+            "mode": mode,
+            "outputStyle": request.outputStyle,
+            "agentConfigId": target_config.id,
+            "parentTaskId": parent_ctx.task_id,
+            "parentAgentId": parent_ctx.agent_id,
+            "selectedTools": selected_tools,
+            "runEnvironment": run_environment,
+        },
+        trace_id=trace_id,
+        source="handoff",
     )
     asyncio.create_task(_run_autoagent(request, lambda _data: None))
     return serialize_task(task)

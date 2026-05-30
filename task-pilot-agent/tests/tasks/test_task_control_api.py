@@ -200,6 +200,81 @@ def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
     assert response.headers["location"] == "https://files.example.test/output.csv"
 
 
+def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
+    app, tasks = app_modules
+    created_background = []
+
+    configs = {
+        "parent-agent": app.AgentConfig(
+            id="parent-agent",
+            name="Parent Agent",
+            handoffs={"allowed": ["child-agent"]},
+        ),
+        "child-agent": app.AgentConfig(
+            id="child-agent",
+            name="Child Agent",
+            mode="react",
+        ),
+    }
+
+    def fake_resolve(agent_id):
+        return configs.get(agent_id)
+
+    def fake_create_task(coro):
+        created_background.append(coro)
+        coro.close()
+
+        class DoneTask:
+            def done(self):
+                return True
+
+            def cancel(self):
+                return None
+
+        return DoneTask()
+
+    monkeypatch.setattr(app, "_resolve_agent_config", fake_resolve)
+    monkeypatch.setattr(app.asyncio, "create_task", fake_create_task)
+    parent_ctx = app.AgentContext(
+        requestId="request-parent",
+        sessionId="session-parent",
+        user_id="user-1",
+        agent_id="parent-agent",
+        run_id="conversation-1",
+        query="parent task",
+        task=None,
+        printer=None,
+        toolCollection=None,
+        dateInfo="2026-05-30",
+        task_id="parent-task",
+        outputStyle="markdown",
+        run_environment="sandbox",
+    )
+
+    payload = asyncio.run(
+        app._start_handoff_task(
+            parent_ctx,
+            "child-agent",
+            "child task",
+            {"outputStyle": "markdown"},
+        )
+    )
+
+    assert payload["agentId"] == "child-agent"
+    assert payload["metadata"]["source"] == "handoff"
+    assert payload["metadata"]["parentTaskId"] == "parent-task"
+    assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert created_background
+
+    store = tasks.TaskStore()
+    events = store.list_events(payload["taskId"])
+    assert events[-1].event_type == "task_queued"
+    assert tasks.serialize_event(events[-1])["payload"]["parentAgentId"] == "parent-agent"
+
+    with pytest.raises(ValueError, match="cannot hand off"):
+        asyncio.run(app._start_handoff_task(parent_ctx, "blocked-agent", "blocked", {}))
+
+
 def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
     app, _tasks = app_modules
     cancelled = False

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
+from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool
 from brain.core.tools.collection import ToolCollection
 
 
@@ -71,6 +72,22 @@ def test_builtin_plan_tool_is_visible_as_openai_tool_when_allowed():
         "update",
         "finish",
     ]
+
+
+def test_builtin_handoff_tool_is_visible_as_openai_tool_when_allowed():
+    async def fake_starter(_ctx, _target_agent_id, _task, _options):
+        return {"taskId": "child-task"}
+
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["builtin:handoff"])
+    collection.add_tool(BuiltinHandoffTool(SimpleNamespace(), fake_starter))
+
+    specs = collection.to_openai_tools()
+
+    assert len(specs) == 1
+    assert specs[0]["function"]["name"] == "builtin:handoff"
+    assert "target_agent_id" in specs[0]["function"]["parameters"]["properties"]
+    assert "task" in specs[0]["function"]["parameters"]["required"]
 
 
 def test_default_agent_config_does_not_allow_builtin_plan_tool(tmp_path):
