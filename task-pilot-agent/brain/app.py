@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse
 from brain.models.requests import AgentMessage, GptQueryReq
 from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext, FileItem
+from brain.core.eval_runner import build_eval_run
 from brain.core.printer import SSEPrinter
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
@@ -420,6 +421,55 @@ async def list_agent_evals(agent_id: str) -> Dict[str, Any]:
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
     return {"items": [item.__dict__ for item in agent.evals]}
+
+
+@agent_router.post("/agents/{agent_id}/evals/{case_id}/run")
+async def run_agent_eval(
+    agent_id: str,
+    case_id: str,
+    user_id: str = Query(default="eval-runner"),
+    output_style: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    agentRegistry.reload()
+    agent = agentRegistry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    case = next((item for item in agent.evals if item.id == case_id), None)
+    if not case:
+        raise HTTPException(status_code=404, detail="eval case not found")
+
+    eval_run = build_eval_run(agent, case, user_id=user_id, output_style=output_style)
+    store = TaskStore()
+    task = store.create_task(
+        task_id=eval_run.task_id,
+        trace_id=eval_run.trace_id,
+        conversation_id=eval_run.conversation_id,
+        user_id=eval_run.user_id,
+        agent_id=eval_run.agent_id,
+        mode=eval_run.mode,
+        output_style=eval_run.output_style,
+        input_text=eval_run.input_text,
+        metadata=eval_run.metadata,
+    )
+    store.add_event(
+        eval_run.task_id,
+        "eval_run_created",
+        eval_run.to_dict(),
+        trace_id=eval_run.trace_id,
+        source="eval",
+    )
+
+    req = GptQueryReq(
+        trace_id=eval_run.trace_id,
+        user_id=eval_run.user_id,
+        agent_id=eval_run.agent_id,
+        conversation_id=eval_run.conversation_id,
+        outputStyle=eval_run.output_style,
+        mode=eval_run.mode,
+        messages=[AgentMessage(role=RoleType.USER.value, content=eval_run.input_text)],
+    )
+    asyncio.create_task(_run_autoagent(req, lambda _data: None))
+    return {"task": serialize_task(task), "eval": eval_run.to_dict()}
 
 
 @agent_router.get("/tasks")
