@@ -15,6 +15,17 @@ from tools.mcp_local.tool.browser_agent import BrowserAgent
 from tools.mcp_local.tool.audio_toolkit import AudioToolkit
 from tools.mcp_local.tool.image_toolkit import ImageToolkit
 from tools.mcp_local.tool.video_toolkit import VideoToolkit
+from tools.mcp_local.tool.filesystem import (
+    copy_file as filesystem_copy_file,
+    create_directory as filesystem_create_directory,
+    delete_path as filesystem_delete_path,
+    file_stat as filesystem_file_stat,
+    list_directory as filesystem_list_directory,
+    move_file as filesystem_move_file,
+    read_file as filesystem_read_file,
+    shell_exec as filesystem_shell_exec,
+    write_file as filesystem_write_file,
+)
 from tools.mcp_local.util.file_util import upload_file as upload_file_util, _FILE_SERVER_BASE
 from tools.mcp_local.model.context import RequestIdCtx
 from config.config import agentSettings
@@ -172,6 +183,149 @@ async def image_tool(path: str, query: str) -> str:
 async def video_tool(path: str, query: str) -> str:
     return await VideoToolkit().video_qa(path, query)
 
+
+@mcp.tool(
+    name="file_read",
+    description=(
+        "读取 Linux/macOS/Windows 本机文件内容。支持绝对路径和相对于任务工作目录的相对路径。"
+        "默认最多读取 128KB，可通过 max_bytes 和 offset 分段读取大文件。"
+    ),
+)
+async def file_read(
+    path: str,
+    encoding: str = "utf-8",
+    max_bytes: int = 131072,
+    offset: int = 0,
+    as_base64: bool = False,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_read_file(
+        path,
+        encoding=encoding,
+        max_bytes=max_bytes,
+        offset=offset,
+        as_base64=as_base64,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(
+    name="file_write",
+    description=(
+        "写入文本文件。为避免误改系统文件，目标路径必须位于任务工作目录内；"
+        "支持 overwrite 和 append。"
+    ),
+)
+async def file_write(
+    path: str,
+    content: str,
+    mode: str = "overwrite",
+    encoding: str = "utf-8",
+    create_dirs: bool = True,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_write_file(
+        path,
+        content,
+        mode=mode,
+        encoding=encoding,
+        create_dirs=create_dirs,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(
+    name="file_list",
+    description="列出目录内容。支持 Linux/macOS/Windows 路径，支持递归和最大返回数量限制。",
+)
+async def file_list(
+    path: str = ".",
+    recursive: bool = False,
+    max_entries: int = 200,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_list_directory(
+        path,
+        recursive=recursive,
+        max_entries=max_entries,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(name="file_stat", description="查看文件或目录的基础信息，包括类型、大小、时间和权限。")
+async def file_stat(path: str, work_dir: Optional[str] = None) -> Dict[str, Any]:
+    return await filesystem_file_stat(path, work_dir=work_dir)
+
+
+@mcp.tool(name="directory_create", description="在任务工作目录内创建目录，支持自动创建父目录。")
+async def directory_create(
+    path: str,
+    exist_ok: bool = True,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_create_directory(path, exist_ok=exist_ok, work_dir=work_dir)
+
+
+@mcp.tool(
+    name="file_copy",
+    description="复制文件。源文件可为本机可读路径，目标路径必须位于任务工作目录内。",
+)
+async def file_copy(
+    source: str,
+    destination: str,
+    overwrite: bool = False,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_copy_file(source, destination, overwrite=overwrite, work_dir=work_dir)
+
+
+@mcp.tool(
+    name="file_move",
+    description="移动或重命名任务工作目录内的文件或目录，目标也必须在任务工作目录内。",
+)
+async def file_move(
+    source: str,
+    destination: str,
+    overwrite: bool = False,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_move_file(source, destination, overwrite=overwrite, work_dir=work_dir)
+
+
+@mcp.tool(
+    name="file_delete",
+    description="删除任务工作目录内的文件或目录。目录删除需要 recursive=true。",
+)
+async def file_delete(
+    path: str,
+    recursive: bool = False,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_delete_path(path, recursive=recursive, work_dir=work_dir)
+
+
+@mcp.tool(
+    name="shell_exec",
+    description=(
+        "在 Linux/macOS/Windows 上执行 Shell 命令。高风险工具，只应在明确授权时启用；"
+        "工作目录会限制在任务工作目录内。"
+    ),
+)
+async def shell_exec(
+    command: str,
+    working_dir: Optional[str] = None,
+    timeout: int = 30,
+    max_output_chars: int = 12000,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_shell_exec(
+        command,
+        working_dir=working_dir,
+        timeout=timeout,
+        max_output_chars=max_output_chars,
+        work_dir=work_dir,
+    )
+
 async def _accumulate_report_stream(
     task: str,
     request_id: str,
@@ -296,4 +450,3 @@ async def mcp_run_async(transport: str = "streamable-http"):
 
 if __name__ == "__main__":
 	mcp.run(transport="streamable-http")
-

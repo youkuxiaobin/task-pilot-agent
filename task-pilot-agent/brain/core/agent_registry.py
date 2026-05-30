@@ -193,7 +193,21 @@ class AgentConfig:
 def _matches_tool_pattern(pattern: str, tool_name: str) -> bool:
     if pattern in {"*", "all"}:
         return True
-    return fnmatch.fnmatch(tool_name, pattern)
+    for candidate in _tool_name_variants(tool_name):
+        for pattern_candidate in _tool_name_variants(pattern):
+            if fnmatch.fnmatch(candidate, pattern_candidate):
+                return True
+    return False
+
+
+def _tool_name_variants(value: str) -> List[str]:
+    text = str(value or "")
+    variants = [text]
+    if ":" in text:
+        variants.append(text.replace(":", "-", 1))
+    if "-" in text:
+        variants.append(text.replace("-", ":", 1))
+    return variants
 
 
 def _tool_policy_block_reason(policy: Dict[str, Any]) -> str:
@@ -249,7 +263,16 @@ def _tool_permission_block_reason(permissions: Dict[str, Any], tool_name: str) -
         return "permission_can_access_network"
     if permissions.get("can_write_files") is False and _matches_any_tool_pattern(
         tool_name,
-        ["*file_write*", "*write_file*", "*artifact_write*", "*report*"],
+        [
+            "*file_write*",
+            "*write_file*",
+            "*file_copy*",
+            "*file_move*",
+            "*file_delete*",
+            "*directory_create*",
+            "*artifact_write*",
+            "*report*",
+        ],
     ):
         return "permission_can_write_files"
     return ""

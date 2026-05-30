@@ -14,6 +14,22 @@ capabilities:
   - use_tools
   - summarize
 tools:
+  - name: mcp_local:file_read
+    description: 读取 Linux/macOS/Windows 本机文件内容。
+  - name: mcp_local:file_list
+    description: 列出目录内容。
+  - name: mcp_local:file_stat
+    description: 查看文件或目录基础信息。
+  - name: mcp_local:file_write
+    description: 在任务工作目录内写入文本文件。
+  - name: mcp_local:directory_create
+    description: 在任务工作目录内创建目录。
+  - name: mcp_local:file_copy
+    description: 复制文件到任务工作目录。
+  - name: mcp_local:file_move
+    description: 移动或重命名任务工作目录内的文件。
+  - name: mcp_local:file_delete
+    description: 删除任务工作目录内的文件或目录。
   - name: mcp_local:code_interpreter
     description: 执行代码，默认需要显式打开高风险工具开关。
     input_schema:
@@ -33,6 +49,11 @@ tools:
         files:
           type: array
           description: 任务产物列表。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:shell_exec
+    description: 执行本机 Shell 命令，默认需要显式打开高风险工具开关。
     policy:
       risk: high
       requires_explicit_enable: true

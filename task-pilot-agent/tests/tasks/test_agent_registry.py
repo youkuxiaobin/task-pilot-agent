@@ -292,12 +292,44 @@ def test_agent_registry_permissions_filter_risky_tool_categories(tmp_path):
     assert not agent.allows_tool("mcp_local:deepsearch")
     assert not agent.allows_tool("mcp_world:browser")
     assert not agent.allows_tool("mcp_local:file_write")
+    assert not agent.allows_tool("mcp_local:file_copy")
+    assert not agent.allows_tool("mcp_local:file_move")
+    assert not agent.allows_tool("mcp_local:file_delete")
+    assert not agent.allows_tool("mcp_local:directory_create")
     assert not agent.allows_tool("mcp_local:report")
     assert not agent.allows_tool("mcp_local:shell", approved_tools=["mcp_local:shell"])
     assert not agent.allows_tool("mcp_local:deepsearch", approved_tools=["mcp_local:deepsearch"])
     assert agent.tool_block_reason("mcp_local:shell") == "permission_can_run_shell"
     assert agent.tool_block_reason("mcp_local:deepsearch") == "permission_can_access_network"
     assert agent.tool_block_reason("mcp_local:file_write") == "permission_can_write_files"
+    assert agent.tool_block_reason("mcp_local:file_delete") == "permission_can_write_files"
+    assert agent.tool_block_reason("mcp_local-file_delete") == "permission_can_write_files"
+
+
+def test_agent_registry_matches_mcp_colon_patterns_to_hyphen_tool_names(tmp_path):
+    agent_dir = tmp_path / "agents" / "compat_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: compat_agent
+            name: Compat Agent
+            tools:
+              - name: mcp_local:file_read
+              - name: mcp_*:*
+            permissions:
+              can_run_shell: false
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    agent = AgentRegistry(tmp_path / "agents").get("compat_agent")
+
+    assert agent is not None
+    assert agent.allows_tool("mcp_local-file_read")
+    assert agent.allows_tool("mcp_local-deepsearch")
+    assert not agent.allows_tool("mcp_local-shell_exec")
 
 
 def test_agent_registry_rejects_missing_handoff_target(tmp_path):
