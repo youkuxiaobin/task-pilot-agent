@@ -405,7 +405,8 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
                 None,
                 True,
             )
-            ctx.printer.send("result-1", "result", "final answer", None, True)
+            ctx.printer.send("result-1", "result", "final ", None, False)
+            ctx.printer.send("result-2", "result", "answer", None, False)
 
     monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
     monkeypatch.setattr(app_module, "memory_manager", FakeMemoryManager())

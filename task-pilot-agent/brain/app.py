@@ -372,6 +372,10 @@ def _extract_result_text(event_data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _is_result_text_chunk(event_data: Dict[str, Any]) -> bool:
+    return event_data.get("messageType") == "result" and isinstance(event_data.get("result"), str)
+
+
 REMOTE_ARTIFACT_URL_KEYS = ("domainUrl", "downloadUrl", "download_url", "ossUrl", "url", "href")
 REMOTE_ARTIFACT_NAME_KEYS = ("fileName", "filename", "name")
 LOCAL_ARTIFACT_SCAN_LIMIT = 100
@@ -664,7 +668,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
         approved_tools = _normalize_tool_selection(request.approved_tools)
 
         task_id = trace_id
-        last_result: Dict[str, Optional[str]] = {"output": None}
+        last_result: Dict[str, Any] = {"output": None, "chunks": []}
         printer = SSEPrinter(enqueue, trace_id, task_id=task_id)
         task_store: Optional[TaskStore] = None
         worker_task = asyncio.current_task()
@@ -715,7 +719,12 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             def record_stream_event(event_data: Dict[str, Any]) -> None:
                 result_text = _extract_result_text(event_data)
                 if result_text is not None:
-                    last_result["output"] = result_text
+                    if _is_result_text_chunk(event_data):
+                        last_result["chunks"].append(result_text)
+                        last_result["output"] = "".join(last_result["chunks"])
+                    else:
+                        last_result["chunks"] = [result_text]
+                        last_result["output"] = result_text
                 try:
                     assert task_store is not None
                     task_store.add_event(
