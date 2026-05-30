@@ -333,8 +333,10 @@
               <option value="plans_executor">Plans Executor</option>
               <option value="react">ReAct</option>
             </select>
+            <select id="agent-id" class="select-style" title="选择 Agent">
+              <option value="">默认 Agent</option>
+            </select>
             <input id="user-id" type="hidden" placeholder="User ID">
-            <input id="agent-id" type="hidden" placeholder="Agent ID">
             <input id="endpoint" type="hidden" value="/agent/autoagent">
           </div>
           
@@ -380,6 +382,7 @@
     stream: null,
     running: false,
     tasks: [],
+    agents: [],
     activeTaskId: null,
     replaying: false,
   };
@@ -483,6 +486,42 @@
       renderTaskList();
     } catch(err) {
       dom.taskList.innerHTML = `<div class="task-empty">任务列表加载失败：${escapeHTML(err.message)}</div>`;
+    }
+  }
+
+  async function refreshAgentList() {
+    try {
+      const resp = await fetch('/agent/agents');
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      state.agents = Array.isArray(data.items) ? data.items : [];
+      renderAgentOptions();
+    } catch(err) {
+      state.agents = [];
+      renderAgentOptions();
+    }
+  }
+
+  function renderAgentOptions() {
+    const previous = dom.agentId.value;
+    dom.agentId.innerHTML = '<option value="">默认 Agent</option>';
+    state.agents.forEach(agent => {
+      const option = document.createElement('option');
+      option.value = agent.id;
+      option.textContent = agent.name || agent.id;
+      option.dataset.mode = agent.mode || '';
+      dom.agentId.appendChild(option);
+    });
+    if(previous && state.agents.some(agent => agent.id === previous)) {
+      dom.agentId.value = previous;
+    }
+  }
+
+  function applySelectedAgentDefaults() {
+    const selected = dom.agentId.selectedOptions[0];
+    const mode = selected?.dataset?.mode;
+    if(mode && Array.from(dom.mode.options).some(option => option.value === mode)) {
+      dom.mode.value = mode;
     }
   }
 
@@ -1005,11 +1044,13 @@
 
   dom.newSession.onclick = () => activateSession(createSession());
   dom.refreshTasks.onclick = refreshTaskList;
+  dom.agentId.onchange = applySelectedAgentDefaults;
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;
   dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };
   activateSession(createSession());
   refreshTaskList();
+  refreshAgentList();
 })();
 </script>
 </body>
