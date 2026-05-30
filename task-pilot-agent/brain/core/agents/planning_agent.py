@@ -165,5 +165,6 @@ class PlanningAgent(ReActAgent):
             plan=plan_str,
             past_steps=finish_steps_str,
         )
+        prompt = self.context.compose_system_prompt(prompt)
         logger.debug("planning system prompt prepared: len=%s", len(prompt))
         return prompt

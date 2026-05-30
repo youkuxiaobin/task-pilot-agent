@@ -8,6 +8,9 @@ import pytest
 from brain.core.agent_registry import AgentRegistry, default_agents_dir
 
 
+APP_ROOT = Path(__file__).resolve().parents[2]
+
+
 def test_agent_registry_loads_yaml_prompt_and_filters_tools(tmp_path):
     agent_dir = tmp_path / "agents" / "research_agent"
     agent_dir.mkdir(parents=True)
@@ -65,6 +68,19 @@ def test_agent_registry_loads_yaml_prompt_and_filters_tools(tmp_path):
         "research_agent",
         ["mcp_local:deepsearch", "mcp_local:code_interpreter", "mcp_world:browser"],
     ) == ["mcp_local:deepsearch", "mcp_world:browser"]
+
+
+def test_agent_system_prompt_is_used_by_plan_solve_agents():
+    context_source = (APP_ROOT / "brain" / "core" / "context.py").read_text(encoding="utf-8")
+    planning_source = (APP_ROOT / "brain" / "core" / "agents" / "planning_agent.py").read_text(encoding="utf-8")
+    executor_source = (APP_ROOT / "brain" / "core" / "agents" / "executor_agent.py").read_text(encoding="utf-8")
+    summary_source = (APP_ROOT / "brain" / "core" / "agents" / "summary_agent.py").read_text(encoding="utf-8")
+
+    assert "def compose_system_prompt" in context_source
+    assert "compose_system_prompt(prompt)" in planning_source
+    assert "compose_system_prompt(prompt)" in executor_source
+    assert "agent_system_prompt" in summary_source
+    assert "RoleType.SYSTEM" in summary_source
 
 
 def test_agent_registry_blocks_high_risk_tools_until_enabled(tmp_path, monkeypatch):

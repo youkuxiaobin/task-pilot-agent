@@ -78,6 +78,7 @@ class ExecutorAgent(ReActAgent):
             originTask=self.context.query,
             request_id=self.context.requestId,
         )
+        prompt = self.context.compose_system_prompt(prompt)
         logger.debug(
             "Executor prepared tool-call prompt for request %s: prompt_len=%s current_msg_len=%s",
             self.context.requestId,

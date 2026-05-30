@@ -53,7 +53,11 @@ class SummaryAgent(BaseAgent):
             current_time=self.context.dateInfo
         )
        
-        messages = [LLMMessage(role=RoleType.USER.value, content=prompt_content)]
+        messages: List[LLMMessage] = []
+        agent_prompt = (self.context.agent_system_prompt or "").strip()
+        if agent_prompt:
+            messages.append(LLMMessage(role=RoleType.SYSTEM.value, content=agent_prompt))
+        messages.append(LLMMessage(role=RoleType.USER.value, content=prompt_content))
 
         streamed_chunks: List[str] = []
         def handle_chunk(chunk: str) -> None:

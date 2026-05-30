@@ -41,6 +41,12 @@ class AgentContext:
     agent_system_prompt: Optional[str] = None
     selected_tools: Optional[List[str]] = None
 
+    def compose_system_prompt(self, base_prompt: str) -> str:
+        agent_prompt = (self.agent_system_prompt or "").strip()
+        if not agent_prompt:
+            return base_prompt
+        return f"{agent_prompt}\n\n{base_prompt}"
+
     def serialize_messages(self) -> List[Dict[str, str]]:
         """Convert stored conversation messages into a simple list for downstream prompts."""
         serialized: List[Dict[str, str]] = []
