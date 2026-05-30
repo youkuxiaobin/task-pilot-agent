@@ -784,6 +784,19 @@
     return `<div class="agent-summary-line"><span class="agent-pill agent-pill-label">${escapeHTML(label)}</span>${items.map(item => `<span class="agent-pill" title="${escapeHTML(item)}">${escapeHTML(item)}</span>`).join('')}</div>`;
   }
 
+  function schemaFieldNames(schema) {
+    if(!schema || typeof schema !== 'object') return [];
+    const props = schema.properties && typeof schema.properties === 'object' ? Object.keys(schema.properties) : [];
+    const required = Array.isArray(schema.required) ? schema.required.map(item => String(item)) : [];
+    return limitedValues([...new Set([...required, ...props])], 5);
+  }
+
+  function renderToolSchemaLine(label, schema) {
+    const fields = schemaFieldNames(schema);
+    if(!fields.length) return '';
+    return `<small>${escapeHTML(label)}：${fields.map(item => escapeHTML(item)).join(', ')}</small>`;
+  }
+
   function renderAgentSummary() {
     const agent = getSelectedAgentConfig();
     if(!agent) {
@@ -829,11 +842,13 @@
       if(risk === 'high' || risk === 'critical') badges.push('高风险');
       if(!allowed) badges.push('不可用');
       const riskHTML = badges.map(item => `<span class="tool-risk">${escapeHTML(item)}</span>`).join('');
+      const schemaHTML = `${renderToolSchemaLine('输入', tool.inputSchema)}${renderToolSchemaLine('输出', tool.outputSchema)}`;
       label.innerHTML = `
         <input type="checkbox" value="${escapeHTML(name)}" ${allowed ? 'checked' : 'disabled'}>
         <span>
           <strong>${escapeHTML(name)}</strong>${riskHTML}
           ${tool.description ? `<small>${escapeHTML(tool.description)}</small>` : ''}
+          ${schemaHTML}
         </span>`;
       dom.toolOptions.appendChild(label);
     });
