@@ -133,6 +133,7 @@ def test_autoagent_page_contains_task_replay_controls():
         "formatUsageMeta",
         "工具耗时",
         "renderToolAuditHTML",
+        "Arguments Summary",
         "Task ID",
         "Agent ID",
         "User ID",

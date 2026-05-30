@@ -107,6 +107,7 @@ class ToolCollection:
             logger.warning(message)
             self.last_execution = self._execution_metadata(
                 name,
+                input_obj,
                 started_at,
                 started_at_wall,
                 failed=True,
@@ -119,6 +120,7 @@ class ToolCollection:
         if not tool:
             self.last_execution = self._execution_metadata(
                 name,
+                input_obj,
                 started_at,
                 started_at_wall,
                 failed=True,
@@ -129,6 +131,7 @@ class ToolCollection:
         if boundary_error:
             self.last_execution = self._execution_metadata(
                 name,
+                input_obj,
                 started_at,
                 started_at_wall,
                 failed=True,
@@ -144,12 +147,13 @@ class ToolCollection:
                 result = await asyncio.wait_for(tool.execute(input_obj), timeout=timeout)
             else:
                 result = await tool.execute(input_obj)
-            self.last_execution = self._execution_metadata(name, started_at, started_at_wall, result=result)
+            self.last_execution = self._execution_metadata(name, input_obj, started_at, started_at_wall, result=result)
             return result
         except asyncio.TimeoutError:
             error = f"tool `{name}` timed out"
             self.last_execution = self._execution_metadata(
                 name,
+                input_obj,
                 started_at,
                 started_at_wall,
                 failed=True,
@@ -160,6 +164,7 @@ class ToolCollection:
         except Exception as exc:
             self.last_execution = self._execution_metadata(
                 name,
+                input_obj,
                 started_at,
                 started_at_wall,
                 failed=True,
@@ -171,6 +176,7 @@ class ToolCollection:
     def _execution_metadata(
         self,
         name: str,
+        input_obj: Dict[str, Any],
         started_at: float,
         started_at_wall: float,
         *,
@@ -180,6 +186,7 @@ class ToolCollection:
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "tool": name,
+            "argumentsSummary": self._summarize_value(input_obj),
             "durationMs": max(0, int((time.perf_counter() - started_at) * 1000)),
             "failed": failed,
             "startedAt": self._iso_time(started_at_wall),
@@ -239,6 +246,7 @@ class ToolCollection:
             {
                 "tool": name,
                 "arguments": input_obj,
+                "argumentsSummary": self._summarize_value(input_obj),
                 **self._audit_context(),
             },
             self.getDigitalEmployee(name),
@@ -256,6 +264,7 @@ class ToolCollection:
                 "process_message": message,
                 "tool": name,
                 "arguments": input_obj,
+                "argumentsSummary": self._summarize_value(input_obj),
                 **self._audit_context(),
             },
             None,

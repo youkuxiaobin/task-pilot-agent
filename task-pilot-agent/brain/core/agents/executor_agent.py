@@ -177,6 +177,7 @@ class ExecutorAgent(ReActAgent):
             in {
                 "durationMs",
                 "failed",
+                "argumentsSummary",
                 "resultSummary",
                 "error",
                 "startedAt",

@@ -307,6 +307,7 @@ class ReActAgentImp(ReActAgent):
             in {
                 "durationMs",
                 "failed",
+                "argumentsSummary",
                 "resultSummary",
                 "error",
                 "startedAt",

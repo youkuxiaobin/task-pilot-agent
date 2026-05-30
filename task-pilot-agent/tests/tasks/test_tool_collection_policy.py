@@ -144,6 +144,7 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
     assert collection.last_execution["tool"] == "mcp_local:deepsearch"
     assert collection.last_execution["failed"] is False
     assert collection.last_execution["durationMs"] >= 0
+    assert collection.last_execution["argumentsSummary"] == '{"value": "query"}'
     assert collection.last_execution["resultSummary"] == "ok:mcp_local:deepsearch:query"
 
     failing_tool = FailingTool("mcp_local:broken")
@@ -158,6 +159,7 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
     assert collection.last_execution["tool"] == "mcp_local:broken"
     assert collection.last_execution["failed"] is True
     assert collection.last_execution["durationMs"] >= 0
+    assert collection.last_execution["argumentsSummary"] == '{"value": "query"}'
     assert collection.last_execution["error"] == "boom"
     assert printer.events[-1]["message_type"] == "tool_result"
     assert printer.events[-1]["message"]["tool"] == "mcp_local:broken"
@@ -187,6 +189,8 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
 
     assert result == "ok:mcp_local:deepsearch:query"
     assert collection.last_execution is not None
+    assert printer.events[-1]["message_type"] == "tool_call"
+    assert printer.events[-1]["message"]["argumentsSummary"] == '{"value": "query"}'
     for key, expected in {
         "userId": "user-1",
         "agentId": "agent-1",
@@ -199,6 +203,7 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
     }.items():
         assert collection.last_execution[key] == expected
         assert printer.events[-1]["message"][key] == expected
+    assert collection.last_execution["argumentsSummary"] == '{"value": "query"}'
     assert collection.last_execution["startedAt"]
     assert collection.last_execution["completedAt"]
 
@@ -258,6 +263,7 @@ def test_agent_tool_result_metadata_includes_runtime_boundary():
             "tool": "mcp_local:deepsearch",
             "durationMs": 12,
             "failed": False,
+            "argumentsSummary": '{"value": "query"}',
             "resultSummary": "ok",
             "startedAt": "2026-05-30T00:00:00+00:00",
             "completedAt": "2026-05-30T00:00:01+00:00",
@@ -280,6 +286,7 @@ def test_agent_tool_result_metadata_includes_runtime_boundary():
 
         assert metadata["runEnvironment"] == "sandbox"
         assert metadata["workDir"] == "/tmp/task-work"
+        assert metadata["argumentsSummary"] == '{"value": "query"}'
 
 
 def test_tool_collection_enforces_configured_tool_timeout():
