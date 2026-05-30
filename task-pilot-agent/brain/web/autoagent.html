@@ -1161,12 +1161,27 @@
     return renderMarkdown(value);
   }
 
+  function renderToolAuditHTML(raw) {
+    if(!raw || typeof raw !== 'object') return '';
+    let html = '';
+    html += renderFieldBlock('Task ID', raw.taskId);
+    html += renderFieldBlock('Agent ID', raw.agentId);
+    html += renderFieldBlock('User ID', raw.userId);
+    html += renderFieldBlock('Request ID', raw.requestId);
+    html += renderFieldBlock('Run ID', raw.runId);
+    html += renderFieldBlock('Session ID', raw.sessionId);
+    html += renderFieldBlock('Started At', raw.startedAt);
+    html += renderFieldBlock('Completed At', raw.completedAt);
+    return html;
+  }
+
   function renderToolCallHTML(raw) {
     if(!raw) return '';
     const toolName = raw.tool || raw.name || raw.tool_name || '';
     const args = raw.arguments || raw.input || raw.args || {};
     let html = '';
     html += renderFieldBlock('Tool', toolName, {highlight: true});
+    html += renderToolAuditHTML(raw);
     html += renderFieldBlock('Arguments', args);
     return html || renderToolOutputHTML(raw);
   }
@@ -1179,6 +1194,7 @@
         const result = raw.result !== undefined ? raw.result : (raw.output !== undefined ? raw.output : raw.chunk);
         let html = '';
         html += renderFieldBlock('Tool', toolName, {highlight: true});
+        html += renderToolAuditHTML(raw);
         if(raw.failed === true) html += renderFieldBlock('Status', raw.error || 'failed', {highlight: true});
         if(raw.durationMs !== undefined) html += renderFieldBlock('Duration', `${raw.durationMs} ms`);
         html += renderFieldBlock('Arguments', args);
