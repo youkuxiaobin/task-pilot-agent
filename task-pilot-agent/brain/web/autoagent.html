@@ -111,6 +111,7 @@
     .task-actions { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
     .task-actions[hidden] { display: none; }
     .task-meta { color: var(--text-muted); font-size: 0.78rem; max-width: 48vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-filter-select { width: auto; min-width: 116px; max-width: 160px; padding: 0.32rem 0.5rem; font-size: 0.75rem; }
     .status-indicator { font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; transition: background 0.3s; }
     .status-dot.active { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
@@ -405,6 +406,21 @@
       </div>
       <div id="task-actions" class="task-actions" hidden>
         <div id="task-meta" class="task-meta"></div>
+        <select id="task-event-type-filter" class="filter-select event-filter-select" title="事件类型">
+          <option value="">全部事件</option>
+          <option value="tool_call,tool_result">工具调用</option>
+          <option value="agent_phase">Agent 阶段</option>
+          <option value="task_failed,agent_failed">失败事件</option>
+          <option value="task_artifact_added">任务产物</option>
+          <option value="memory_context_loaded">上下文检索</option>
+        </select>
+        <select id="task-event-source-filter" class="filter-select event-filter-select" title="事件来源">
+          <option value="">全部来源</option>
+          <option value="sse">SSE</option>
+          <option value="autoagent">任务系统</option>
+          <option value="agent">Agent</option>
+          <option value="tool">工具</option>
+        </select>
         <button id="retry-task" class="btn-small" type="button" hidden>重试</button>
       </div>
     </div>
@@ -496,6 +512,8 @@
     statusDot: document.getElementById('status-dot'),
     taskActions: document.getElementById('task-actions'),
     taskMeta: document.getElementById('task-meta'),
+    taskEventTypeFilter: document.getElementById('task-event-type-filter'),
+    taskEventSourceFilter: document.getElementById('task-event-source-filter'),
     retryTask: document.getElementById('retry-task'),
     taskInputPanel: document.getElementById('task-input-panel'),
     taskInputText: document.getElementById('task-input-text'),
@@ -594,6 +612,10 @@
     if(!session || !session.taskId) {
       dom.taskMeta.textContent = '';
       dom.taskActions.hidden = true;
+      dom.taskEventTypeFilter.value = '';
+      dom.taskEventSourceFilter.value = '';
+      dom.taskEventTypeFilter.disabled = true;
+      dom.taskEventSourceFilter.disabled = true;
       dom.retryTask.hidden = true;
       dom.retryTask.disabled = true;
       updateTaskInputPanel(null);
@@ -611,6 +633,10 @@
       usageText,
     ].filter(Boolean);
     dom.taskMeta.textContent = parts.join(' · ');
+    dom.taskEventTypeFilter.disabled = state.running;
+    dom.taskEventSourceFilter.disabled = state.running;
+    dom.taskEventTypeFilter.value = session.eventTypeFilter || '';
+    dom.taskEventSourceFilter.value = session.eventSourceFilter || '';
     const retryable = ['completed', 'failed', 'cancelled'].includes(session.taskStatus || '');
     dom.retryTask.hidden = !retryable;
     dom.retryTask.disabled = state.running || !retryable;
@@ -1066,13 +1092,27 @@
     }
   }
 
-  async function loadTask(taskId) {
+  function reloadActiveTaskEvents() {
+    const session = getActiveSession();
+    if(!session?.taskId || state.running) return;
+    loadTask(session.taskId, {
+      eventType: dom.taskEventTypeFilter.value,
+      source: dom.taskEventSourceFilter.value,
+    });
+  }
+
+  async function loadTask(taskId, eventFilters={}) {
     if(!taskId) return;
     setUIStatus('加载任务回看...', true);
     try {
+      const eventType = eventFilters.eventType ?? dom.taskEventTypeFilter.value;
+      const eventSource = eventFilters.source ?? dom.taskEventSourceFilter.value;
+      const eventParams = new URLSearchParams({ limit: '2000' });
+      if(eventType) eventParams.set('event_type', eventType);
+      if(eventSource) eventParams.set('source', eventSource);
       const [taskResp, eventsResp, artifactsResp] = await Promise.all([
         fetch(`/agent/tasks/${encodeURIComponent(taskId)}`),
-        fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?limit=2000`),
+        fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?${eventParams.toString()}`),
         fetch(`/agent/tasks/${encodeURIComponent(taskId)}/artifacts`),
       ]);
       if(!taskResp.ok) throw new Error(`任务详情加载失败：${taskResp.status}`);
@@ -1083,7 +1123,7 @@
       const artifactsData = await artifactsResp.json();
       const existing = state.sessions.find(s => s.taskId === taskId);
       const session = existing || createSession({ id: `task_${taskId}`, title: `任务 ${String(taskId).slice(0, 8)}`, taskId });
-      renderTaskToSession(session, task, eventsData.items || [], artifactsData.items || []);
+      renderTaskToSession(session, task, eventsData.items || [], artifactsData.items || [], { eventType, source: eventSource });
       activateSession(session);
     } catch(err) {
       const session = getActiveSession() || createSession();
@@ -1093,7 +1133,7 @@
     }
   }
 
-  function renderTaskToSession(session, task, events, artifacts=[]) {
+  function renderTaskToSession(session, task, events, artifacts=[], eventFilters={}) {
     session.taskId = task.taskId || task.task_id;
     session.taskStatus = task.status || '';
     session.taskAgentId = task.agentId || task.agent_id || '';
@@ -1101,6 +1141,8 @@
     session.runEnvironment = task.runEnvironment || task.metadata?.runEnvironment || '';
     session.usage = task.usage || task.metadata?.usage || null;
     session.artifacts = artifacts;
+    session.eventTypeFilter = eventFilters.eventType || '';
+    session.eventSourceFilter = eventFilters.source || '';
     session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
     session.messages = [];
     session.replayState = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: -1, lastIndexByKind: {}, gotAnyResult: false };
@@ -1170,7 +1212,7 @@
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
     if(eventType === 'agent_phase') return 'agent_phase';
-    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
   }
 
@@ -1221,6 +1263,7 @@
       const approved = Array.isArray(data.approvedTools) ? data.approvedTools.length : 0;
       return `工具策略已应用：可用 ${available} 个，拦截 ${blocked} 个${approved ? `，本次授权 ${approved} 个` : ''}`;
     }
+    if(eventType === 'task_artifact_added') return `任务产物已登记：${data.filename || data.artifactId || ''}`;
     if(eventType === 'agent_phase') {
       const phaseNames = { planning: '规划', replanning: '重规划', execution: '执行', react: 'ReAct', summary: '总结' };
       const statusNames = { started: '开始', completed: '完成', failed: '失败', step_started: '步骤开始', step_completed: '步骤完成', step_failed: '步骤失败' };
@@ -1778,6 +1821,8 @@
   dom.taskCreatedFilter.onchange = refreshTaskList;
   dom.taskDurationFilter.onchange = refreshTaskList;
   dom.taskErrorFilter.onchange = refreshTaskList;
+  dom.taskEventTypeFilter.onchange = reloadActiveTaskEvents;
+  dom.taskEventSourceFilter.onchange = reloadActiveTaskEvents;
   dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderAgentSummary(); renderToolOptions(); renderEvalOptions(); refreshToolCatalog(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;

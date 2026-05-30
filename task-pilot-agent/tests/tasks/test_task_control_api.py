@@ -252,6 +252,29 @@ def test_list_tasks_api_filters_by_agent_type(app_modules, monkeypatch):
     assert [item["taskId"] for item in payload["items"]] == ["task-supervisor"]
 
 
+def test_list_task_events_api_filters_by_event_type_and_source(app_modules):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(task_id="api-event-filter", trace_id="trace-api-event-filter")
+    store.add_event("api-event-filter", "tool_call", {"tool": "deepsearch"}, trace_id="trace-api-event-filter", source="sse")
+    store.add_event("api-event-filter", "tool_result", {"tool": "deepsearch"}, trace_id="trace-api-event-filter", source="sse")
+    store.add_event("api-event-filter", "agent_failed", {"error": "boom"}, trace_id="trace-api-event-filter", source="agent")
+
+    payload = asyncio.run(
+        app.list_agent_task_events(
+            "api-event-filter",
+            event_type="tool_call,tool_result",
+            source="sse",
+            limit=50,
+            offset=0,
+        )
+    )
+
+    assert payload["eventType"] == "tool_call,tool_result"
+    assert payload["source"] == "sse"
+    assert [item["eventType"] for item in payload["items"]] == ["tool_call", "tool_result"]
+
+
 def test_blocked_tool_reasons_include_policy_and_selection(app_modules, monkeypatch):
     app, _tasks = app_modules
     from brain.core.agent_registry import AgentToolSpec

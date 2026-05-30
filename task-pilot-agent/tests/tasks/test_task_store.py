@@ -101,6 +101,23 @@ def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_
     assert event_payload["args"]["authorization"] == "***"
 
 
+def test_task_store_filters_events_by_type_and_source(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="event-filter", trace_id="trace-event-filter")
+    store.add_event("event-filter", "tool_call", {"tool": "deepsearch"}, trace_id="trace-event-filter", source="sse")
+    store.add_event("event-filter", "tool_result", {"tool": "deepsearch"}, trace_id="trace-event-filter", source="sse")
+    store.add_event("event-filter", "task_failed", {"error": "boom"}, trace_id="trace-event-filter", source="autoagent")
+
+    tool_events = store.list_events("event-filter", event_type="tool_call,tool_result")
+    assert [event.event_type for event in tool_events] == ["tool_call", "tool_result"]
+
+    autoagent_events = store.list_events("event-filter", source="autoagent")
+    assert [event.event_type for event in autoagent_events] == ["task_failed"]
+
+    combined = store.list_events("event-filter", event_type="tool_call", source="sse")
+    assert [event.event_type for event in combined] == ["tool_call"]
+
+
 def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
     store = task_modules.TaskStore()
 

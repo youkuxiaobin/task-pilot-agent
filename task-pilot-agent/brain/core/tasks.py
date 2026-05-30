@@ -453,13 +453,26 @@ class TaskStore:
         finally:
             session.close()
 
-    def list_events(self, task_id: str, *, limit: int = 500, offset: int = 0) -> List[AgentTaskEventRecord]:
+    def list_events(
+        self,
+        task_id: str,
+        *,
+        event_type: Optional[str] = None,
+        source: Optional[str] = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> List[AgentTaskEventRecord]:
         session = self._session_maker()
         try:
+            query = session.query(AgentTaskEventRecord).filter(AgentTaskEventRecord.task_id == task_id)
+            event_types = [item.strip() for item in (event_type or "").split(",") if item.strip()]
+            sources = [item.strip() for item in (source or "").split(",") if item.strip()]
+            if event_types:
+                query = query.filter(AgentTaskEventRecord.event_type.in_(event_types))
+            if sources:
+                query = query.filter(AgentTaskEventRecord.source.in_(sources))
             records = (
-                session.query(AgentTaskEventRecord)
-                .filter(AgentTaskEventRecord.task_id == task_id)
-                .order_by(AgentTaskEventRecord.id.asc())
+                query.order_by(AgentTaskEventRecord.id.asc())
                 .offset(max(offset, 0))
                 .limit(max(min(limit, 2000), 1))
                 .all()

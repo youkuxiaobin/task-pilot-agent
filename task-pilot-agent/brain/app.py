@@ -1311,14 +1311,22 @@ async def get_agent_task(task_id: str) -> Dict[str, Any]:
 @agent_router.get("/tasks/{task_id}/events")
 async def list_agent_task_events(
     task_id: str,
+    event_type: Optional[str] = Query(default=None),
+    source: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
     store = TaskStore()
     if not store.get_task(task_id):
         raise HTTPException(status_code=404, detail="task not found")
-    events = store.list_events(task_id, limit=limit, offset=offset)
-    return {"items": [serialize_event(event) for event in events], "limit": limit, "offset": offset}
+    events = store.list_events(task_id, event_type=event_type, source=source, limit=limit, offset=offset)
+    return {
+        "items": [serialize_event(event) for event in events],
+        "eventType": event_type,
+        "source": source,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @agent_router.post("/tasks/{task_id}/cancel")
