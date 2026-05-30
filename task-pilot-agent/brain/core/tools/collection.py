@@ -1,6 +1,8 @@
 from __future__ import annotations
 import fnmatch
+import json
 import logging
+import time
 from typing import Callable, Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
@@ -37,6 +39,7 @@ class ToolCollection:
     allowed_tool_patterns: Optional[List[str]] = None
     tool_allowed_checker: Optional[Callable[[str], bool]] = None
     blocked_tools: List[str] = field(default_factory=list)
+    last_execution: Optional[Dict[str, Any]] = None
 
     def set_allowed_tool_patterns(self, patterns: Optional[List[str]]) -> None:
         if patterns is None:
@@ -77,19 +80,78 @@ class ToolCollection:
 
     @observe(name="tool_execute")
     async def execute(self, name: str, input_obj: Dict[str, Any]) -> Optional[str]:
+        started_at = time.perf_counter()
         if not self.is_tool_allowed(name):
             message = f"tool `{name}` is not allowed for this agent"
             logger.warning(message)
+            self.last_execution = self._execution_metadata(
+                name,
+                started_at,
+                failed=True,
+                error=message,
+            )
             self._emit_tool_blocked(name, input_obj, message)
             return message
 
         tool = self.tool_map.get(name)
         if not tool:
+            self.last_execution = self._execution_metadata(
+                name,
+                started_at,
+                failed=True,
+                error="tool not found",
+            )
             return None
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
         self._emit_tool_call(name, input_obj)
-        result = await tool.execute(input_obj)
-        return result
+        try:
+            result = await tool.execute(input_obj)
+            self.last_execution = self._execution_metadata(name, started_at, result=result)
+            return result
+        except Exception as exc:
+            self.last_execution = self._execution_metadata(
+                name,
+                started_at,
+                failed=True,
+                error=str(exc),
+            )
+            raise
+
+    def _execution_metadata(
+        self,
+        name: str,
+        started_at: float,
+        *,
+        result: Any = None,
+        failed: bool = False,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "tool": name,
+            "durationMs": max(0, int((time.perf_counter() - started_at) * 1000)),
+            "failed": failed,
+        }
+        if error:
+            payload["error"] = error
+        if result is not None:
+            payload["resultSummary"] = self._summarize_value(result)
+        return payload
+
+    @staticmethod
+    def _summarize_value(value: Any, limit: int = 500) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            text = value
+        else:
+            try:
+                text = json.dumps(value, ensure_ascii=False, default=str)
+            except Exception:
+                text = str(value)
+        text = text.replace("\r", "\n").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."
 
     def _emit_tool_call(self, name: str, input_obj: Dict[str, Any]) -> None:
         printer = getattr(self.agentContext, "printer", None)

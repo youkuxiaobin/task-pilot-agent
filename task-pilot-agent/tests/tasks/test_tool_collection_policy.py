@@ -4,6 +4,8 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
+import pytest
+
 from brain.core.tools.base import BaseTool
 from brain.core.tools.collection import ToolCollection
 
@@ -18,6 +20,12 @@ class DummyTool(BaseTool):
     async def execute(self, input_obj: Dict[str, Any]) -> str:
         self.called = True
         return f"ok:{self.name}:{input_obj.get('value')}"
+
+
+class FailingTool(DummyTool):
+    async def execute(self, input_obj: Dict[str, Any]) -> str:
+        self.called = True
+        raise RuntimeError("boom")
 
 
 class FakePrinter:
@@ -115,3 +123,30 @@ def test_tool_collection_allows_matching_tool_execution_and_emits_call():
     assert allowed_tool.called is True
     assert printer.events[-1]["message_type"] == "tool_call"
     assert printer.events[-1]["message"]["tool"] == "mcp_local:deepsearch"
+
+
+def test_tool_collection_records_execution_metadata_for_success_and_failure():
+    collection = ToolCollection()
+    allowed_tool = DummyTool("mcp_local:deepsearch")
+    collection.add_tool(allowed_tool)
+
+    result = asyncio.run(collection.execute("mcp_local:deepsearch", {"value": "query"}))
+
+    assert result == "ok:mcp_local:deepsearch:query"
+    assert collection.last_execution is not None
+    assert collection.last_execution["tool"] == "mcp_local:deepsearch"
+    assert collection.last_execution["failed"] is False
+    assert collection.last_execution["durationMs"] >= 0
+    assert collection.last_execution["resultSummary"] == "ok:mcp_local:deepsearch:query"
+
+    failing_tool = FailingTool("mcp_local:broken")
+    collection.add_tool(failing_tool)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(collection.execute("mcp_local:broken", {"value": "query"}))
+
+    assert collection.last_execution is not None
+    assert collection.last_execution["tool"] == "mcp_local:broken"
+    assert collection.last_execution["failed"] is True
+    assert collection.last_execution["durationMs"] >= 0
+    assert collection.last_execution["error"] == "boom"

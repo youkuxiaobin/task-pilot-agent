@@ -155,6 +155,7 @@ class ExecutorAgent(ReActAgent):
                     "tool": call.name,
                     "arguments": call.arguments,
                     "result": result,
+                    **self._tool_execution_metadata(call.name),
                 },
                 None,
                 True,
@@ -162,3 +163,13 @@ class ExecutorAgent(ReActAgent):
 
         self.set_state(AgentState.FINISHED)
         return json.dumps(outputs)
+
+    def _tool_execution_metadata(self, tool_name: str) -> dict:
+        meta = getattr(self.context.toolCollection, "last_execution", None)
+        if not isinstance(meta, dict) or meta.get("tool") != tool_name:
+            return {}
+        return {
+            key: value
+            for key, value in meta.items()
+            if key in {"durationMs", "failed", "resultSummary", "error"}
+        }

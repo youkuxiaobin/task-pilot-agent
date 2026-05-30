@@ -274,7 +274,12 @@ class ReActAgentImp(ReActAgent):
         try:
             raw = await self.context.toolCollection.execute(name, arguments) if getattr(self.context, "toolCollection", None) else None
             message_type = "tool_result"
-            payload = {"tool": name, "arguments": arguments, "result": raw}
+            payload = {
+                "tool": name,
+                "arguments": arguments,
+                "result": raw,
+                **self._tool_execution_metadata(name),
+            }
             observation = self._stringify(raw)
             evidence = f"工具 `{name}` 输出：{observation}"
         except Exception as exc:
@@ -290,6 +295,16 @@ class ReActAgentImp(ReActAgent):
             "evidence": evidence,
         }
 
+    def _tool_execution_metadata(self, tool_name: str) -> Dict[str, Any]:
+        meta = getattr(self.context.toolCollection, "last_execution", None)
+        if not isinstance(meta, dict) or meta.get("tool") != tool_name:
+            return {}
+        return {
+            key: value
+            for key, value in meta.items()
+            if key in {"durationMs", "failed", "resultSummary", "error"}
+        }
+
     @staticmethod
     def _stringify(value: Any) -> str:
         if value is None:
@@ -300,4 +315,3 @@ class ReActAgentImp(ReActAgent):
             return json.dumps(value, ensure_ascii=False)
         except Exception:
             return str(value)
-

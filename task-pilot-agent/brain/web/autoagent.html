@@ -54,7 +54,7 @@
       flex-direction: column;
       flex-shrink: 0;
       transition: transform 0.3s ease;
-      z-index: 20;
+      z-index: 40;
     }
     .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border); }
     .brand { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-accent); margin-bottom: 1rem; }
@@ -107,6 +107,7 @@
       justify-content: space-between; align-items: center;
       background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 10;
     }
+    .sidebar-toggle { display: none; border: 1px solid rgba(148, 163, 184, 0.25); background: rgba(255,255,255,0.04); color: var(--text-main); border-radius: 6px; padding: 0.25rem 0.55rem; font-size: 1rem; cursor: pointer; }
     .task-meta { color: var(--text-muted); font-size: 0.78rem; max-width: 48vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .status-indicator { font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; transition: background 0.3s; }
@@ -298,6 +299,8 @@
     @media (max-width: 768px) {
       .sidebar { position: absolute; height: 100%; transform: translateX(-100%); }
       .sidebar.open { transform: translateX(0); }
+      .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+      .top-bar { padding: 0.85rem 1rem; }
       .chat-container { padding: 1rem; }
       .msg-row { max-width: 100%; }
     }
@@ -341,6 +344,7 @@
   <main class="workspace">
     <div class="top-bar">
       <div class="status-indicator">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="任务列表">☰</button>
         <div id="status-dot" class="status-dot"></div>
         <span id="status-text">就绪</span>
       </div>
@@ -399,6 +403,8 @@
 (() => {
   const dom = {
     sessionList: document.getElementById('session-list'),
+    sidebar: document.querySelector('.sidebar'),
+    sidebarToggle: document.getElementById('sidebar-toggle'),
     taskList: document.getElementById('task-list'),
     refreshTasks: document.getElementById('refresh-tasks'),
     taskKeyword: document.getElementById('task-keyword'),
@@ -517,7 +523,12 @@
           <span class="task-status ${escapeHTML(status)}">${escapeHTML(status || 'unknown')}</span>
           <span>${formatDate(task.createdAt)}</span>
         </div>`;
-      item.onclick = () => { if(!state.running) loadTask(taskId); };
+      item.onclick = () => {
+        if(!state.running) {
+          loadTask(taskId);
+          dom.sidebar.classList.remove('open');
+        }
+      };
       dom.taskList.appendChild(item);
     });
   }
@@ -1058,7 +1069,10 @@
         const result = raw.result !== undefined ? raw.result : (raw.output !== undefined ? raw.output : raw.chunk);
         let html = '';
         html += renderFieldBlock('Tool', toolName, {highlight: true});
+        if(raw.failed === true) html += renderFieldBlock('Status', raw.error || 'failed', {highlight: true});
+        if(raw.durationMs !== undefined) html += renderFieldBlock('Duration', `${raw.durationMs} ms`);
         html += renderFieldBlock('Arguments', args);
+        if(raw.resultSummary && result === undefined) html += renderFieldBlock('Result Summary', raw.resultSummary);
         if(result !== undefined) {
             html += `<div class="field-block"><span class="field-label">Result</span><div class="field-value markdown-body">${renderToolOutputHTML(result)}</div></div>`;
             return html;
@@ -1209,6 +1223,7 @@
   }
 
   dom.newSession.onclick = () => activateSession(createSession());
+  dom.sidebarToggle.onclick = () => dom.sidebar.classList.toggle('open');
   dom.refreshTasks.onclick = refreshTaskList;
   dom.taskKeyword.oninput = scheduleTaskRefresh;
   dom.taskStatusFilter.onchange = refreshTaskList;
