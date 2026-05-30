@@ -78,6 +78,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "需审批",
         "tool_policy_applied",
         "工具策略已应用",
+        "task_queued",
+        "任务排队中",
         "本次授权",
         "已授权",
         "memory_context_loaded",
