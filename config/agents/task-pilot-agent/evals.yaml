@@ -1,0 +1,6 @@
+cases:
+  - id: legacy_plan_executor
+    name: 兼容计划执行链路
+    input: 制定一个三步计划，执行每一步，并总结最终结果。
+    expected: 应继续走 plans_executor 模式，计划、步骤进度、工具调用和最终答案都应可见。
+    tags: [legacy, plans_executor, regression]

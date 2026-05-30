@@ -18,6 +18,16 @@ class AgentToolSpec:
 
 
 @dataclass(frozen=True)
+class AgentEvalCase:
+    id: str
+    name: str
+    input: str
+    expected: str = ""
+    tags: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     id: str
     name: str
@@ -27,6 +37,7 @@ class AgentConfig:
     mode: str = "react"
     system_prompt: str = ""
     tools: List[AgentToolSpec] = field(default_factory=list)
+    evals: List[AgentEvalCase] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     directory: Optional[Path] = None
 
@@ -61,6 +72,17 @@ class AgentConfig:
                     "policy": tool.policy,
                 }
                 for tool in self.tools
+            ],
+            "evals": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "input": item.input,
+                    "expected": item.expected,
+                    "tags": item.tags,
+                    "metadata": item.metadata,
+                }
+                for item in self.evals
             ],
             "metadata": self.metadata,
             "directory": str(self.directory) if self.directory else None,
@@ -119,6 +141,15 @@ class AgentRegistry:
             return list(tool_names)
         return [tool_name for tool_name in tool_names if agent.allows_tool(tool_name)]
 
+    def list_evals(self, agent_id: Optional[str] = None) -> List[AgentEvalCase]:
+        if agent_id:
+            agent = self.get(agent_id)
+            return list(agent.evals) if agent else []
+        evals: List[AgentEvalCase] = []
+        for agent in self.list_agents():
+            evals.extend(agent.evals)
+        return evals
+
     def _load_agent(self, agent_dir: Path, yaml_path: Path) -> AgentConfig:
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
         if not isinstance(raw, dict):
@@ -134,6 +165,7 @@ class AgentRegistry:
             system_prompt = self._read_prompt_file(agent_dir, str(prompt_file))
 
         tools = self._parse_tools(raw.get("tools") or [])
+        evals = self._load_evals(agent_dir)
         return AgentConfig(
             id=agent_id,
             name=str(raw.get("name") or agent_id),
@@ -143,6 +175,7 @@ class AgentRegistry:
             mode=str(raw.get("mode") or "react"),
             system_prompt=system_prompt,
             tools=tools,
+            evals=evals,
             metadata=raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {},
             directory=agent_dir,
         )
@@ -180,3 +213,41 @@ class AgentRegistry:
         if not prompt_path.is_relative_to(agent_root):
             raise ValueError(f"Agent prompt file must stay inside its directory: {prompt_file}")
         return prompt_path.read_text(encoding="utf-8")
+
+    @classmethod
+    def _load_evals(cls, agent_dir: Path) -> List[AgentEvalCase]:
+        evals_path = agent_dir / "evals.yaml"
+        if not evals_path.exists():
+            return []
+        raw = yaml.safe_load(evals_path.read_text(encoding="utf-8")) or {}
+        if isinstance(raw, dict):
+            raw_cases = raw.get("cases") or []
+        elif isinstance(raw, list):
+            raw_cases = raw
+        else:
+            raise ValueError(f"Agent evals must be a mapping or list: {evals_path}")
+        if not isinstance(raw_cases, list):
+            raise ValueError(f"Agent eval cases must be a list: {evals_path}")
+
+        cases: List[AgentEvalCase] = []
+        for index, item in enumerate(raw_cases, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"Invalid eval case in {evals_path}: {item!r}")
+            case_id = str(item.get("id") or f"case_{index}").strip()
+            input_text = str(item.get("input") or "").strip()
+            if not input_text:
+                raise ValueError(f"Eval case input is required: {evals_path}:{case_id}")
+            raw_tags = item.get("tags") or []
+            tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else [str(raw_tags)]
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            cases.append(
+                AgentEvalCase(
+                    id=case_id,
+                    name=str(item.get("name") or case_id),
+                    input=input_text,
+                    expected=str(item.get("expected") or ""),
+                    tags=tags,
+                    metadata=metadata,
+                )
+            )
+        return cases

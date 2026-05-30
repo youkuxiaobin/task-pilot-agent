@@ -29,6 +29,21 @@ def test_agent_registry_loads_yaml_prompt_and_filters_tools(tmp_path):
         ).strip(),
         encoding="utf-8",
     )
+    (agent_dir / "evals.yaml").write_text(
+        textwrap.dedent(
+            """
+            cases:
+              - id: search_regression
+                name: Search Regression
+                input: Find current information and summarize it.
+                expected: Uses search before answering.
+                tags: [search, regression]
+                metadata:
+                  priority: high
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
 
     registry = AgentRegistry(tmp_path / "agents")
     agent = registry.get("research_agent")
@@ -37,6 +52,11 @@ def test_agent_registry_loads_yaml_prompt_and_filters_tools(tmp_path):
     assert agent.system_prompt == "hello {available_tools}"
     assert agent.mode == "react"
     assert agent.metadata["owner"] == "test"
+    assert len(agent.evals) == 1
+    assert agent.evals[0].id == "search_regression"
+    assert agent.evals[0].tags == ["search", "regression"]
+    assert agent.evals[0].metadata["priority"] == "high"
+    assert registry.list_evals("research_agent")[0].name == "Search Regression"
     assert agent.allows_tool("mcp_local:deepsearch")
     assert agent.allows_tool("mcp_world:anything")
     assert not agent.allows_tool("mcp_local:code_interpreter")
@@ -68,6 +88,16 @@ def test_agent_registry_rejects_prompt_path_escape(tmp_path):
     )
 
     with pytest.raises(ValueError, match="inside its directory"):
+        AgentRegistry(tmp_path / "agents")
+
+
+def test_agent_registry_rejects_invalid_eval_case(tmp_path):
+    agent_dir = tmp_path / "agents" / "bad_eval_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text("id: bad_eval_agent\nname: Bad Eval\n", encoding="utf-8")
+    (agent_dir / "evals.yaml").write_text("cases:\n  - id: bad\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="input is required"):
         AgentRegistry(tmp_path / "agents")
 
 

@@ -1,0 +1,18 @@
+cases:
+  - id: research_summary
+    name: 搜索研究摘要
+    input: 汇总一个新技术主题的关键信息，并给出引用依据。
+    expected: 应先检索或调用搜索工具，再给出带依据的摘要。
+    tags: [research, search, citation]
+
+  - id: file_analysis
+    name: 文件分析
+    input: 读取用户上传的数据文件，找出异常值并生成结论。
+    expected: 应读取文件、分析数据，并把结果作为任务产物或最终答案返回。
+    tags: [file, data, artifact]
+
+  - id: plan_then_execute
+    name: 复杂任务规划
+    input: 把一个多步骤自动化任务拆解、执行并在中途根据结果调整计划。
+    expected: 应调用 builtin:plan_tool 维护计划，并记录工具调用过程。
+    tags: [planning, tool, regression]

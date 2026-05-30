@@ -377,6 +377,15 @@ async def get_agent(agent_id: str) -> Dict[str, Any]:
     return agent.to_dict()
 
 
+@agent_router.get("/agents/{agent_id}/evals")
+async def list_agent_evals(agent_id: str) -> Dict[str, Any]:
+    agentRegistry.reload()
+    agent = agentRegistry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return {"items": [item.__dict__ for item in agent.evals]}
+
+
 @agent_router.get("/tasks")
 async def list_agent_tasks(
     user_id: Optional[str] = Query(default=None),
