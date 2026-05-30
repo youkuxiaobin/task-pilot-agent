@@ -352,6 +352,7 @@
       </div>
       <div class="task-filters">
         <input id="task-keyword" class="filter-input" type="search" placeholder="搜索任务">
+        <input id="task-user-filter" class="filter-input" type="search" placeholder="用户 ID">
         <select id="task-status-filter" class="filter-select" title="任务状态">
           <option value="">全部状态</option>
           <option value="queued">排队中</option>
@@ -474,6 +475,7 @@
     taskList: document.getElementById('task-list'),
     refreshTasks: document.getElementById('refresh-tasks'),
     taskKeyword: document.getElementById('task-keyword'),
+    taskUserFilter: document.getElementById('task-user-filter'),
     taskStatusFilter: document.getElementById('task-status-filter'),
     taskAgentFilter: document.getElementById('task-agent-filter'),
     taskCreatedFilter: document.getElementById('task-created-filter'),
@@ -675,7 +677,9 @@
     try {
       const params = new URLSearchParams({ limit: '30' });
       const keyword = dom.taskKeyword.value.trim();
+      const userId = dom.taskUserFilter.value.trim();
       if(keyword) params.set('keyword', keyword);
+      if(userId) params.set('user_id', userId);
       if(dom.taskStatusFilter.value) params.set('status', dom.taskStatusFilter.value);
       if(dom.taskAgentFilter.value) params.set('agent_id', dom.taskAgentFilter.value);
       const createdFrom = taskCreatedRange(dom.taskCreatedFilter.value);
@@ -1581,6 +1585,7 @@
   dom.sidebarToggle.onclick = () => dom.sidebar.classList.toggle('open');
   dom.refreshTasks.onclick = refreshTaskList;
   dom.taskKeyword.oninput = scheduleTaskRefresh;
+  dom.taskUserFilter.oninput = scheduleTaskRefresh;
   dom.taskStatusFilter.onchange = refreshTaskList;
   dom.taskAgentFilter.onchange = refreshTaskList;
   dom.taskCreatedFilter.onchange = refreshTaskList;

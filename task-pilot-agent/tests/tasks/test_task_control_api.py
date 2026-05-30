@@ -184,6 +184,31 @@ def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, mo
     assert payload["items"][0]["hasError"] is True
 
 
+def test_list_tasks_api_filters_by_user(app_modules):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(task_id="user-task-a", trace_id="trace-a", user_id="user-a", input_text="alpha")
+    store.create_task(task_id="user-task-b", trace_id="trace-b", user_id="user-b", input_text="beta")
+
+    payload = asyncio.run(
+        app.list_agent_tasks(
+            user_id="user-a",
+            status=None,
+            agent_id=None,
+            keyword=None,
+            created_from=None,
+            created_to=None,
+            min_duration_ms=None,
+            max_duration_ms=None,
+            has_error=None,
+            limit=50,
+            offset=0,
+        )
+    )
+
+    assert [item["taskId"] for item in payload["items"]] == ["user-task-a"]
+
+
 def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
     app, tasks = app_modules
     store = tasks.TaskStore()
