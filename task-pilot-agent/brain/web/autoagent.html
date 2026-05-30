@@ -299,6 +299,21 @@
     .tool-option input { margin-top: 0.15rem; }
     .tool-option small { display: block; color: var(--text-muted); margin-top: 0.15rem; }
     .tool-risk { color: #fbbf24; font-size: 0.72rem; margin-left: 0.35rem; }
+    .agent-summary {
+      margin: 0 1rem 0.7rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.05);
+      display: grid; grid-template-columns: minmax(180px, 0.85fr) 1fr; gap: 0.8rem; color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .agent-summary[hidden] { display: none; }
+    .agent-summary strong { color: var(--text-main); font-size: 0.92rem; }
+    .agent-summary p { margin-top: 0.2rem; line-height: 1.45; }
+    .agent-summary-line { display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.35rem; }
+    .agent-pill {
+      display: inline-flex; align-items: center; max-width: 180px; border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 999px; padding: 0.14rem 0.48rem; color: #cbd5e1; background: rgba(255,255,255,0.035);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .agent-pill-label { color: var(--text-muted); background: transparent; border-color: transparent; padding-left: 0; }
     .btn-send {
       background: var(--color-accent); color: #0f172a; border: none; padding: 0.5rem 1.5rem;
       border-radius: 8px; font-weight: 600; cursor: pointer; transition: filter 0.2s;
@@ -316,6 +331,7 @@
       .task-input-panel { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
       .chat-container { padding: 1rem; }
       .msg-row { max-width: 100%; }
+      .agent-summary { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -438,6 +454,7 @@
             <button id="send" class="btn-send" type="submit">发送</button>
           </div>
         </div>
+        <div id="agent-summary" class="agent-summary" hidden></div>
       </form>
     </div>
   </main>
@@ -477,6 +494,7 @@
     runEnvironment: document.getElementById('run-environment'),
     userId: document.getElementById('user-id'),
     agentId: document.getElementById('agent-id'),
+    agentSummary: document.getElementById('agent-summary'),
     toolPicker: document.getElementById('tool-picker'),
     toolSummary: document.getElementById('tool-summary'),
     toolOptions: document.getElementById('tool-options'),
@@ -710,6 +728,7 @@
       dom.agentId.value = state.defaultAgentId;
     }
     applySelectedAgentDefaults();
+    renderAgentSummary();
     renderToolOptions();
     renderEvalOptions();
   }
@@ -744,6 +763,43 @@
     if(mode && Array.from(dom.mode.options).some(option => option.value === mode)) {
       dom.mode.value = mode;
     }
+  }
+
+  function limitedValues(values, limit=6) {
+    const clean = values.filter(Boolean).map(value => String(value));
+    if(clean.length <= limit) return clean;
+    return [...clean.slice(0, limit), `+${clean.length - limit}`];
+  }
+
+  function renderPillLine(label, values) {
+    const items = limitedValues(values);
+    if(!items.length) return '';
+    return `<div class="agent-summary-line"><span class="agent-pill agent-pill-label">${escapeHTML(label)}</span>${items.map(item => `<span class="agent-pill" title="${escapeHTML(item)}">${escapeHTML(item)}</span>`).join('')}</div>`;
+  }
+
+  function renderAgentSummary() {
+    const agent = getSelectedAgentConfig();
+    if(!agent) {
+      dom.agentSummary.hidden = true;
+      dom.agentSummary.innerHTML = '';
+      return;
+    }
+    const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : [];
+    const tools = Array.isArray(agent.tools) ? agent.tools.map(tool => tool.name || tool.id || '') : [];
+    const handoffs = Array.isArray(agent.handoffs?.allowed) ? agent.handoffs.allowed : [];
+    const typeText = [agent.type, agent.mode].filter(Boolean).join(' · ');
+    dom.agentSummary.hidden = false;
+    dom.agentSummary.innerHTML = `
+      <div>
+        <strong>${escapeHTML(agent.name || agent.id)}</strong>
+        ${typeText ? `<div>${escapeHTML(typeText)}</div>` : ''}
+        ${agent.description ? `<p>${escapeHTML(agent.description)}</p>` : ''}
+      </div>
+      <div>
+        ${renderPillLine('能力', capabilities)}
+        ${renderPillLine('工具', tools)}
+        ${renderPillLine('交接', handoffs)}
+      </div>`;
   }
 
   function renderToolOptions() {
@@ -1469,7 +1525,7 @@
   dom.taskCreatedFilter.onchange = refreshTaskList;
   dom.taskDurationFilter.onchange = refreshTaskList;
   dom.taskErrorFilter.onchange = refreshTaskList;
-  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); renderEvalOptions(); };
+  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderAgentSummary(); renderToolOptions(); renderEvalOptions(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;
   dom.fileInput.onchange = updateFileSummary;
