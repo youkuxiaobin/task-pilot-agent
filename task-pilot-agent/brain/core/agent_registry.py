@@ -166,6 +166,29 @@ class AgentConfig:
             "directory": str(self.directory) if self.directory else None,
         }
 
+    def to_runtime_snapshot(self, approved_tools: Optional[List[str]] = None) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
+            "description": self.description,
+            "version": self.version,
+            "mode": self.mode,
+            "capabilities": list(self.capabilities),
+            "tools": [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "allowed": self.allows_tool(tool.name, approved_tools=approved_tools),
+                    "blockReason": self.tool_block_reason(tool.name, approved_tools=approved_tools),
+                    "policy": dict(tool.policy),
+                }
+                for tool in self.tools
+            ],
+            "handoffs": dict(self.handoffs),
+            "output": dict(self.output),
+        }
+
 
 def _matches_tool_pattern(pattern: str, tool_name: str) -> bool:
     if pattern in {"*", "all"}:

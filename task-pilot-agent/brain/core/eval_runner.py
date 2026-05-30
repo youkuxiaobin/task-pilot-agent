@@ -68,6 +68,7 @@ def build_eval_run(
         "source": "eval",
         "evalCaseId": case.id,
         "evalCaseName": case.name,
+        "agentSnapshot": agent.to_runtime_snapshot(),
         "expected": case.expected,
         "tags": case.tags,
         "evalMetadata": case.metadata,

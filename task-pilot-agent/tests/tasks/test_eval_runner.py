@@ -37,6 +37,8 @@ def test_build_eval_run_turns_case_into_task_spec():
     assert eval_run.mode == "react"
     assert eval_run.output_style == "gaia"
     assert eval_run.metadata["source"] == "eval"
+    assert eval_run.metadata["agentSnapshot"]["id"] == "research_agent"
+    assert eval_run.metadata["agentSnapshot"]["name"] == "Research Agent"
     assert eval_run.metadata["expected"] == "Uses search."
     assert eval_run.metadata["tags"] == ["search", "regression"]
     assert eval_run.metadata["evalMetadata"]["priority"] == "high"

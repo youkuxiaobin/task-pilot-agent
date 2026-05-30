@@ -145,6 +145,8 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     assert payload["metadata"]["source"] == "api"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
     assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
+    assert payload["metadata"]["agentSnapshot"]["id"] == "task-pilot-agent"
+    assert payload["metadata"]["agentSnapshot"]["name"] == "TaskPilot 默认 Agent"
     assert created_background
     background_req = created_background[0].cr_frame.f_locals["req"]
     assert background_req.trace_id == payload["taskId"]
@@ -155,6 +157,7 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["runEnvironment"] == "sandbox"
     assert tasks.serialize_event(events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
+    assert tasks.serialize_event(events[-1])["payload"]["agentSnapshot"]["id"] == "task-pilot-agent"
 
 
 def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, monkeypatch):
@@ -504,6 +507,7 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert payload["metadata"]["parentTaskId"] == "parent-task"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
     assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
+    assert payload["metadata"]["agentSnapshot"]["id"] == "child-agent"
     assert created_background
 
     store = tasks.TaskStore()
@@ -516,6 +520,7 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentId"] == "child-agent"
     assert tasks.serialize_event(parent_events[-1])["payload"]["childTaskId"] == payload["taskId"]
     assert tasks.serialize_event(parent_events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
+    assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentSnapshot"]["id"] == "child-agent"
 
     with pytest.raises(ValueError, match="cannot hand off"):
         asyncio.run(app._start_handoff_task(parent_ctx, "blocked-agent", "blocked", {}))

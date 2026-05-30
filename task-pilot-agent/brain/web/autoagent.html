@@ -627,7 +627,7 @@
     const parts = [
       `任务 ${session.taskId}`,
       session.taskStatus || 'running',
-      session.taskAgentId,
+      formatAgentSnapshotMeta(session.agentSnapshot) || session.taskAgentId,
       session.taskMode,
       session.runEnvironment ? `环境 ${session.runEnvironment}` : '',
       formatArtifactMeta(session.artifacts),
@@ -700,6 +700,20 @@
     if(usage.toolFailures) parts.push(`失败 ${usage.toolFailures}`);
     if(usage.toolDurationMs) parts.push(`工具耗时 ${formatDuration(usage.toolDurationMs)}`);
     return parts.join(' · ');
+  }
+
+  function formatAgentSnapshotMeta(snapshot) {
+    if(!snapshot || typeof snapshot !== 'object') return '';
+    const label = snapshot.name || snapshot.id || '';
+    const typeText = [snapshot.type, snapshot.mode].filter(Boolean).join('/');
+    const capabilities = Array.isArray(snapshot.capabilities) ? snapshot.capabilities.length : 0;
+    const tools = Array.isArray(snapshot.tools) ? snapshot.tools.length : 0;
+    return [
+      label ? `Agent ${label}` : '',
+      typeText,
+      capabilities ? `能力 ${capabilities}` : '',
+      tools ? `工具 ${tools}` : '',
+    ].filter(Boolean).join(' · ');
   }
 
   function formatArtifactMeta(artifacts) {
@@ -1142,6 +1156,7 @@
     session.taskMode = task.mode || '';
     session.runEnvironment = task.runEnvironment || task.metadata?.runEnvironment || '';
     session.usage = task.usage || task.metadata?.usage || null;
+    session.agentSnapshot = task.metadata?.agentSnapshot || null;
     session.artifacts = artifacts;
     session.eventTypeFilter = eventFilters.eventType || '';
     session.eventSourceFilter = eventFilters.source || '';
@@ -1152,13 +1167,17 @@
       session.messages.push({ role: 'user', content: task.input });
       session.replayState.baseIndex = 0;
     }
+    state.replaying = true;
+    const agentSnapshotHTML = renderAgentSnapshotHTML(session.agentSnapshot);
+    if(agentSnapshotHTML) {
+      upsertReasonMessage(session, 'task', agentSnapshotHTML, task.createdAt || Date.now(), false);
+    }
     if(task.hasError || task.status === 'failed') {
       const lastSuccess = lastSuccessfulEventText(events);
       const failureText = `失败原因：${task.error || '未知错误'}${lastSuccess ? `\n最后成功事件：${lastSuccess}` : ''}`;
       session.messages.push({ role: 'assistant', type: 'reason', kind: 'notifications', html: renderNotificationHTML(failureText), ts: Date.now(), isOpen: true });
     }
 
-    state.replaying = true;
     events.forEach(item => {
       const payload = item.payload || {};
       const type = payload.messageType || mapTaskEventType(item.eventType);
@@ -1208,6 +1227,26 @@
           </div>
         </div>`;
     }).join('');
+  }
+
+  function renderAgentSnapshotHTML(snapshot) {
+    if(!snapshot || typeof snapshot !== 'object') return '';
+    const capabilities = Array.isArray(snapshot.capabilities) ? snapshot.capabilities : [];
+    const handoffs = Array.isArray(snapshot.handoffs?.allowed) ? snapshot.handoffs.allowed : [];
+    const tools = Array.isArray(snapshot.tools) ? snapshot.tools.map(tool => {
+      if(typeof tool === 'string') return tool;
+      const name = tool?.name || tool?.id || '';
+      if(!name) return '';
+      const reason = tool.allowed === false ? toolBlockReasonText(tool.blockReason) || '不可用' : '';
+      return reason ? `${name} (${reason})` : name;
+    }).filter(Boolean) : [];
+    let html = '';
+    html += renderFieldBlock('Agent', [snapshot.name || snapshot.id, snapshot.type, snapshot.mode].filter(Boolean).join(' · '), {highlight: true});
+    html += renderFieldBlock('Agent 说明', snapshot.description);
+    html += renderPillLine('能力', capabilities);
+    html += renderPillLine('工具', tools);
+    html += renderPillLine('交接', handoffs);
+    return html;
   }
 
   function mapTaskEventType(eventType) {
@@ -1283,11 +1322,11 @@
       const error = data.error ? ` · ${data.error}` : '';
       return `阶段${status}：${phase}${step}${command}${error}`;
     }
-    if(eventType === 'agent_selected') return `Supervisor 已选择 Agent：${data.agentId || ''}${data.reason ? ` · ${data.reason}` : ''}`;
-    if(eventType === 'agent_started') return `Agent 已启动：${data.agentId || ''}`;
-    if(eventType === 'agent_completed') return `Agent 已完成：${data.agentId || ''}`;
-    if(eventType === 'agent_failed') return `Agent 失败：${data.agentId || ''}${data.error ? ` · ${data.error}` : ''}`;
-    if(eventType === 'agent_cancelled') return `Agent 已取消：${data.agentId || ''}`;
+    if(eventType === 'agent_selected') return `Supervisor 已选择 Agent：${data.agentName || data.agentId || ''}${data.reason ? ` · ${data.reason}` : ''}`;
+    if(eventType === 'agent_started') return `Agent 已启动：${data.agentName || data.agentId || ''}`;
+    if(eventType === 'agent_completed') return `Agent 已完成：${data.agentName || data.agentId || ''}`;
+    if(eventType === 'agent_failed') return `Agent 失败：${data.agentName || data.agentId || ''}${data.error ? ` · ${data.error}` : ''}`;
+    if(eventType === 'agent_cancelled') return `Agent 已取消：${data.agentName || data.agentId || ''}`;
     if(eventType === 'task_handoff_requested') return `任务已交接：${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`;
     return eventType || '';
   }
@@ -1655,6 +1694,11 @@
     const getResultMap = () => payload.resultMap || {};
     const getResultMapStr = () => { if(payload.resultMap && payload.resultMap.result) return payload.resultMap.result; return ''; };
     const streamState = getBuildState(session);
+
+    if(payload.agentSnapshot && typeof payload.agentSnapshot === 'object') {
+      session.agentSnapshot = payload.agentSnapshot;
+      updateTaskMeta(session);
+    }
 
     if(payload.taskId) {
       session.taskId = payload.taskId;

@@ -48,7 +48,18 @@ class SupervisorHandler(AgentHandlerService):
         if target is None:
             raise ValueError(f"selected agent not found: {selection.agent_id}")
 
-        self._record_event(ctx, "agent_selected", selection.to_dict())
+        self._record_event(
+            ctx,
+            "agent_selected",
+            {
+                **selection.to_dict(),
+                "agentName": target.name,
+                "agentDescription": target.description,
+                "agentSnapshot": target.to_runtime_snapshot(
+                    approved_tools=getattr(ctx, "approved_tools", None),
+                ),
+            },
+        )
         self._send_task(ctx, f"Supervisor 已选择 Agent：{target.name or target.id}")
 
         original_agent_id = ctx.agent_id
@@ -116,8 +127,12 @@ class SupervisorHandler(AgentHandlerService):
         return {
             "agentId": agent.id,
             "agentConfigId": agent.id,
+            "agentName": agent.name,
+            "agentDescription": agent.description,
             "agentType": agent.type,
             "mode": agent.mode,
+            "capabilities": list(agent.capabilities),
+            "agentSnapshot": agent.to_runtime_snapshot(),
             "status": status,
         }
 

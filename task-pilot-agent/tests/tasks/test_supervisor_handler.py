@@ -160,3 +160,5 @@ def test_supervisor_handler_selects_agent_rebuilds_tools_and_records_events(
         next(event for event in store.list_events("supervisor-task") if event.event_type == "agent_selected")
     )["payload"]
     assert selected_payload["agentId"] == "research_agent"
+    assert selected_payload["agentName"] == "Research Agent"
+    assert selected_payload["agentSnapshot"]["tools"][0]["name"] == "builtin:plan_tool"

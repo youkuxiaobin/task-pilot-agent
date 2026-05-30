@@ -154,6 +154,10 @@ def test_agent_registry_requires_per_task_approval_for_high_risk_tools(tmp_path,
     assert agent.allows_tool("mcp_local:code_interpreter", approved_tools=["mcp_local:code_interpreter"])
     assert agent.tool_block_reason("mcp_local:code_interpreter", approved_tools=["mcp_local:code_interpreter"]) == ""
     assert agent.to_dict()["tools"][0]["blockReason"] == "high_risk_requires_approval"
+    snapshot = agent.to_runtime_snapshot(approved_tools=["mcp_local:code_interpreter"])
+    assert snapshot["id"] == "approval_agent"
+    assert snapshot["tools"][0]["allowed"] is True
+    assert "systemPrompt" not in snapshot
 
 
 def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
