@@ -382,6 +382,10 @@
               <summary id="tool-summary">工具</summary>
               <div id="tool-options" class="tool-options"></div>
             </details>
+            <select id="eval-case" class="select-style" title="选择评测">
+              <option value="">评测</option>
+            </select>
+            <button id="run-eval" class="btn-small" type="button" disabled>运行评测</button>
             <input id="user-id" type="hidden" placeholder="User ID">
             <input id="endpoint" type="hidden" value="/agent/autoagent">
           </div>
@@ -426,6 +430,8 @@
     toolPicker: document.getElementById('tool-picker'),
     toolSummary: document.getElementById('tool-summary'),
     toolOptions: document.getElementById('tool-options'),
+    evalCase: document.getElementById('eval-case'),
+    runEval: document.getElementById('run-eval'),
     endpoint: document.getElementById('endpoint'),
   };
 
@@ -595,6 +601,7 @@
     }
     applySelectedAgentDefaults();
     renderToolOptions();
+    renderEvalOptions();
   }
 
   function renderTaskAgentFilter() {
@@ -673,6 +680,46 @@
     }
     const selected = inputs.filter(input => input.checked).length;
     dom.toolSummary.textContent = `工具 ${selected}/${inputs.length}`;
+  }
+
+  function renderEvalOptions() {
+    const agent = getSelectedAgentConfig();
+    const evals = Array.isArray(agent?.evals) ? agent.evals : [];
+    const previous = dom.evalCase.value;
+    dom.evalCase.innerHTML = '<option value="">评测</option>';
+    evals.forEach(item => {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = item.name || item.id;
+      dom.evalCase.appendChild(option);
+    });
+    if(previous && evals.some(item => item.id === previous)) {
+      dom.evalCase.value = previous;
+    }
+    dom.runEval.disabled = !dom.evalCase.value;
+  }
+
+  async function runSelectedEval() {
+    const agent = getSelectedAgentConfig();
+    const caseId = dom.evalCase.value;
+    if(!agent || !caseId || state.running) return;
+    setUIStatus('启动评测...', true);
+    try {
+      const params = new URLSearchParams();
+      if(dom.outputStyle.value) params.set('output_style', dom.outputStyle.value);
+      if(dom.userId.value) params.set('user_id', dom.userId.value);
+      const resp = await fetch(`/agent/agents/${encodeURIComponent(agent.id)}/evals/${encodeURIComponent(caseId)}/run?${params.toString()}`, { method: 'POST' });
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      const taskId = data.task?.taskId || data.eval?.taskId;
+      await refreshTaskList();
+      if(taskId) await loadTask(taskId);
+    } catch(err) {
+      const session = getActiveSession() || createSession();
+      upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">启动评测失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
+    } finally {
+      setUIStatus('就绪', false);
+    }
   }
 
   async function loadTask(taskId) {
@@ -1228,7 +1275,9 @@
   dom.taskKeyword.oninput = scheduleTaskRefresh;
   dom.taskStatusFilter.onchange = refreshTaskList;
   dom.taskAgentFilter.onchange = refreshTaskList;
-  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); };
+  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); renderEvalOptions(); };
+  dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
+  dom.runEval.onclick = runSelectedEval;
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;
   dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };
