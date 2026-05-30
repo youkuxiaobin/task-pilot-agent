@@ -702,23 +702,7 @@ async def list_agent_evals(agent_id: str) -> Dict[str, Any]:
     return {"items": [item.__dict__ for item in agent.evals]}
 
 
-@agent_router.post("/agents/{agent_id}/evals/{case_id}/run")
-async def run_agent_eval(
-    agent_id: str,
-    case_id: str,
-    user_id: str = Query(default="eval-runner"),
-    output_style: Optional[str] = Query(default=None),
-) -> Dict[str, Any]:
-    agentRegistry.reload()
-    agent = agentRegistry.get(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="agent not found")
-    case = next((item for item in agent.evals if item.id == case_id), None)
-    if not case:
-        raise HTTPException(status_code=404, detail="eval case not found")
-
-    eval_run = build_eval_run(agent, case, user_id=user_id, output_style=output_style)
-    store = TaskStore()
+def _create_eval_task(store: TaskStore, eval_run: Any) -> Any:
     task = store.create_task(
         task_id=eval_run.task_id,
         trace_id=eval_run.trace_id,
@@ -737,7 +721,10 @@ async def run_agent_eval(
         trace_id=eval_run.trace_id,
         source="eval",
     )
+    return task
 
+
+def _start_eval_task(eval_run: Any) -> None:
     req = GptQueryReq(
         trace_id=eval_run.trace_id,
         user_id=eval_run.user_id,
@@ -748,6 +735,49 @@ async def run_agent_eval(
         messages=[AgentMessage(role=RoleType.USER.value, content=eval_run.input_text)],
     )
     asyncio.create_task(_run_autoagent(req, lambda _data: None))
+
+
+@agent_router.post("/agents/{agent_id}/evals/run")
+async def run_agent_evals(
+    agent_id: str,
+    user_id: str = Query(default="eval-runner"),
+    output_style: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    agentRegistry.reload()
+    agent = agentRegistry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+
+    store = TaskStore()
+    items: List[Dict[str, Any]] = []
+    for case in agent.evals:
+        eval_run = build_eval_run(agent, case, user_id=user_id, output_style=output_style)
+        task = _create_eval_task(store, eval_run)
+        _start_eval_task(eval_run)
+        items.append({"task": serialize_task(task), "eval": eval_run.to_dict()})
+
+    return {"items": items, "count": len(items)}
+
+
+@agent_router.post("/agents/{agent_id}/evals/{case_id}/run")
+async def run_agent_eval(
+    agent_id: str,
+    case_id: str,
+    user_id: str = Query(default="eval-runner"),
+    output_style: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    agentRegistry.reload()
+    agent = agentRegistry.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    case = next((item for item in agent.evals if item.id == case_id), None)
+    if not case:
+        raise HTTPException(status_code=404, detail="eval case not found")
+
+    store = TaskStore()
+    eval_run = build_eval_run(agent, case, user_id=user_id, output_style=output_style)
+    task = _create_eval_task(store, eval_run)
+    _start_eval_task(eval_run)
     return {"task": serialize_task(task), "eval": eval_run.to_dict()}
 
 

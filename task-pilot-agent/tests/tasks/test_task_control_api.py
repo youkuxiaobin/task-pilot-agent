@@ -279,6 +279,55 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
         asyncio.run(app._start_handoff_task(parent_ctx, "blocked-agent", "blocked", {}))
 
 
+def test_run_agent_evals_creates_task_for_each_case(app_modules, monkeypatch):
+    app, tasks = app_modules
+    from brain.core.agent_registry import AgentEvalCase
+
+    created_background = []
+    agent = app.AgentConfig(
+        id="eval-agent",
+        name="Eval Agent",
+        mode="react",
+        evals=[
+            AgentEvalCase(id="case-a", name="Case A", input="first task", expected="first"),
+            AgentEvalCase(id="case-b", name="Case B", input="second task", expected="second"),
+        ],
+    )
+
+    def fake_create_task(coro):
+        created_background.append(coro)
+        coro.close()
+
+        class DoneTask:
+            def done(self):
+                return True
+
+            def cancel(self):
+                return None
+
+        return DoneTask()
+
+    monkeypatch.setattr(app.agentRegistry, "reload", lambda: None)
+    monkeypatch.setattr(app.agentRegistry, "get", lambda agent_id: agent if agent_id == "eval-agent" else None)
+    monkeypatch.setattr(app.asyncio, "create_task", fake_create_task)
+
+    payload = asyncio.run(app.run_agent_evals("eval-agent", user_id="tester", output_style="gaia"))
+
+    assert payload["count"] == 2
+    assert [item["eval"]["caseId"] for item in payload["items"]] == ["case-a", "case-b"]
+    assert [item["task"]["status"] for item in payload["items"]] == [
+        tasks.AgentTaskStatus.QUEUED,
+        tasks.AgentTaskStatus.QUEUED,
+    ]
+    assert len(created_background) == 2
+
+    store = tasks.TaskStore()
+    first_task_id = payload["items"][0]["task"]["taskId"]
+    first_events = store.list_events(first_task_id)
+    assert first_events[-1].event_type == "eval_run_created"
+    assert tasks.serialize_event(first_events[-1])["payload"]["caseId"] == "case-a"
+
+
 def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
     app, _tasks = app_modules
     cancelled = False
