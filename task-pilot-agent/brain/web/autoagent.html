@@ -95,7 +95,7 @@
     .task-status { border-radius: 999px; padding: 0.12rem 0.45rem; background: rgba(148, 163, 184, 0.12); color: var(--text-muted); }
     .task-status.completed { background: rgba(16, 185, 129, 0.14); color: #34d399; }
     .task-status.failed { background: rgba(239, 68, 68, 0.14); color: #f87171; }
-    .task-status.running, .task-status.queued { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+    .task-status.running, .task-status.queued, .task-status.waiting_input { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
     .task-empty { color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; padding: 0.5rem 0; }
 
     /* 主工作区 */
@@ -253,6 +253,16 @@
     @keyframes typing { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
     
     /* -------------------- 输入区域 -------------------- */
+    .task-input-panel {
+      border-top: 1px solid var(--border); background: rgba(245, 158, 11, 0.08);
+      padding: 0.8rem 2rem; display: flex; gap: 0.75rem; align-items: center;
+    }
+    .task-input-panel[hidden] { display: none; }
+    .task-input-panel textarea {
+      flex: 1; min-height: 42px; max-height: 120px; resize: vertical;
+      border: 1px solid rgba(245, 158, 11, 0.22); border-radius: 8px;
+      background: rgba(0,0,0,0.2); color: var(--text-main); padding: 0.6rem 0.75rem;
+    }
     .composer-area { background: var(--bg-app); border-top: 1px solid var(--border); padding: 1.5rem 2rem; z-index: 20; }
     .composer-box {
       background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -301,6 +311,7 @@
       .sidebar.open { transform: translateX(0); }
       .sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
       .top-bar { padding: 0.85rem 1rem; }
+      .task-input-panel { padding: 0.75rem 1rem; flex-direction: column; align-items: stretch; }
       .chat-container { padding: 1rem; }
       .msg-row { max-width: 100%; }
     }
@@ -356,6 +367,11 @@
         <h2 style="margin-bottom:1rem;color:var(--text-main)">欢迎使用智能 Agent</h2>
         <p>在下方输入问题，开始您的探索之旅</p>
       </div>
+    </div>
+
+    <div id="task-input-panel" class="task-input-panel" hidden>
+      <textarea id="task-input-text" placeholder="补充任务需要的信息..." rows="2"></textarea>
+      <button id="send-task-input" class="btn-send" type="button">提交补充</button>
     </div>
 
     <div class="composer-area">
@@ -419,6 +435,9 @@
     statusText: document.getElementById('status-text'),
     statusDot: document.getElementById('status-dot'),
     taskMeta: document.getElementById('task-meta'),
+    taskInputPanel: document.getElementById('task-input-panel'),
+    taskInputText: document.getElementById('task-input-text'),
+    sendTaskInput: document.getElementById('send-task-input'),
     form: document.getElementById('request-form'),
     query: document.getElementById('query'),
     send: document.getElementById('send'),
@@ -506,9 +525,18 @@
   function updateTaskMeta(session) {
     if(!session || !session.taskId) {
       dom.taskMeta.textContent = '';
+      updateTaskInputPanel(null);
       return;
     }
     dom.taskMeta.textContent = `任务 ${session.taskId} · ${session.taskStatus || 'running'}`;
+    updateTaskInputPanel(session);
+  }
+
+  function updateTaskInputPanel(session) {
+    const waiting = Boolean(session?.taskId && session.taskStatus === 'waiting_input');
+    dom.taskInputPanel.hidden = !waiting;
+    dom.sendTaskInput.disabled = !waiting;
+    if(!waiting) dom.taskInputText.value = '';
   }
 
   function renderTaskList() {
@@ -801,7 +829,7 @@
   function mapTaskEventType(eventType) {
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
-    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed') return 'task';
+    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input') return 'task';
     return null;
   }
 
@@ -815,6 +843,8 @@
     if(eventType === 'task_failed') return `任务失败：${payload.error || ''}`;
     if(eventType === 'task_cancel_requested') return '任务取消请求已发送';
     if(eventType === 'task_cancelled') return '任务已取消';
+    if(eventType === 'waiting_input') return `等待补充输入：${payload.prompt || ''}`;
+    if(eventType === 'user_input') return `用户补充：${payload.content || ''}`;
     return eventType || '';
   }
 
@@ -1256,6 +1286,29 @@
     setUIStatus('就绪', false);
     renderMessages(true);
   }
+
+  async function sendTaskInput() {
+    const session = getActiveSession();
+    const content = dom.taskInputText.value.trim();
+    if(!session?.taskId || !content) return;
+    dom.sendTaskInput.disabled = true;
+    try {
+      const resp = await fetch(`/agent/tasks/${encodeURIComponent(session.taskId)}/input`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, user_id: dom.userId.value || undefined }),
+      });
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      dom.taskInputText.value = '';
+      await refreshTaskList();
+      await loadTask(session.taskId);
+    } catch(err) {
+      upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">提交补充失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
+    } finally {
+      updateTaskInputPanel(getActiveSession());
+    }
+  }
+
   function setUIStatus(text, running) {
     state.running = running; dom.statusText.textContent = text; dom.statusDot.className = running ? 'status-dot active' : 'status-dot';
     dom.send.disabled = running; dom.stop.disabled = !running;
@@ -1278,6 +1331,7 @@
   dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); renderEvalOptions(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;
+  dom.sendTaskInput.onclick = sendTaskInput;
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;
   dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };

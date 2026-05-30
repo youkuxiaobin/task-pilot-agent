@@ -295,6 +295,58 @@ class TaskStore:
         finally:
             session.close()
 
+    def request_user_input(
+        self,
+        task_id: str,
+        prompt: str,
+        *,
+        trace_id: Optional[str] = None,
+        source: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentTaskEventRecord:
+        task = self.update_status(task_id, AgentTaskStatus.WAITING_INPUT)
+        if not task:
+            raise ValueError(f"task not found: {task_id}")
+        return self.add_event(
+            task_id,
+            "waiting_input",
+            {
+                "prompt": prompt,
+                "metadata": metadata or {},
+                "status": AgentTaskStatus.WAITING_INPUT,
+            },
+            trace_id=trace_id or task.trace_id,
+            source=source or "agent",
+        )
+
+    def add_user_input(
+        self,
+        task_id: str,
+        content: str,
+        *,
+        user_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+    ) -> AgentTaskEventRecord:
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"task not found: {task_id}")
+        normalized_content = content.strip()
+        if not normalized_content:
+            raise ValueError("user input is required")
+        event = self.add_event(
+            task_id,
+            "user_input",
+            {
+                "content": normalized_content,
+                "userId": user_id or task.user_id,
+            },
+            trace_id=trace_id or task.trace_id,
+            source="user",
+        )
+        if task.status == AgentTaskStatus.WAITING_INPUT:
+            self.update_status(task_id, AgentTaskStatus.QUEUED)
+        return event
+
     def add_event(
         self,
         task_id: str,

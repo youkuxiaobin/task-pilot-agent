@@ -137,6 +137,31 @@ def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
     assert [task.task_id for task in error_tasks] == ["task-b"]
 
 
+def test_task_store_records_waiting_input_and_user_reply(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="needs-input", trace_id="trace-input", user_id="user-1")
+
+    wait_event = store.request_user_input("needs-input", "Need account id")
+    waiting_task = store.get_task("needs-input")
+
+    assert waiting_task is not None
+    assert waiting_task.status == task_modules.AgentTaskStatus.WAITING_INPUT
+    assert task_modules.serialize_event(wait_event)["payload"]["prompt"] == "Need account id"
+
+    input_event = store.add_user_input("needs-input", "account-123", user_id="user-2")
+    updated_task = store.get_task("needs-input")
+    input_payload = task_modules.serialize_event(input_event)["payload"]
+
+    assert updated_task is not None
+    assert updated_task.status == task_modules.AgentTaskStatus.QUEUED
+    assert input_payload["content"] == "account-123"
+    assert input_payload["userId"] == "user-2"
+    assert [event.event_type for event in store.list_events("needs-input")] == [
+        "waiting_input",
+        "user_input",
+    ]
+
+
 def test_task_workspace_sanitizes_task_id(task_modules, tmp_path):
     store = task_modules.TaskStore()
 

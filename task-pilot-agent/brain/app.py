@@ -10,7 +10,7 @@ import contextlib
 
 from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse, HTMLResponse
 
-from brain.models.requests import AgentMessage, GptQueryReq
+from brain.models.requests import AgentMessage, GptQueryReq, TaskUserInputReq
 from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext, FileItem
 from brain.core.eval_runner import build_eval_run
@@ -589,6 +589,20 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
     retry_task = store.get_task(retry_trace_id)
     return serialize_task(retry_task) if retry_task else {"taskId": retry_trace_id}
+
+
+@agent_router.post("/tasks/{task_id}/input")
+async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str, Any]:
+    store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    try:
+        event = store.add_user_input(task_id, req.content, user_id=req.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    updated_task = store.get_task(task_id) or task
+    return {"task": serialize_task(updated_task), "event": serialize_event(event)}
 
 
 @agent_router.get("/tasks/{task_id}/artifacts")

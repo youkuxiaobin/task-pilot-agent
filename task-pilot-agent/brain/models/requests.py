@@ -36,3 +36,8 @@ class GptQueryReq(BaseModel):
     mode: Optional[str] = None
     selected_tools: Optional[List[str]] = None
     messages: Optional[List[AgentMessage]] = None
+
+
+class TaskUserInputReq(BaseModel):
+    content: str
+    user_id: Optional[str] = None
