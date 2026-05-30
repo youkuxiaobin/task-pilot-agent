@@ -985,6 +985,11 @@
       session.messages.push({ role: 'user', content: task.input });
       session.replayState.baseIndex = 0;
     }
+    if(task.hasError || task.status === 'failed') {
+      const lastSuccess = lastSuccessfulEventText(events);
+      const failureText = `失败原因：${task.error || '未知错误'}${lastSuccess ? `\n最后成功事件：${lastSuccess}` : ''}`;
+      session.messages.push({ role: 'assistant', type: 'reason', kind: 'notifications', html: renderNotificationHTML(failureText), ts: Date.now(), isOpen: true });
+    }
 
     state.replaying = true;
     events.forEach(item => {
@@ -1007,6 +1012,20 @@
     updateTaskMeta(session);
     renderMessages(true);
     renderTaskList();
+  }
+
+  function lastSuccessfulEventText(events) {
+    const failedTypes = new Set(['task_failed', 'agent_failed', 'task_cancelled', 'task_cancel_requested']);
+    for(let i = events.length - 1; i >= 0; i--) {
+      const item = events[i] || {};
+      const payload = item.payload || {};
+      const resultMap = payload.resultMap || {};
+      if(failedTypes.has(item.eventType)) continue;
+      if(payload.error || payload.failed === true || resultMap.failed === true || resultMap.error) continue;
+      const text = taskLifecycleText(item.eventType, payload);
+      return text && text !== item.eventType ? `${item.eventType} · ${text}` : item.eventType;
+    }
+    return '';
   }
 
   function renderArtifactsHTML(taskId, artifacts) {
