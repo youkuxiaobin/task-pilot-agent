@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from brain.core.agents.ReActAgentImp import ReActAgentImp
 from brain.core.agents.summary_agent import SummaryAgent
@@ -31,7 +31,20 @@ class ReactHandler(AgentHandlerService):
         summary_agent = SummaryAgent(ctx)
         react_agent = ReActAgentImp(ctx, self._prompt, self._max_steps)
 
-        result = await react_agent.run(ctx.query)
+        self._emit_phase(ctx, "react", "started", agent="react")
+        try:
+            result = await react_agent.run(ctx.query)
+        except Exception as exc:
+            self._emit_phase(ctx, "react", "failed", agent="react", error=str(exc))
+            raise
+        self._emit_phase(
+            ctx,
+            "react",
+            "completed",
+            agent="react",
+            stepCount=react_agent.current_step,
+            finalAnswer=bool(react_agent.final_answer),
+        )
 
         evidence: List[str] = list(react_agent.evidence)
         if not react_agent.final_answer and react_agent.current_step >= react_agent.maxSteps:
@@ -42,7 +55,31 @@ class ReactHandler(AgentHandlerService):
             evidence.append(f"最终答案：{final_answer}")
 
         try:
-            await summary_agent.summarize(ctx.query, [], evidence)
+            self._emit_phase(ctx, "summary", "started", agent="summary")
+            final_text = await summary_agent.summarize(ctx.query, [], evidence)
         except Exception:
             logger.exception("React summary agent failed for request %s", ctx.requestId)
+            self._emit_phase(ctx, "summary", "failed", agent="summary")
             raise
+        self._emit_phase(
+            ctx,
+            "summary",
+            "completed",
+            agent="summary",
+            outputLength=len(final_text or ""),
+        )
+
+    def _emit_phase(self, ctx: AgentContext, phase: str, status: str, **payload: Any) -> None:
+        ctx.printer.send(
+            None,
+            "agent_phase",
+            {
+                "phase": phase,
+                "status": status,
+                "mode": ctx.mode,
+                "agentId": ctx.agent_id,
+                **payload,
+            },
+            None,
+            True,
+        )

@@ -62,6 +62,15 @@ class PlanSolveHandler(AgentHandlerService):
             )
 
             executor = ExecutorAgent(ctx)
+            self._emit_phase(
+                ctx,
+                "execution",
+                "step_started",
+                agent="executor",
+                stepIndex=current_index + 1,
+                totalSteps=total_steps,
+                step=step_text,
+            )
             try:
                 executor_result = await executor.run(step_text)
             except Exception as exc:  # pragma: no cover - defensive logging
@@ -75,6 +84,16 @@ class PlanSolveHandler(AgentHandlerService):
                     "tool_outputs": "",
                     "step_text": step_text,
                 }
+                self._emit_phase(
+                    ctx,
+                    "execution",
+                    "step_failed",
+                    agent="executor",
+                    stepIndex=current_index + 1,
+                    totalSteps=total_steps,
+                    step=step_text,
+                    error=str(exc),
+                )
             else:
                 tool_outputs = self._extract_tool_outputs(executor_result)
                 formatted_result = self._normalize_executor_result(executor_result)
@@ -87,6 +106,15 @@ class PlanSolveHandler(AgentHandlerService):
                     "tool_outputs": formatted_result or tool_outputs,
                     "step_text": step_text,
                 }
+                self._emit_phase(
+                    ctx,
+                    "execution",
+                    "step_completed",
+                    agent="executor",
+                    stepIndex=current_index + 1,
+                    totalSteps=total_steps,
+                    step=step_text,
+                )
 
             plan_payload["step_status"] = step_status
             plan_payload["finish_steps"] = finish_steps
@@ -138,11 +166,21 @@ class PlanSolveHandler(AgentHandlerService):
             evidence_blocks.append("执行阶段未获取到有效工具结果，请结合任务上下文进行总结。")
 
         normalized_steps = [self._normalize_step(step) for step in plan_payload.get("steps", [])]
+        self._emit_phase(ctx, "summary", "started", agent="summary")
         try:
-            await summary.summarize(ctx.query, normalized_steps, evidence_blocks)
+            final_text = await summary.summarize(ctx.query, normalized_steps, evidence_blocks)
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.exception("Summary agent failed for request %s", ctx.requestId)
             ctx.printer.send(None, "result", f"总结阶段出现异常：{exc}", None, True)
+            self._emit_phase(ctx, "summary", "failed", agent="summary", error=str(exc))
+        else:
+            self._emit_phase(
+                ctx,
+                "summary",
+                "completed",
+                agent="summary",
+                outputLength=len(final_text or ""),
+            )
 
     def _parse_plan(self, plan_output: Any) -> Dict[str, Any]:
         if isinstance(plan_output, dict):
@@ -261,13 +299,27 @@ class PlanSolveHandler(AgentHandlerService):
         current_plan: Optional[Dict[str, Any]],
     ) -> Tuple[Dict[str, Any], str]:
 
+        phase = "replanning" if current_plan else "planning"
+        self._emit_phase(ctx, phase, "started", agent="planning")
         planner_input = self._build_planning_input(ctx, query, current_plan)
-        plan_raw = await planner.run(planner_input)
+        try:
+            plan_raw = await planner.run(planner_input)
+        except Exception as exc:
+            self._emit_phase(ctx, phase, "failed", agent="planning", error=str(exc))
+            raise
         plan_payload = self._parse_plan(plan_raw)
         if not isinstance(plan_payload, dict):
             plan_payload = {}
         command = str(plan_payload.get("command") or "").strip()
         plan_payload["command"] = command
+        self._emit_phase(
+            ctx,
+            phase,
+            "completed",
+            agent="planning",
+            command=command,
+            stepCount=len(plan_payload.get("steps", []) or []),
+        )
         if current_plan and command not in {"update", "finish"}:
             preserved_plan = self._clone_plan(current_plan)
             preserved_plan["command"] = command
@@ -286,3 +338,18 @@ class PlanSolveHandler(AgentHandlerService):
 
     def _extract_tool_outputs(self, result: Any) -> str:
         return str(result)
+
+    def _emit_phase(self, ctx: AgentContext, phase: str, status: str, **payload: Any) -> None:
+        ctx.printer.send(
+            None,
+            "agent_phase",
+            {
+                "phase": phase,
+                "status": status,
+                "mode": ctx.mode,
+                "agentId": ctx.agent_id,
+                **payload,
+            },
+            None,
+            True,
+        )

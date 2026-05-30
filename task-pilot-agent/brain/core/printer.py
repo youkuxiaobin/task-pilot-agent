@@ -60,7 +60,7 @@ class SSEPrinter(Printer):
                 data["taskSummary"] = str(message.get("taskSummary", ""))
         elif message_type == "plan":
             data["plan"] = message if isinstance(message, dict) else {}
-        elif message_type in {"tool_call", "tool_result", "stream", "browser", "code", "html", "markdown", "ppt", "file", "knowledge", "deep_search"}:
+        elif message_type in {"tool_call", "tool_result", "stream", "browser", "code", "html", "markdown", "ppt", "file", "knowledge", "deep_search", "agent_phase"}:
             # unify as resultMap payload
             payload = message if isinstance(message, dict) else json.loads(json.dumps(message, default=str))
             data["resultMap"] = payload

@@ -298,11 +298,14 @@ def test_sse_printer_adds_task_id_and_reports_events(task_modules):
     printer = SSEPrinter(output.append, "request-1", task_id="task-1", event_sink=events.append)
 
     printer.send("message-1", "tool_call", {"name": "deepsearch"}, None, False)
+    printer.send("phase-1", "agent_phase", {"phase": "planning", "status": "started"}, None, False)
 
-    assert len(events) == 1
+    assert len(events) == 2
     assert events[0]["requestId"] == "request-1"
     assert events[0]["taskId"] == "task-1"
     assert events[0]["messageType"] == "tool_call"
+    assert events[1]["messageType"] == "agent_phase"
+    assert events[1]["resultMap"]["phase"] == "planning"
 
     streamed_payload = json.loads(output[0].removeprefix("data: ").strip())
     assert streamed_payload["taskId"] == "task-1"
@@ -356,6 +359,13 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
             assert ctx.memory_context["ragCount"] == 1
             assert ctx.memory_context["memoryResults"][0]["metadata"]["api_key"] == "***"
             ctx.printer.send(
+                "phase-1",
+                "agent_phase",
+                {"phase": "react", "status": "started", "agent": "react"},
+                None,
+                True,
+            )
+            ctx.printer.send(
                 "tool-1",
                 "tool_result",
                 {
@@ -408,6 +418,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert "task_running" in event_types
     assert "agent_started" in event_types
     assert "memory_context_loaded" in event_types
+    assert "agent_phase" in event_types
     assert "runtime_boundary_applied" in event_types
     assert "tool_policy_applied" in event_types
     assert "tool_result" in event_types

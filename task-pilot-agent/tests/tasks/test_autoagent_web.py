@@ -84,6 +84,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "上下文已检索",
         "来源：",
         "memoryContextSourceText",
+        "agent_phase",
+        "阶段",
         "runtime_boundary_applied",
         "运行边界已应用",
         "run_environment",
