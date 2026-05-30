@@ -1212,7 +1212,7 @@
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
     if(eventType === 'agent_phase') return 'agent_phase';
-    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'task_retry_requested' || eventType === 'eval_run_created' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
   }
 
@@ -1243,6 +1243,7 @@
     if(eventType === 'task_failed') return `任务失败：${data.error || ''}`;
     if(eventType === 'task_cancel_requested') return '任务取消请求已发送';
     if(eventType === 'task_cancelled') return '任务已取消';
+    if(eventType === 'task_retry_requested') return `任务已重试：${data.retryTaskId || ''}`;
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
     if(eventType === 'memory_context_loaded') {
@@ -1264,6 +1265,7 @@
       return `工具策略已应用：可用 ${available} 个，拦截 ${blocked} 个${approved ? `，本次授权 ${approved} 个` : ''}`;
     }
     if(eventType === 'task_artifact_added') return `任务产物已登记：${data.filename || data.artifactId || ''}`;
+    if(eventType === 'eval_run_created') return `评测任务已创建：${data.caseId || ''}`;
     if(eventType === 'agent_phase') {
       const phaseNames = { planning: '规划', replanning: '重规划', execution: '执行', react: 'ReAct', summary: '总结' };
       const statusNames = { started: '开始', completed: '完成', failed: '失败', step_started: '步骤开始', step_completed: '步骤完成', step_failed: '步骤失败' };
