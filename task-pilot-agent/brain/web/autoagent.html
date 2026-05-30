@@ -939,28 +939,30 @@
   function mapTaskEventType(eventType) {
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
-    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
   }
 
   function taskLifecycleText(eventType, payload) {
+    const data = payload?.resultMap && Object.keys(payload.resultMap).length ? payload.resultMap : (payload || {});
     if(eventType === 'task_created') {
-      const tools = Array.isArray(payload.selectedTools) ? payload.selectedTools.join(', ') : '';
-      const env = payload.runEnvironment ? ` · 环境：${payload.runEnvironment}` : '';
-      return `任务已创建：${payload.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}`;
+      const tools = Array.isArray(data.selectedTools) ? data.selectedTools.join(', ') : '';
+      const env = data.runEnvironment ? ` · 环境：${data.runEnvironment}` : '';
+      return `任务已创建：${data.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}`;
     }
     if(eventType === 'task_running') return '任务运行中';
     if(eventType === 'task_completed') return '任务已完成';
-    if(eventType === 'task_failed') return `任务失败：${payload.error || ''}`;
+    if(eventType === 'task_failed') return `任务失败：${data.error || ''}`;
     if(eventType === 'task_cancel_requested') return '任务取消请求已发送';
     if(eventType === 'task_cancelled') return '任务已取消';
-    if(eventType === 'waiting_input') return `等待补充输入：${payload.prompt || ''}`;
-    if(eventType === 'user_input') return `用户补充：${payload.content || ''}`;
-    if(eventType === 'agent_started') return `Agent 已启动：${payload.agentId || ''}`;
-    if(eventType === 'agent_completed') return `Agent 已完成：${payload.agentId || ''}`;
-    if(eventType === 'agent_failed') return `Agent 失败：${payload.agentId || ''}${payload.error ? ` · ${payload.error}` : ''}`;
-    if(eventType === 'agent_cancelled') return `Agent 已取消：${payload.agentId || ''}`;
-    if(eventType === 'task_handoff_requested') return `任务已交接：${payload.parentAgentId || ''} -> ${payload.targetAgentId || ''}`;
+    if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
+    if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
+    if(eventType === 'agent_selected') return `Supervisor 已选择 Agent：${data.agentId || ''}${data.reason ? ` · ${data.reason}` : ''}`;
+    if(eventType === 'agent_started') return `Agent 已启动：${data.agentId || ''}`;
+    if(eventType === 'agent_completed') return `Agent 已完成：${data.agentId || ''}`;
+    if(eventType === 'agent_failed') return `Agent 失败：${data.agentId || ''}${data.error ? ` · ${data.error}` : ''}`;
+    if(eventType === 'agent_cancelled') return `Agent 已取消：${data.agentId || ''}`;
+    if(eventType === 'task_handoff_requested') return `任务已交接：${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`;
     return eventType || '';
   }
 

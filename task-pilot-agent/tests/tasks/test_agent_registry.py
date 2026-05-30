@@ -253,6 +253,63 @@ def test_agent_registry_rejects_missing_handoff_target(tmp_path):
         AgentRegistry(tmp_path / "agents")
 
 
+def test_agent_registry_supervisor_selects_allowed_agent_by_task_terms(tmp_path):
+    agents_root = tmp_path / "agents"
+    supervisor_dir = agents_root / "supervisor"
+    research_dir = agents_root / "research_agent"
+    report_dir = agents_root / "report_agent"
+    supervisor_dir.mkdir(parents=True)
+    research_dir.mkdir()
+    report_dir.mkdir()
+    (supervisor_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: supervisor
+            name: Supervisor
+            type: supervisor
+            handoffs:
+              allowed:
+                - report_agent
+                - research_agent
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    (research_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: research_agent
+            name: Research Agent
+            description: Search public web sources and summarize findings.
+            capabilities: [search, research]
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    (report_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: report_agent
+            name: Report Agent
+            description: Draft formatted reports.
+            capabilities: [report, writing]
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    selection = AgentRegistry(agents_root).select_agent_for_task(
+        "supervisor",
+        "Search web sources for the latest release notes.",
+    )
+
+    assert selection is not None
+    assert selection.agent_id == "research_agent"
+    assert selection.supervisor_id == "supervisor"
+    assert selection.score > 0
+    assert "search" in selection.matched_terms
+
+
 def test_agent_registry_falls_back_to_all_tools_for_unknown_agent(tmp_path):
     registry = AgentRegistry(tmp_path / "missing")
 
@@ -326,5 +383,8 @@ def test_default_eval_cases_cover_core_task_categories():
     registry = AgentRegistry(agents_root)
 
     tags = {tag for case in registry.list_evals() for tag in case.tags}
+    supervisor = registry.get("supervisor_agent")
 
     assert {"search", "file", "data", "browser", "code", "report"}.issubset(tags)
+    assert supervisor is not None
+    assert supervisor.handoffs["allowed"] == ["task-pilot-agent"]

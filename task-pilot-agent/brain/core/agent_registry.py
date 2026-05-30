@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -38,6 +39,24 @@ class AgentEvalCase:
     expected: str = ""
     tags: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AgentSelection:
+    supervisor_id: str
+    agent_id: str
+    reason: str
+    score: int = 0
+    matched_terms: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "supervisorId": self.supervisor_id,
+            "agentId": self.agent_id,
+            "reason": self.reason,
+            "score": self.score,
+            "matchedTerms": self.matched_terms,
+        }
 
 
 @dataclass(frozen=True)
@@ -245,6 +264,43 @@ class AgentRegistry:
             evals.extend(agent.evals)
         return evals
 
+    def select_agent_for_task(self, supervisor_id: str, task_text: str) -> Optional[AgentSelection]:
+        supervisor = self.get(supervisor_id)
+        if supervisor is None:
+            return None
+        candidates = self._selectable_agents_for(supervisor)
+        if not candidates:
+            return None
+
+        scored: List[tuple[int, int, AgentConfig, List[str]]] = []
+        for index, candidate in enumerate(candidates):
+            score, matched_terms = _score_agent_for_task(candidate, task_text)
+            scored.append((score, index, candidate, matched_terms))
+
+        score, _index, selected, matched_terms = max(scored, key=lambda item: (item[0], -item[1]))
+        if score > 0:
+            reason = f"matched task terms: {', '.join(matched_terms[:5])}"
+        else:
+            reason = "fallback to first allowed handoff agent"
+        return AgentSelection(
+            supervisor_id=supervisor.id,
+            agent_id=selected.id,
+            reason=reason,
+            score=score,
+            matched_terms=matched_terms[:10],
+        )
+
+    def _selectable_agents_for(self, supervisor: AgentConfig) -> List[AgentConfig]:
+        allowed = supervisor.handoffs.get("allowed") if isinstance(supervisor.handoffs, dict) else []
+        if not isinstance(allowed, list):
+            return []
+        candidates: List[AgentConfig] = []
+        for target in allowed:
+            agent = self.get(str(target).strip())
+            if agent and agent.id != supervisor.id and agent.type != "supervisor":
+                candidates.append(agent)
+        return candidates
+
     def _load_agent(self, agent_dir: Path, yaml_path: Path) -> AgentConfig:
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
         if not isinstance(raw, dict):
@@ -407,3 +463,70 @@ class AgentRegistry:
                 )
             )
         return cases
+
+
+TOKEN_RE = re.compile(r"[A-Za-z0-9_:-]{2,}|[\u4e00-\u9fff]{2,}")
+
+
+def _score_agent_for_task(agent: AgentConfig, task_text: str) -> tuple[int, List[str]]:
+    normalized_task = task_text.lower()
+    haystack = _agent_search_text(agent).lower()
+    terms = _task_terms(normalized_task)
+    matched: List[str] = []
+    score = 0
+
+    for term in terms:
+        if term in haystack:
+            matched.append(term)
+            score += 2
+
+    for keyword in _agent_keywords(agent):
+        if keyword in normalized_task and keyword not in matched:
+            matched.append(keyword)
+            score += 3
+
+    return score, matched
+
+
+def _task_terms(task_text: str) -> List[str]:
+    seen: set[str] = set()
+    terms: List[str] = []
+    for match in TOKEN_RE.findall(task_text):
+        value = match.strip().lower()
+        if len(value) < 2 or value in seen:
+            continue
+        seen.add(value)
+        terms.append(value)
+    return terms
+
+
+def _agent_search_text(agent: AgentConfig) -> str:
+    parts: List[str] = [
+        agent.id,
+        agent.name,
+        agent.description,
+        agent.type,
+        " ".join(agent.capabilities),
+    ]
+    for tool in agent.tools:
+        parts.extend([tool.name, tool.description, tool.alias, tool.purpose, tool.when_to_use])
+    for value in agent.metadata.values():
+        if isinstance(value, (str, int, float, bool)):
+            parts.append(str(value))
+    return " ".join(part for part in parts if part)
+
+
+def _agent_keywords(agent: AgentConfig) -> List[str]:
+    raw = [agent.id, agent.name, agent.description, *agent.capabilities]
+    for tool in agent.tools:
+        raw.extend([tool.name, tool.description, tool.alias, tool.purpose, tool.when_to_use])
+
+    keywords: List[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        for token in TOKEN_RE.findall(str(item).lower()):
+            if len(token) < 2 or token in seen:
+                continue
+            seen.add(token)
+            keywords.append(token)
+    return keywords

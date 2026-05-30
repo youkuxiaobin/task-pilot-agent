@@ -77,6 +77,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "任务产物",
         "/cancel",
         "任务取消请求已发送",
+        "agent_selected",
+        "Supervisor 已选择 Agent",
         "agent_started",
         "agent_completed",
         "task_handoff_requested",

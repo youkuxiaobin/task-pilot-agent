@@ -25,6 +25,7 @@ from brain.core.tools.mcp_tool import MCPToolFetcher
 from brain.core.handlers.factory import AgentHandlerFactory
 from brain.core.handlers.react import ReactHandler
 from brain.core.handlers.plan_solve import PlanSolveHandler
+from brain.core.handlers.supervisor import SupervisorHandler
 from config.config import agentSettings
 from pydantic import ValidationError
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -37,7 +38,6 @@ agent_router = APIRouter()
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 
-agentFactory = AgentHandlerFactory([PlanSolveHandler(), ReactHandler()])
 agentRegistry = AgentRegistry()
 runningAgentTasks: Dict[str, asyncio.Task] = {}
 
@@ -110,6 +110,15 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     if not tc.tool_map:
         logger.warning("No MCP tools loaded; executor will have no available tools for this request.")
     return tc
+
+
+agentFactory = AgentHandlerFactory(
+    [
+        SupervisorHandler(agentRegistry, build_tool_collection),
+        PlanSolveHandler(),
+        ReactHandler(),
+    ]
+)
 
 
 async def sse_stream(run_fn: Callable[[Callable[[str], None]], asyncio.Coroutine]) -> AsyncIterator[bytes]:

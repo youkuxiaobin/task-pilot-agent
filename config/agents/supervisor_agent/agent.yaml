@@ -27,7 +27,8 @@ tools:
   - name: mcp_world:*
     description: 外部扩展工具。
 handoffs:
-  allowed: []
+  allowed:
+    - task-pilot-agent
 memory:
   read:
     - user_profile
