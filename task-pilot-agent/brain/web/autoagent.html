@@ -76,6 +76,21 @@
     .session-del { background: none; border: none; color: inherit; opacity: 0; cursor: pointer; padding: 0 4px; }
     .session-item:hover .session-del { opacity: 1; }
     .session-del:hover { color: #f87171; }
+    .sidebar-section { border-top: 1px solid var(--border); padding: 1rem; }
+    .sidebar-title { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 0.75rem; }
+    .btn-small { border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(255,255,255,0.04); color: var(--text-muted); border-radius: 6px; padding: 0.2rem 0.5rem; cursor: pointer; font-size: 0.75rem; }
+    .btn-small:hover { color: var(--text-main); border-color: rgba(148, 163, 184, 0.4); }
+    .task-list { display: flex; flex-direction: column; gap: 0.45rem; max-height: 260px; overflow-y: auto; }
+    .task-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem; background: rgba(255,255,255,0.03); cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+    .task-item:hover { border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.06); }
+    .task-item.active { border-color: var(--color-accent); background: rgba(56, 189, 248, 0.1); }
+    .task-item-title { color: var(--text-main); font-size: 0.84rem; line-height: 1.35; margin-bottom: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .task-item-meta { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 0.72rem; gap: 0.5rem; }
+    .task-status { border-radius: 999px; padding: 0.12rem 0.45rem; background: rgba(148, 163, 184, 0.12); color: var(--text-muted); }
+    .task-status.completed { background: rgba(16, 185, 129, 0.14); color: #34d399; }
+    .task-status.failed { background: rgba(239, 68, 68, 0.14); color: #f87171; }
+    .task-status.running, .task-status.queued { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+    .task-empty { color: var(--text-muted); font-size: 0.82rem; line-height: 1.45; padding: 0.5rem 0; }
 
     /* 主工作区 */
     .workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -86,6 +101,7 @@
       justify-content: space-between; align-items: center;
       background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); z-index: 10;
     }
+    .task-meta { color: var(--text-muted); font-size: 0.78rem; max-width: 48vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .status-indicator { font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; transition: background 0.3s; }
     .status-dot.active { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
@@ -273,6 +289,15 @@
       <button id="new-session" class="btn-new" type="button">+ 新建对话</button>
     </div>
     <div id="session-list" class="session-list"></div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">
+        <span>任务回看</span>
+        <button id="refresh-tasks" class="btn-small" type="button">刷新</button>
+      </div>
+      <div id="task-list" class="task-list">
+        <div class="task-empty">暂无任务记录</div>
+      </div>
+    </div>
   </aside>
 
   <main class="workspace">
@@ -281,6 +306,7 @@
         <div id="status-dot" class="status-dot"></div>
         <span id="status-text">就绪</span>
       </div>
+      <div id="task-meta" class="task-meta"></div>
     </div>
 
     <div id="chat-messages" class="chat-container">
@@ -329,10 +355,13 @@
 (() => {
   const dom = {
     sessionList: document.getElementById('session-list'),
+    taskList: document.getElementById('task-list'),
+    refreshTasks: document.getElementById('refresh-tasks'),
     newSession: document.getElementById('new-session'),
     chatMessages: document.getElementById('chat-messages'),
     statusText: document.getElementById('status-text'),
     statusDot: document.getElementById('status-dot'),
+    taskMeta: document.getElementById('task-meta'),
     form: document.getElementById('request-form'),
     query: document.getElementById('query'),
     send: document.getElementById('send'),
@@ -350,6 +379,9 @@
     nextSessionIndex: 1,
     stream: null,
     running: false,
+    tasks: [],
+    activeTaskId: null,
+    replaying: false,
   };
 
   const markedLib = window.marked;
@@ -362,8 +394,8 @@
   const getActiveSession = () => getSession(state.activeSessionId);
   const escapeHTML = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  function createSession(){
-    const s = { id: generateId(), title: `对话 ${state.nextSessionIndex++}`, messages: [] };
+  function createSession(extra={}){
+    const s = { id: generateId(), title: `对话 ${state.nextSessionIndex++}`, messages: [], taskId: null, taskStatus: null, ...extra };
     state.sessions.push(s); 
     return s;
   }
@@ -371,7 +403,10 @@
   function activateSession(s){
     if(!s) return; 
     state.activeSessionId = s.id;
+    state.activeTaskId = s.taskId || null;
     renderSessionList();
+    renderTaskList();
+    updateTaskMeta(s);
     renderMessages(true);
     if(!state.running) setUIStatus('就绪', false);
     dom.query.focus();
@@ -392,13 +427,140 @@
     state.sessions.forEach(s => {
       const div = document.createElement('div');
       div.className = `session-item ${s.id === state.activeSessionId ? 'active' : ''}`;
-      div.innerHTML = `<span>${s.title}</span><span class="session-del">×</span>`;
+      const title = escapeHTML(s.title);
+      const taskLabel = s.taskId ? `<small style="display:block;color:var(--text-muted);margin-top:0.25rem">${escapeHTML(s.taskStatus || 'task')}</small>` : '';
+      div.innerHTML = `<span>${title}${taskLabel}</span><span class="session-del">×</span>`;
       div.onclick = (e) => {
         if(e.target.classList.contains('session-del')) { e.stopPropagation(); deleteSession(s.id); }
         else if(!state.running) activateSession(s);
       };
       dom.sessionList.appendChild(div);
     });
+  }
+
+  function updateTaskMeta(session) {
+    if(!session || !session.taskId) {
+      dom.taskMeta.textContent = '';
+      return;
+    }
+    dom.taskMeta.textContent = `任务 ${session.taskId} · ${session.taskStatus || 'running'}`;
+  }
+
+  function renderTaskList() {
+    if(!dom.taskList) return;
+    if(!state.tasks.length) {
+      dom.taskList.innerHTML = '<div class="task-empty">暂无任务记录</div>';
+      return;
+    }
+    dom.taskList.innerHTML = '';
+    state.tasks.forEach(task => {
+      const item = document.createElement('div');
+      const taskId = task.taskId || task.task_id;
+      const status = task.status || '';
+      item.className = `task-item ${taskId === state.activeTaskId ? 'active' : ''}`;
+      item.innerHTML = `
+        <div class="task-item-title">${escapeHTML(task.input || taskId)}</div>
+        <div class="task-item-meta">
+          <span class="task-status ${escapeHTML(status)}">${escapeHTML(status || 'unknown')}</span>
+          <span>${formatDate(task.createdAt)}</span>
+        </div>`;
+      item.onclick = () => { if(!state.running) loadTask(taskId); };
+      dom.taskList.appendChild(item);
+    });
+  }
+
+  function formatDate(ts) {
+    if(!ts) return '';
+    return new Date(Number(ts)).toLocaleString([], { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  }
+
+  async function refreshTaskList() {
+    try {
+      const resp = await fetch('/agent/tasks?limit=30');
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      state.tasks = Array.isArray(data.items) ? data.items : [];
+      renderTaskList();
+    } catch(err) {
+      dom.taskList.innerHTML = `<div class="task-empty">任务列表加载失败：${escapeHTML(err.message)}</div>`;
+    }
+  }
+
+  async function loadTask(taskId) {
+    if(!taskId) return;
+    setUIStatus('加载任务回看...', true);
+    try {
+      const [taskResp, eventsResp] = await Promise.all([
+        fetch(`/agent/tasks/${encodeURIComponent(taskId)}`),
+        fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?limit=2000`),
+      ]);
+      if(!taskResp.ok) throw new Error(`任务详情加载失败：${taskResp.status}`);
+      if(!eventsResp.ok) throw new Error(`任务事件加载失败：${eventsResp.status}`);
+      const task = await taskResp.json();
+      const eventsData = await eventsResp.json();
+      const existing = state.sessions.find(s => s.taskId === taskId);
+      const session = existing || createSession({ id: `task_${taskId}`, title: `任务 ${String(taskId).slice(0, 8)}`, taskId });
+      renderTaskToSession(session, task, eventsData.items || []);
+      activateSession(session);
+    } catch(err) {
+      const session = getActiveSession() || createSession();
+      upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">${escapeHTML(err.message)}</span>`, Date.now(), false);
+    } finally {
+      setUIStatus('就绪', false);
+    }
+  }
+
+  function renderTaskToSession(session, task, events) {
+    session.taskId = task.taskId || task.task_id;
+    session.taskStatus = task.status || '';
+    session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
+    session.messages = [];
+    session.replayState = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: -1, lastIndexByKind: {}, gotAnyResult: false };
+    if(task.input) {
+      session.messages.push({ role: 'user', content: task.input });
+      session.replayState.baseIndex = 0;
+    }
+
+    state.replaying = true;
+    events.forEach(item => {
+      const payload = item.payload || {};
+      const type = payload.messageType || mapTaskEventType(item.eventType);
+      if(!type) return;
+      const eventPayload = { ...payload, messageType: type };
+      if(type === 'task' && !eventPayload.task) eventPayload.task = taskLifecycleText(item.eventType, payload);
+      if(type === 'notifications' && !eventPayload.task) eventPayload.task = payload.error || taskLifecycleText(item.eventType, payload);
+      applyEventToSession(session, { type, json: eventPayload, time: item.createdAt });
+    });
+    if(task.output && !session.replayState.gotAnyResult) {
+      applyEventToSession(session, { type: 'result', json: { messageType: 'result', result: task.output }, time: task.endedAt || task.updatedAt });
+    }
+    state.replaying = false;
+    state.activeTaskId = session.taskId;
+    updateTaskMeta(session);
+    renderMessages(true);
+    renderTaskList();
+  }
+
+  function mapTaskEventType(eventType) {
+    if(eventType === 'task_failed') return 'notifications';
+    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed') return 'task';
+    return null;
+  }
+
+  function taskLifecycleText(eventType, payload) {
+    if(eventType === 'task_created') return `任务已创建：${payload.mode || ''}`;
+    if(eventType === 'task_running') return '任务运行中';
+    if(eventType === 'task_completed') return '任务已完成';
+    if(eventType === 'task_failed') return `任务失败：${payload.error || ''}`;
+    return eventType || '';
+  }
+
+  function getBuildState(session) {
+    if(state.stream && state.stream.sessionId === session.id) return state.stream;
+    if(!session.replayState) {
+      session.replayState = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: -1, lastIndexByKind: {}, gotAnyResult: false };
+    }
+    return session.replayState;
   }
 
   // --- 核心渲染 ---
@@ -708,28 +870,43 @@
 
   // --- SSE Logic ---
   function upsertReasonMessage(session, kind, html, ts, replaceable) {
-    const streamState = state.stream;
+    const streamState = getBuildState(session);
     if(replaceable) {
        const idx = streamState.lastIndexByKind[kind];
        if(idx !== undefined && idx > streamState.baseIndex) {
          session.messages[idx].html = html; session.messages[idx].ts = ts;
-         renderMessages(true); return;
+         if(!state.replaying) renderMessages(true);
+         return;
        }
     }
     const msg = { role: 'assistant', type: 'reason', kind, html, ts, isOpen: true };
     session.messages.push(msg);
     streamState.lastIndexByKind[kind] = session.messages.length - 1;
-    renderMessages(true);
+    if(!state.replaying) renderMessages(true);
   }
 
   function handleEvent(event) {
     const session = getActiveSession(); if(!session) return;
+    applyEventToSession(session, event);
+  }
+
+  function applyEventToSession(session, event) {
     const payload = event.json || {};
     const ts = Number(payload.messageTime || event.time) || Date.now();
     const getResultMap = () => payload.resultMap || {};
     const getResultMapStr = () => { if(payload.resultMap && payload.resultMap.result) return payload.resultMap.result; return ''; };
+    const streamState = getBuildState(session);
 
-    if(['tool_call', 'tool_result', 'result', 'done'].includes(event.type)) { delete state.stream.lastIndexByKind['plan_thought']; delete state.stream.lastIndexByKind['plan']; }
+    if(payload.taskId) {
+      session.taskId = payload.taskId;
+      session.taskStatus = payload.finish ? 'completed' : (session.taskStatus || 'running');
+      state.activeTaskId = payload.taskId;
+      updateTaskMeta(session);
+      renderSessionList();
+      renderTaskList();
+    }
+
+    if(['tool_call', 'tool_result', 'result', 'done'].includes(event.type)) { delete streamState.lastIndexByKind['plan_thought']; delete streamState.lastIndexByKind['plan']; }
 
     switch(event.type) {
       case 'plan': if(payload.plan) upsertReasonMessage(session, 'plan', renderPlanHTML(payload.plan), ts, true); break;
@@ -744,18 +921,18 @@
       
       case 'agent_stream': case 'result':
         const chunk = payload.result || ''; if(!chunk) break;
-        if(!state.stream.gotAnyResult) { 
+        if(!streamState.gotAnyResult) {
             session.messages.push({ role: 'assistant', messageType: 'result', content: '' }); 
-            state.stream.messageIndex = session.messages.length - 1; 
-            state.stream.gotAnyResult = true; 
+            streamState.messageIndex = session.messages.length - 1;
+            streamState.gotAnyResult = true;
         }
         // 【核心修改】确保是追加模式，支持流式
-        state.stream.buffer += chunk;
-        const msg = session.messages[state.stream.messageIndex];
-        msg.content = state.stream.buffer; 
+        streamState.buffer += chunk;
+        const msg = session.messages[streamState.messageIndex];
+        msg.content = streamState.buffer;
         // 渲染时交给 renderFinalResultContent 处理 Gaia
         msg.rendered = null; // 清空缓存，强制重绘
-        renderMessages(true);
+        if(!state.replaying) renderMessages(true);
         break;
       
       case 'done': onStop(); break;
@@ -791,7 +968,7 @@
          while((idx = buffer.indexOf('\n\n')) >= 0) { const chunk = buffer.slice(0, idx); buffer = buffer.slice(idx + 2); const event = parseSSE(chunk); if(event) handleEvent(event); }
        }
     } catch(err) { if(err.name !== 'AbortError') upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">Error: ${err.message}</span>`, Date.now(), false); } 
-    finally { setUIStatus('就绪', false); state.stream = null; controller = null; renderMessages(true); }
+    finally { setUIStatus('就绪', false); state.stream = null; controller = null; refreshTaskList(); renderMessages(true); }
   }
 
   function onStop() { if(controller) controller.abort(); setUIStatus('就绪', false); renderMessages(true); }
@@ -809,10 +986,12 @@
   }
 
   dom.newSession.onclick = () => activateSession(createSession());
+  dom.refreshTasks.onclick = refreshTaskList;
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;
   dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };
   activateSession(createSession());
+  refreshTaskList();
 })();
 </script>
 </body>

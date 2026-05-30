@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+HTML_PATH = Path(__file__).resolve().parents[2] / "brain" / "web" / "autoagent.html"
+
+
+def test_autoagent_page_contains_task_replay_controls():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        'id="task-list"',
+        'id="refresh-tasks"',
+        'id="task-meta"',
+        "refreshTaskList",
+        "loadTask",
+        "renderTaskToSession",
+        "/agent/tasks",
+    ]:
+        assert marker in html
+
+
+def test_autoagent_inline_javascript_has_valid_syntax(tmp_path):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+
+    html = HTML_PATH.read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>([\s\S]*?)</script>", html)
+    assert scripts
+
+    script_path = tmp_path / "autoagent-inline.js"
+    script_path.write_text("\n".join(scripts), encoding="utf-8")
+    result = subprocess.run(
+        [node, "--check", str(script_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
