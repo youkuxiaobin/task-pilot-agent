@@ -280,6 +280,8 @@
       padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer;
     }
     .select-style option { background: var(--bg-card); color: var(--text-main); }
+    .file-input { max-width: 160px; color: var(--text-muted); font-size: 0.78rem; }
+    .file-summary { color: var(--text-muted); font-size: 0.78rem; max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tool-picker { position: relative; }
     .tool-picker summary {
       list-style: none; min-width: 74px; text-align: center;
@@ -402,6 +404,8 @@
               <option value="">评测</option>
             </select>
             <button id="run-eval" class="btn-small" type="button" disabled>运行评测</button>
+            <input id="file-input" class="file-input" type="file" multiple title="上传文件">
+            <span id="file-summary" class="file-summary"></span>
             <input id="user-id" type="hidden" placeholder="User ID">
             <input id="endpoint" type="hidden" value="/agent/autoagent">
           </div>
@@ -451,6 +455,8 @@
     toolOptions: document.getElementById('tool-options'),
     evalCase: document.getElementById('eval-case'),
     runEval: document.getElementById('run-eval'),
+    fileInput: document.getElementById('file-input'),
+    fileSummary: document.getElementById('file-summary'),
     endpoint: document.getElementById('endpoint'),
   };
 
@@ -708,6 +714,33 @@
     }
     const selected = inputs.filter(input => input.checked).length;
     dom.toolSummary.textContent = `工具 ${selected}/${inputs.length}`;
+  }
+
+  function updateFileSummary() {
+    const files = Array.from(dom.fileInput.files || []);
+    dom.fileSummary.textContent = files.length ? `${files.length} 个文件` : '';
+  }
+
+  async function uploadSelectedFiles(requestId) {
+    const files = Array.from(dom.fileInput.files || []);
+    const uploaded = [];
+    for(const file of files) {
+      const form = new FormData();
+      form.append('request_id', requestId);
+      form.append('file', file);
+      const resp = await fetch('/file/v1/upload_file_form', { method: 'POST', body: form });
+      if(!resp.ok) throw new Error(`文件上传失败：${file.name}`);
+      const info = await resp.json();
+      uploaded.push({
+        fileName: info.file_name || file.name,
+        description: '',
+        ossUrl: info.download_url || '',
+        domainUrl: info.preview_url || '',
+        fileSize: info.file_size || file.size,
+        isInternalFile: false,
+      });
+    }
+    return uploaded;
   }
 
   function renderEvalOptions() {
@@ -1254,9 +1287,13 @@
     const contextMessages = session.messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.messageType === 'result')).map(m => ({ role: m.role, content: m.content }));
     const selectedTools = getSelectedTools();
     const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
-    if(selectedTools !== null) payload.selected_tools = selectedTools;
 
     try {
+       const uploadedFiles = await uploadSelectedFiles(session.id);
+       if(uploadedFiles.length && contextMessages.length) {
+         contextMessages[contextMessages.length - 1].uploadFile = uploadedFiles;
+       }
+       if(selectedTools !== null) payload.selected_tools = selectedTools;
        const resp = await fetch(dom.endpoint.value, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
        if(!resp.ok) throw new Error(`Server Error: ${resp.status}`);
        const reader = resp.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
@@ -1267,7 +1304,7 @@
          while((idx = buffer.indexOf('\n\n')) >= 0) { const chunk = buffer.slice(0, idx); buffer = buffer.slice(idx + 2); const event = parseSSE(chunk); if(event) handleEvent(event); }
        }
     } catch(err) { if(err.name !== 'AbortError') upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">Error: ${err.message}</span>`, Date.now(), false); } 
-    finally { setUIStatus('就绪', false); state.stream = null; controller = null; refreshTaskList(); renderMessages(true); }
+    finally { setUIStatus('就绪', false); state.stream = null; controller = null; dom.fileInput.value = ''; updateFileSummary(); refreshTaskList(); renderMessages(true); }
   }
 
   async function onStop() {
@@ -1331,6 +1368,7 @@
   dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); renderEvalOptions(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;
+  dom.fileInput.onchange = updateFileSummary;
   dom.sendTaskInput.onclick = sendTaskInput;
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;

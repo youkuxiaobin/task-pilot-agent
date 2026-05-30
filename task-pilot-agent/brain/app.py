@@ -202,6 +202,22 @@ def _convert_agent_messages(ctx: AgentContext, messages: Optional[List[AgentMess
     ctx.productFiles = product_files
 
 
+def _serialize_file_items(files: Optional[List[FileItem]]) -> List[Dict[str, Any]]:
+    serialized: List[Dict[str, Any]] = []
+    for item in files or []:
+        serialized.append(
+            {
+                "fileName": item.fileName,
+                "description": item.description,
+                "ossUrl": item.ossUrl,
+                "domainUrl": item.domainUrl,
+                "fileSize": item.fileSize,
+                "isInternalFile": item.isInternalFile,
+            }
+        )
+    return serialized
+
+
 async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> None:
     request = _clone_gpt_request(req)
     trace_id = request.trace_id or str(uuid.uuid4())
@@ -242,6 +258,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 runningAgentTasks[task_id] = worker_task
             task_store = TaskStore()
             latest_input = (messages[-1].content or "").strip()
+            input_files = _serialize_file_items(messages[-1].uploadFile if messages else None)
             created_task = task_store.create_task(
                 task_id=task_id,
                 trace_id=trace_id,
@@ -255,6 +272,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "source": "autoagent",
                     "agentConfigId": agent_config.id if agent_config else None,
                     "selectedTools": selected_tools,
+                    "inputFiles": input_files,
                 },
             )
             created_task_payload = serialize_task(created_task)
@@ -267,6 +285,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "conversationId": request.conversation_id,
                     "agentConfigId": agent_config.id if agent_config else None,
                     "selectedTools": selected_tools,
+                    "inputFiles": input_files,
                     "workDir": created_task_payload.get("workDir"),
                 },
                 trace_id=trace_id,
