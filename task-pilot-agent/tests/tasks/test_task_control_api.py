@@ -426,14 +426,16 @@ def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
     store.create_task(task_id="remote-download", trace_id="trace-remote-download")
     artifact = store.add_remote_artifact(
         "remote-download",
-        "https://files.example.test/output.csv",
+        "https://files.example.test/output.csv?token=raw-secret",
         filename="output.csv",
     )
 
+    list_payload = asyncio.run(app.list_agent_task_artifacts("remote-download"))
     response = asyncio.run(app.download_agent_task_artifact("remote-download", artifact.artifact_id))
 
+    assert list_payload["items"][0]["remoteUrl"] == "https://files.example.test/output.csv?token=***"
     assert response.status_code in {302, 307}
-    assert response.headers["location"] == "https://files.example.test/output.csv"
+    assert response.headers["location"] == "https://files.example.test/output.csv?token=raw-secret"
 
 
 def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):

@@ -676,13 +676,14 @@ def serialize_event(record: AgentTaskEventRecord) -> Dict[str, Any]:
 
 def serialize_artifact(record: AgentTaskArtifactRecord) -> Dict[str, Any]:
     is_remote = str(record.file_path).startswith(("http://", "https://"))
+    public_file_path = sanitize_payload(record.file_path) if is_remote else record.file_path
     return {
         "id": record.id,
         "artifactId": record.artifact_id,
         "taskId": record.task_id,
         "filename": record.filename,
-        "filePath": record.file_path,
-        "remoteUrl": record.file_path if is_remote else None,
+        "filePath": public_file_path,
+        "remoteUrl": public_file_path if is_remote else None,
         "isRemote": is_remote,
         "mimeType": record.mime_type,
         "fileSize": record.file_size,

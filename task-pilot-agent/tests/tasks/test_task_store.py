@@ -287,7 +287,7 @@ def test_remote_task_artifacts_are_serialized_for_replay(task_modules):
 
     artifact = store.add_remote_artifact(
         "remote-artifact-task",
-        "https://files.example.test/output/report.md",
+        "https://files.example.test/output/report.md?token=raw-secret&file=report",
         filename="report.md",
         file_size=128,
         metadata={"api_key": "sk-test-remote-secretvalue123"},
@@ -295,7 +295,8 @@ def test_remote_task_artifacts_are_serialized_for_replay(task_modules):
 
     payload = task_modules.serialize_artifact(artifact)
     assert payload["filename"] == "report.md"
-    assert payload["remoteUrl"] == "https://files.example.test/output/report.md"
+    assert payload["remoteUrl"] == "https://files.example.test/output/report.md?token=***&file=report"
+    assert payload["filePath"] == "https://files.example.test/output/report.md?token=***&file=report"
     assert payload["isRemote"] is True
     assert payload["fileSize"] == 128
     assert payload["metadata"]["api_key"] == "***"
