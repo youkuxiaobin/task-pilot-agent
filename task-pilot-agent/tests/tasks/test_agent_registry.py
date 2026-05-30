@@ -185,6 +185,37 @@ def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
     assert payload["permissions"]["can_run_shell"] is False
 
 
+def test_agent_registry_permissions_filter_risky_tool_categories(tmp_path):
+    agent_dir = tmp_path / "agents" / "offline_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: offline_agent
+            name: Offline Agent
+            tools:
+              - name: mcp_local:*
+              - name: mcp_world:*
+            permissions:
+              can_write_files: false
+              can_run_shell: false
+              can_access_network: false
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    agent = AgentRegistry(tmp_path / "agents").get("offline_agent")
+
+    assert agent is not None
+    assert agent.allows_tool("mcp_local:calculator")
+    assert not agent.allows_tool("mcp_local:shell")
+    assert not agent.allows_tool("mcp_local:deepsearch")
+    assert not agent.allows_tool("mcp_world:browser")
+    assert not agent.allows_tool("mcp_local:file_write")
+    assert not agent.allows_tool("mcp_local:report")
+
+
 def test_agent_registry_rejects_missing_handoff_target(tmp_path):
     agent_dir = tmp_path / "agents" / "router_agent"
     agent_dir.mkdir(parents=True)

@@ -68,6 +68,8 @@ class AgentConfig:
     def allows_tool(self, tool_name: str) -> bool:
         if any(_matches_tool_pattern(pattern, tool_name) for pattern in self.denied_tools):
             return False
+        if _tool_blocked_by_permissions(self.permissions, tool_name):
+            return False
         patterns = self.tool_patterns()
         if not patterns:
             return True
@@ -140,6 +142,31 @@ def _tool_policy_blocks(policy: Dict[str, Any]) -> bool:
     if risk in {"high", "critical"} and not _high_risk_tools_enabled():
         return True
     return False
+
+
+def _tool_blocked_by_permissions(permissions: Dict[str, Any], tool_name: str) -> bool:
+    if not permissions:
+        return False
+    if permissions.get("can_run_shell") is False and _matches_any_tool_pattern(
+        tool_name,
+        ["*shell*", "*terminal*", "*command*"],
+    ):
+        return True
+    if permissions.get("can_access_network") is False and _matches_any_tool_pattern(
+        tool_name,
+        ["*search*", "*browser*", "*web*", "*http*", "*weather*"],
+    ):
+        return True
+    if permissions.get("can_write_files") is False and _matches_any_tool_pattern(
+        tool_name,
+        ["*file_write*", "*write_file*", "*artifact_write*", "*report*"],
+    ):
+        return True
+    return False
+
+
+def _matches_any_tool_pattern(tool_name: str, patterns: List[str]) -> bool:
+    return any(_matches_tool_pattern(pattern, tool_name) for pattern in patterns)
 
 
 def _high_risk_tools_enabled() -> bool:
