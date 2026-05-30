@@ -481,5 +481,6 @@ def test_default_eval_cases_cover_core_task_categories():
     assert registry.select_agent_for_task("supervisor_agent", "请搜索资料并给出来源").agent_id == "search_agent"
     assert registry.select_agent_for_task("supervisor_agent", "分析表格数据并找出异常").agent_id == "data_agent"
     assert supervisor.allows_tool("builtin:handoff")
+    assert supervisor.allows_tool("builtin:request_input")
     handoff = next(tool for tool in supervisor.tools if tool.name == "builtin:handoff")
     assert handoff.input_schema["required"] == ["target_agent_id", "task"]

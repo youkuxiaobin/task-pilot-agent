@@ -916,6 +916,8 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             try:
                 await handler.handle(ctx, request)
                 _register_workspace_artifacts(task_store, task_id, trace_id, ctx.work_dir)
+                if ctx.waiting_for_input:
+                    return
                 task_store.update_status(
                     task_id,
                     AgentTaskStatus.COMPLETED,

@@ -71,6 +71,28 @@ tools:
         status:
           type: string
           description: 子任务状态。
+  - name: builtin:request_input
+    description: 缺少关键信息时，请求用户补充输入并让任务进入等待输入状态。
+    input_schema:
+      type: object
+      properties:
+        prompt:
+          type: string
+          description: 展示给用户的问题或补充说明。
+        reason:
+          type: string
+          description: 为什么必须等待用户补充。
+      required:
+        - prompt
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+          description: waiting_input。
+        taskId:
+          type: string
+          description: 当前任务 ID。
   - name: mcp_local:code_interpreter
     description: 执行代码，默认需要显式打开高风险工具开关。
     input_schema:

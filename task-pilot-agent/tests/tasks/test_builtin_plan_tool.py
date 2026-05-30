@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool
+from brain.core.tools.builtin_request_input_tool import BuiltinRequestInputTool
 from brain.core.tools.collection import ToolCollection
 
 
@@ -131,6 +132,53 @@ def test_builtin_handoff_tool_is_visible_as_openai_tool_when_allowed():
     assert specs[0]["function"]["name"] == "builtin:handoff"
     assert "target_agent_id" in specs[0]["function"]["parameters"]["properties"]
     assert "task" in specs[0]["function"]["parameters"]["required"]
+
+
+def test_builtin_request_input_tool_marks_task_waiting(tmp_path, monkeypatch):
+    monkeypatch.setenv("FILE_DB_URL", f"sqlite:///{tmp_path / 'tasks.db'}")
+    monkeypatch.setenv("TASK_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+
+    import file.db_engine as db_engine
+    from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_event
+
+    db_engine.get_engine.cache_clear()
+    store = TaskStore()
+    store.create_task(task_id="needs-input-task", trace_id="trace-input", agent_id="agent-1")
+    printer = FakePrinter()
+    ctx = SimpleNamespace(
+        printer=printer,
+        task_id="needs-input-task",
+        requestId="trace-input",
+        agent_id="agent-1",
+    )
+    tool = BuiltinRequestInputTool(ctx)
+
+    result = asyncio.run(tool.execute({"prompt": "请补充账号 ID", "reason": "缺少账号"}))
+
+    payload = json.loads(result)
+    updated_task = store.get_task("needs-input-task")
+    events = store.list_events("needs-input-task")
+    waiting_payload = serialize_event(events[-1])["payload"]
+    assert payload["status"] == "waiting_input"
+    assert updated_task.status == AgentTaskStatus.WAITING_INPUT
+    assert events[-1].event_type == "waiting_input"
+    assert waiting_payload["prompt"] == "请补充账号 ID"
+    assert waiting_payload["metadata"]["reason"] == "缺少账号"
+    assert ctx.waiting_for_input is True
+    assert ctx.waiting_input_prompt == "请补充账号 ID"
+    assert printer.events[-1]["message_type"] == "task"
+
+
+def test_builtin_request_input_tool_is_visible_as_openai_tool_when_allowed():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["builtin:request_input"])
+    collection.add_tool(BuiltinRequestInputTool(SimpleNamespace()))
+
+    specs = collection.to_openai_tools()
+
+    assert len(specs) == 1
+    assert specs[0]["function"]["name"] == "builtin:request_input"
+    assert specs[0]["function"]["parameters"]["required"] == ["prompt"]
 
 
 def test_default_agent_config_does_not_allow_builtin_plan_tool(tmp_path):

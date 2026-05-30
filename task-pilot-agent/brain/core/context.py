@@ -45,6 +45,8 @@ class AgentContext:
     run_environment: str = "local"
     memory_context: Dict[str, Any] = field(default_factory=dict)
     agent_memory: Dict[str, Any] = field(default_factory=dict)
+    waiting_for_input: bool = False
+    waiting_input_prompt: Optional[str] = None
 
     def allows_memory_write(self, scope: str) -> bool:
         memory_config = self.agent_memory if isinstance(self.agent_memory, dict) else {}

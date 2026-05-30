@@ -7,6 +7,7 @@ from brain.core.agent_registry import AgentRegistry
 from brain.core.context import AgentContext
 from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool, HandoffStarter
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
+from brain.core.tools.builtin_request_input_tool import BuiltinRequestInputTool
 from brain.core.tools.collection import ToolCollection
 from brain.core.tools.mcp_tool import MCPToolFetcher
 from utils.logger import get_logger
@@ -76,6 +77,8 @@ class ToolGateway:
                 tc.add_tool(BuiltinPlanTool(ctx))
             if self.handoff_starter and agent_config.allows_tool("builtin:handoff", approved_tools=approved_tools):
                 tc.add_tool(BuiltinHandoffTool(ctx, self.handoff_starter))
+            if agent_config.allows_tool("builtin:request_input", approved_tools=approved_tools):
+                tc.add_tool(BuiltinRequestInputTool(ctx))
         elif selected_tools is not None:
             tc.set_allowed_tool_patterns(selected_tools)
 

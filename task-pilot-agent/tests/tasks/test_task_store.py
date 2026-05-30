@@ -536,3 +536,50 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
         if item.startswith("data: {")
     ]
     assert streamed_events[0]["taskId"] == "trace-autoagent"
+
+
+def test_autoagent_keeps_task_waiting_when_agent_requests_input(task_modules, monkeypatch):
+    pytest.importorskip("fastapi")
+
+    import brain.app as app_module
+    from brain.core.tools.collection import ToolCollection
+
+    app_module = importlib.reload(app_module)
+
+    async def fake_build_tool_collection(_ctx):
+        return ToolCollection()
+
+    class FakeHandler:
+        async def handle(self, ctx, _request):
+            app_module.TaskStore().request_user_input(
+                ctx.task_id,
+                "Need account id",
+                trace_id=ctx.requestId,
+                source="agent",
+            )
+            ctx.waiting_for_input = True
+            ctx.waiting_input_prompt = "Need account id"
+
+    monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
+    monkeypatch.setattr(app_module.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
+
+    output: List[str] = []
+    req = app_module.GptQueryReq(
+        trace_id="trace-waiting-autoagent",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        outputStyle="markdown",
+        messages=[app_module.AgentMessage(role="user", content="hello")],
+    )
+
+    asyncio.run(app_module._run_autoagent(req, output.append))
+
+    store = task_modules.TaskStore()
+    task = store.get_task("trace-waiting-autoagent")
+    event_types = [event.event_type for event in store.list_events("trace-waiting-autoagent")]
+    assert task.status == task_modules.AgentTaskStatus.WAITING_INPUT
+    assert "waiting_input" in event_types
+    assert "task_completed" not in event_types
+    assert "agent_completed" not in event_types
