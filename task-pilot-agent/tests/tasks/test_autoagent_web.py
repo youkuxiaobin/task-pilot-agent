@@ -26,6 +26,9 @@ def test_autoagent_page_contains_task_replay_controls():
         "loadTask",
         "renderTaskToSession",
         "/agent/tasks",
+        "/artifacts",
+        "renderArtifactsHTML",
+        "任务产物",
         "/cancel",
         "任务取消请求已发送",
     ]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import re
 import time
@@ -71,6 +72,21 @@ class AgentTaskEventRecord(Base):
     source = Column(String(64), nullable=False, default="")
     message_id = Column(String(128), nullable=True)
     payload_json = Column("payload", LONG_TEXT, nullable=False)
+    created_at = Column(BigInteger, nullable=False)
+
+
+class AgentTaskArtifactRecord(Base):
+    __tablename__ = "meta_agent_task_artifact"
+
+    id = Column(ID_TYPE, primary_key=True, autoincrement=True)
+    artifact_id = Column(String(128), nullable=False, unique=True, index=True)
+    task_id = Column(String(128), nullable=False, index=True)
+    filename = Column(String(512), nullable=False)
+    file_path = Column(String(2048), nullable=False)
+    mime_type = Column(String(128), nullable=True)
+    file_size = Column(BigInteger, nullable=False, default=0)
+    description = Column(LONG_TEXT, nullable=True)
+    metadata_json = Column("metadata", LONG_TEXT, nullable=True)
     created_at = Column(BigInteger, nullable=False)
 
 
@@ -316,6 +332,93 @@ class TaskStore:
         finally:
             session.close()
 
+    def add_artifact(
+        self,
+        task_id: str,
+        file_path: str,
+        *,
+        artifact_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        description: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentTaskArtifactRecord:
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"task not found: {task_id}")
+
+        resolved_path = Path(file_path).expanduser().resolve()
+        work_dir = _task_work_dir_from_record(task)
+        if not resolved_path.is_relative_to(work_dir):
+            raise ValueError("artifact path must stay inside task workspace")
+        if not resolved_path.is_file():
+            raise ValueError(f"artifact file not found: {resolved_path}")
+
+        resolved_artifact_id = artifact_id or str(uuid.uuid4())
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = AgentTaskArtifactRecord(
+                artifact_id=resolved_artifact_id,
+                task_id=task_id,
+                filename=filename or resolved_path.name,
+                file_path=str(resolved_path),
+                mime_type=mime_type or mimetypes.guess_type(str(resolved_path))[0] or "application/octet-stream",
+                file_size=resolved_path.stat().st_size,
+                description=description,
+                metadata_json=_json_dumps(sanitize_payload(metadata or {})),
+                created_at=timestamp,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_artifact(self, task_id: str, artifact_id: str) -> Optional[AgentTaskArtifactRecord]:
+        session = self._session_maker()
+        try:
+            record = (
+                session.query(AgentTaskArtifactRecord)
+                .filter(
+                    AgentTaskArtifactRecord.task_id == task_id,
+                    AgentTaskArtifactRecord.artifact_id == artifact_id,
+                )
+                .one_or_none()
+            )
+            if record:
+                session.expunge(record)
+            return record
+        finally:
+            session.close()
+
+    def list_artifacts(self, task_id: str) -> List[AgentTaskArtifactRecord]:
+        session = self._session_maker()
+        try:
+            records = (
+                session.query(AgentTaskArtifactRecord)
+                .filter(AgentTaskArtifactRecord.task_id == task_id)
+                .order_by(AgentTaskArtifactRecord.created_at.asc())
+                .all()
+            )
+            _detach_records(session, records)
+            return records
+        finally:
+            session.close()
+
+
+def _task_work_dir_from_record(record: AgentTaskRecord) -> Path:
+    metadata = _json_loads(record.metadata_json, {})
+    work_dir = metadata.get("workDir") if isinstance(metadata, dict) else None
+    if work_dir:
+        return Path(work_dir).expanduser().resolve()
+    return prepare_task_workspace(record.task_id)
+
 
 def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
     metadata = _json_loads(record.metadata_json, {})
@@ -357,5 +460,20 @@ def serialize_event(record: AgentTaskEventRecord) -> Dict[str, Any]:
         "source": record.source,
         "messageId": record.message_id,
         "payload": _json_loads(record.payload_json, {}),
+        "createdAt": record.created_at,
+    }
+
+
+def serialize_artifact(record: AgentTaskArtifactRecord) -> Dict[str, Any]:
+    return {
+        "id": record.id,
+        "artifactId": record.artifact_id,
+        "taskId": record.task_id,
+        "filename": record.filename,
+        "filePath": record.file_path,
+        "mimeType": record.mime_type,
+        "fileSize": record.file_size,
+        "description": record.description,
+        "metadata": _json_loads(record.metadata_json, {}),
         "createdAt": record.created_at,
     }

@@ -7,13 +7,13 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from pathlib import Path
 import contextlib
 
-from fastapi.responses import StreamingResponse, PlainTextResponse, HTMLResponse
+from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse, HTMLResponse
 
 from brain.models.requests import AgentMessage, GptQueryReq
 from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext, FileItem
 from brain.core.printer import SSEPrinter
-from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_event, serialize_task
+from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.collection import ToolCollection
     
@@ -488,6 +488,31 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
     retry_task = store.get_task(retry_trace_id)
     return serialize_task(retry_task) if retry_task else {"taskId": retry_trace_id}
+
+
+@agent_router.get("/tasks/{task_id}/artifacts")
+async def list_agent_task_artifacts(task_id: str) -> Dict[str, Any]:
+    store = TaskStore()
+    if not store.get_task(task_id):
+        raise HTTPException(status_code=404, detail="task not found")
+    artifacts = store.list_artifacts(task_id)
+    return {"items": [serialize_artifact(artifact) for artifact in artifacts]}
+
+
+@agent_router.get("/tasks/{task_id}/artifacts/{artifact_id}")
+async def download_agent_task_artifact(task_id: str, artifact_id: str) -> FileResponse:
+    store = TaskStore()
+    artifact = store.get_artifact(task_id, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    file_path = Path(artifact.file_path)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="artifact file not found")
+    return FileResponse(
+        str(file_path),
+        media_type=artifact.mime_type or "application/octet-stream",
+        filename=artifact.filename,
+    )
 
 
 @agent_router.get("/web/autoagent", response_class=HTMLResponse)

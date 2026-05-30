@@ -124,6 +124,35 @@ def test_task_workspace_sanitizes_task_id(task_modules, tmp_path):
     assert Path(payload["workDir"]).is_dir()
 
 
+def test_task_artifacts_are_scoped_to_task_workspace(task_modules, tmp_path):
+    store = task_modules.TaskStore()
+    task = store.create_task(task_id="artifact-task", trace_id="trace-artifact")
+    task_payload = task_modules.serialize_task(task)
+    artifact_path = Path(task_payload["workDir"]) / "result.txt"
+    artifact_path.write_text("hello artifact", encoding="utf-8")
+
+    artifact = store.add_artifact(
+        "artifact-task",
+        str(artifact_path),
+        artifact_id="artifact-1",
+        description="demo result",
+        metadata={"api_key": "sk-test-secretvalue123456"},
+    )
+    artifact_payload = task_modules.serialize_artifact(artifact)
+
+    assert artifact_payload["artifactId"] == "artifact-1"
+    assert artifact_payload["filename"] == "result.txt"
+    assert artifact_payload["fileSize"] == len("hello artifact")
+    assert artifact_payload["metadata"]["api_key"] == "***"
+    assert store.get_artifact("artifact-task", "artifact-1") is not None
+    assert [item.artifact_id for item in store.list_artifacts("artifact-task")] == ["artifact-1"]
+
+    outside_path = tmp_path / "outside.txt"
+    outside_path.write_text("outside", encoding="utf-8")
+    with pytest.raises(ValueError, match="inside task workspace"):
+        store.add_artifact("artifact-task", str(outside_path))
+
+
 def test_sse_printer_adds_task_id_and_reports_events(task_modules):
     from brain.core.printer import SSEPrinter
 

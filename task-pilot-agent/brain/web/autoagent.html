@@ -529,17 +529,20 @@
     if(!taskId) return;
     setUIStatus('加载任务回看...', true);
     try {
-      const [taskResp, eventsResp] = await Promise.all([
+      const [taskResp, eventsResp, artifactsResp] = await Promise.all([
         fetch(`/agent/tasks/${encodeURIComponent(taskId)}`),
         fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?limit=2000`),
+        fetch(`/agent/tasks/${encodeURIComponent(taskId)}/artifacts`),
       ]);
       if(!taskResp.ok) throw new Error(`任务详情加载失败：${taskResp.status}`);
       if(!eventsResp.ok) throw new Error(`任务事件加载失败：${eventsResp.status}`);
+      if(!artifactsResp.ok) throw new Error(`任务产物加载失败：${artifactsResp.status}`);
       const task = await taskResp.json();
       const eventsData = await eventsResp.json();
+      const artifactsData = await artifactsResp.json();
       const existing = state.sessions.find(s => s.taskId === taskId);
       const session = existing || createSession({ id: `task_${taskId}`, title: `任务 ${String(taskId).slice(0, 8)}`, taskId });
-      renderTaskToSession(session, task, eventsData.items || []);
+      renderTaskToSession(session, task, eventsData.items || [], artifactsData.items || []);
       activateSession(session);
     } catch(err) {
       const session = getActiveSession() || createSession();
@@ -549,7 +552,7 @@
     }
   }
 
-  function renderTaskToSession(session, task, events) {
+  function renderTaskToSession(session, task, events, artifacts=[]) {
     session.taskId = task.taskId || task.task_id;
     session.taskStatus = task.status || '';
     session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
@@ -573,11 +576,29 @@
     if(task.output && !session.replayState.gotAnyResult) {
       applyEventToSession(session, { type: 'result', json: { messageType: 'result', result: task.output }, time: task.endedAt || task.updatedAt });
     }
+    if(artifacts.length) {
+      upsertReasonMessage(session, 'file', renderArtifactsHTML(session.taskId, artifacts), task.endedAt || task.updatedAt || Date.now(), false);
+    }
     state.replaying = false;
     state.activeTaskId = session.taskId;
     updateTaskMeta(session);
     renderMessages(true);
     renderTaskList();
+  }
+
+  function renderArtifactsHTML(taskId, artifacts) {
+    return artifacts.map(item => {
+      const href = `/agent/tasks/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(item.artifactId)}`;
+      const size = item.fileSize ? `${item.fileSize} bytes` : '';
+      return `
+        <div class="field-block">
+          <span class="field-label">${escapeHTML(item.mimeType || 'file')} ${escapeHTML(size)}</span>
+          <div class="field-value">
+            <a style="color:var(--color-accent)" href="${href}" target="_blank" rel="noreferrer">${escapeHTML(item.filename || item.artifactId)}</a>
+            ${item.description ? `<div style="margin-top:0.35rem;color:var(--text-muted)">${escapeHTML(item.description)}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
   }
 
   function mapTaskEventType(eventType) {
@@ -752,6 +773,7 @@
       case 'tool_call': typeClass = 'type-tool'; icon = '🛠️'; title = '正在调用工具'; break;
       case 'task': typeClass = 'type-task'; icon = '⚙️'; title = '执行任务'; break;
       case 'tool_result': typeClass = 'type-tool'; icon = '✅'; title = '工具返回结果'; break;
+      case 'file': typeClass = 'type-tool'; icon = '📎'; title = '任务产物'; break;
       case 'stream': typeClass = 'type-tool'; icon = '📡'; title = '工具输出片段'; break;
       case 'notifications': typeClass = 'type-task'; icon = '🔔'; title = '系统通知'; break;
     }
