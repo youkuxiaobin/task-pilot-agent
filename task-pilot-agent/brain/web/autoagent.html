@@ -296,6 +296,7 @@
     }
     .tool-option { display: flex; gap: 0.55rem; align-items: flex-start; padding: 0.45rem; border-radius: 6px; color: var(--text-main); font-size: 0.82rem; line-height: 1.35; }
     .tool-option:hover { background: rgba(255,255,255,0.05); }
+    .tool-option.disabled { opacity: 0.62; }
     .tool-option input { margin-top: 0.15rem; }
     .tool-option small { display: block; color: var(--text-muted); margin-top: 0.15rem; }
     .tool-risk { color: #fbbf24; font-size: 0.72rem; margin-left: 0.35rem; }
@@ -817,11 +818,15 @@
       const name = tool.name || '';
       if(!name) return;
       const label = document.createElement('label');
-      label.className = 'tool-option';
+      const allowed = tool.allowed !== false;
+      label.className = allowed ? 'tool-option' : 'tool-option disabled';
       const risk = String(tool.policy?.risk || '').toLowerCase();
-      const riskHTML = risk === 'high' || risk === 'critical' ? '<span class="tool-risk">高风险</span>' : '';
+      const badges = [];
+      if(risk === 'high' || risk === 'critical') badges.push('高风险');
+      if(!allowed) badges.push('不可用');
+      const riskHTML = badges.map(item => `<span class="tool-risk">${escapeHTML(item)}</span>`).join('');
       label.innerHTML = `
-        <input type="checkbox" value="${escapeHTML(name)}" checked>
+        <input type="checkbox" value="${escapeHTML(name)}" ${allowed ? 'checked' : 'disabled'}>
         <span>
           <strong>${escapeHTML(name)}</strong>${riskHTML}
           ${tool.description ? `<small>${escapeHTML(tool.description)}</small>` : ''}

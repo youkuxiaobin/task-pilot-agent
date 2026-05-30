@@ -109,10 +109,12 @@ def test_agent_registry_blocks_high_risk_tools_until_enabled(tmp_path, monkeypat
     assert agent is not None
     assert not agent.allows_tool("mcp_local:code_interpreter")
     assert agent.allows_tool("mcp_local:deepsearch")
+    assert agent.to_dict()["tools"][0]["allowed"] is False
 
     monkeypatch.setenv("ALLOW_HIGH_RISK_TOOLS", "true")
 
     assert agent.allows_tool("mcp_local:code_interpreter")
+    assert agent.to_dict()["tools"][0]["allowed"] is True
 
 
 def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
@@ -198,6 +200,7 @@ def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
     payload = agent.to_dict()
     assert payload["type"] == "react_worker"
     assert payload["tools"][0]["timeoutSeconds"] == 120
+    assert payload["tools"][0]["allowed"] is True
     assert payload["deniedTools"] == ["mcp_local:shell"]
     assert payload["permissions"]["can_run_shell"] is False
 

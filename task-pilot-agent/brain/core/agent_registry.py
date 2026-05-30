@@ -116,6 +116,7 @@ class AgentConfig:
                 {
                     "name": tool.name,
                     "description": tool.description,
+                    "allowed": self.allows_tool(tool.name),
                     "alias": tool.alias,
                     "purpose": tool.purpose,
                     "whenToUse": tool.when_to_use,

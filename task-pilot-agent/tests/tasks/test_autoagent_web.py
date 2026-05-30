@@ -49,6 +49,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "renderToolOptions",
         "getSelectedTools",
         "selected_tools",
+        "tool.allowed",
+        "不可用",
         "run_environment",
         "runEnvironment",
         "renderEvalOptions",
