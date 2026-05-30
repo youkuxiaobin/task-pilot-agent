@@ -40,6 +40,8 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     tc = ToolCollection()
     tc.agentContext = ctx
     agent_config = agentRegistry.get(ctx.agent_id)
+    if agent_config:
+        tc.set_allowed_tool_patterns(agent_config.tool_patterns())
 
     try:
         mcp_market_url = getattr(agentSettings, 'mcp_market_url', 'http://127.0.0.1:9010/aggre_mcp_market')
@@ -47,9 +49,6 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
         mcp_tools = await mcp_fetcher.fetch_tools()
         
         for mcp_tool in mcp_tools:
-            if agent_config and not agent_config.allows_tool(mcp_tool.name):
-                logger.debug("skip tool %s for agent %s", mcp_tool.name, agent_config.id)
-                continue
             tc.add_tool(mcp_tool)
             logger.debug(f"add mcp tools: {mcp_tool.name} - {mcp_tool.description}")
         
@@ -474,6 +473,5 @@ async def autoagent_ws(websocket: WebSocket) -> None:
 @agent_router.get("/web/health")
 async def health() -> PlainTextResponse:
     return PlainTextResponse("ok")
-
 
 
