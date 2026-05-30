@@ -86,10 +86,10 @@ class AgentConfig:
     def tool_patterns(self) -> List[str]:
         return [tool.name for tool in self.tools if tool.name]
 
-    def allows_tool(self, tool_name: str) -> bool:
-        return not self.tool_block_reason(tool_name)
+    def allows_tool(self, tool_name: str, approved_tools: Optional[List[str]] = None) -> bool:
+        return not self.tool_block_reason(tool_name, approved_tools=approved_tools)
 
-    def tool_block_reason(self, tool_name: str) -> str:
+    def tool_block_reason(self, tool_name: str, approved_tools: Optional[List[str]] = None) -> str:
         if any(_matches_tool_pattern(pattern, tool_name) for pattern in self.denied_tools):
             return "denied_tools"
         permission_reason = _tool_permission_block_reason(self.permissions, tool_name)
@@ -104,6 +104,8 @@ class AgentConfig:
         for tool in matched:
             policy_reason = _tool_policy_block_reason(tool.policy)
             if policy_reason:
+                if policy_reason == "high_risk_requires_enable" and _matches_any_tool_pattern(tool_name, approved_tools or []):
+                    continue
                 return policy_reason
         return ""
 

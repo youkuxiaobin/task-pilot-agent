@@ -72,6 +72,7 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
                 }
             ],
             "runEnvironment": "sandbox",
+            "approvedTools": ["mcp_local:code_interpreter"],
         },
     )
 
@@ -97,6 +98,7 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     assert payload["metadata"]["source"] == "retry"
     assert payload["metadata"]["parentTaskId"] == "retry-me"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert payload["metadata"]["inputFiles"][0]["fileName"] == "source.csv"
     assert app._deserialize_file_items(payload["metadata"]["inputFiles"])[0].fileName == "source.csv"
     assert created_background
@@ -126,29 +128,33 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     payload = asyncio.run(
         app.create_agent_task(
             app.GptQueryReq(
-                trace_id="create-task",
                 user_id="user-1",
                 agent_id="task-pilot-agent",
                 conversation_id="conversation-1",
                 outputStyle="markdown",
                 mode="react",
                 run_environment="sandbox",
+                approved_tools=["mcp_local:code_interpreter"],
                 messages=[app.AgentMessage(role="user", content="run in background")],
             )
         )
     )
 
-    assert payload["taskId"] == "create-task"
+    assert payload["taskId"]
     assert payload["status"] == tasks.AgentTaskStatus.QUEUED
     assert payload["metadata"]["source"] == "api"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert created_background
+    background_req = created_background[0].cr_frame.f_locals["req"]
+    assert background_req.trace_id == payload["taskId"]
     created_background[0].close()
 
     store = tasks.TaskStore()
-    events = store.list_events("create-task")
+    events = store.list_events(payload["taskId"])
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["runEnvironment"] == "sandbox"
+    assert tasks.serialize_event(events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
 
 
 def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, monkeypatch):
@@ -228,6 +234,12 @@ def test_blocked_tool_reasons_include_policy_and_selection(app_modules, monkeypa
     assert app._blocked_tool_reasons(["mcp_local:code_interpreter"], agent, None) == {
         "mcp_local:code_interpreter": "high_risk_requires_enable"
     }
+    assert app._blocked_tool_reasons(
+        ["mcp_local:code_interpreter"],
+        agent,
+        None,
+        ["mcp_local:code_interpreter"],
+    ) == {"mcp_local:code_interpreter": "blocked_by_policy"}
     assert app._blocked_tool_reasons(["mcp_local:deepsearch"], agent, ["mcp_local:weather"]) == {
         "mcp_local:deepsearch": "not_selected"
     }
@@ -282,6 +294,56 @@ def test_list_agent_tools_returns_builtin_and_mcp_tools(app_modules, monkeypatch
             "blockReason": "high_risk_requires_enable",
         }
     ]
+
+
+def test_build_tool_collection_allows_approved_high_risk_tools(app_modules, monkeypatch):
+    app, _tasks = app_modules
+    from brain.core.agent_registry import AgentToolSpec
+
+    agent = app.AgentConfig(
+        id="approved-tool-agent",
+        name="Approved Tool Agent",
+        tools=[AgentToolSpec(name="mcp_local:code_interpreter", policy={"risk": "high"})],
+    )
+
+    async def fake_fetch_tools(_self):
+        return [
+            SimpleNamespace(
+                name="mcp_local:code_interpreter",
+                description="Code",
+                input_schema={"type": "object"},
+                output_schema={},
+            )
+        ]
+
+    monkeypatch.delenv("APP_ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.delenv("ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.setattr(app.agentRegistry, "get", lambda agent_id: agent if agent_id == "approved-tool-agent" else None)
+    monkeypatch.setattr(app.MCPToolFetcher, "fetch_tools", fake_fetch_tools)
+
+    base_ctx = {
+        "requestId": "request-approved",
+        "sessionId": "session-approved",
+        "user_id": "user-1",
+        "agent_id": "approved-tool-agent",
+        "run_id": "run-approved",
+        "query": "",
+        "task": None,
+        "printer": None,
+        "toolCollection": None,
+        "dateInfo": "2026-05-30",
+        "isStream": False,
+    }
+
+    blocked_ctx = app.AgentContext(**base_ctx)
+    blocked_tc = asyncio.run(app.build_tool_collection(blocked_ctx))
+    assert "mcp_local:code_interpreter" not in blocked_tc.tool_map
+    assert blocked_tc.blocked_tools == ["mcp_local:code_interpreter"]
+
+    approved_ctx = app.AgentContext(**base_ctx, approved_tools=["mcp_local:code_interpreter"])
+    approved_tc = asyncio.run(app.build_tool_collection(approved_ctx))
+    assert "mcp_local:code_interpreter" in approved_tc.tool_map
+    assert approved_tc.blocked_tools == []
 
 
 def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
@@ -348,6 +410,7 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
         dateInfo="2026-05-30",
         task_id="parent-task",
         outputStyle="markdown",
+        approved_tools=["mcp_local:code_interpreter"],
         run_environment="sandbox",
     )
 
@@ -364,16 +427,19 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert payload["metadata"]["source"] == "handoff"
     assert payload["metadata"]["parentTaskId"] == "parent-task"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert created_background
 
     store = tasks.TaskStore()
     events = store.list_events(payload["taskId"])
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["parentAgentId"] == "parent-agent"
+    assert tasks.serialize_event(events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
     parent_events = store.list_events("parent-task")
     assert parent_events[-1].event_type == "task_handoff_requested"
     assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentId"] == "child-agent"
     assert tasks.serialize_event(parent_events[-1])["payload"]["childTaskId"] == payload["taskId"]
+    assert tasks.serialize_event(parent_events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
 
     with pytest.raises(ValueError, match="cannot hand off"):
         asyncio.run(app._start_handoff_task(parent_ctx, "blocked-agent", "blocked", {}))

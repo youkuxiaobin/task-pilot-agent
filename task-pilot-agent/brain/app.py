@@ -66,6 +66,7 @@ def _blocked_tool_reasons(
     blocked_tools: List[str],
     agent_config: Optional[AgentConfig],
     selected_tools: Optional[List[str]],
+    approved_tools: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     reasons: Dict[str, str] = {}
     for tool_name in blocked_tools:
@@ -73,7 +74,7 @@ def _blocked_tool_reasons(
             reasons[tool_name] = "not_selected"
             continue
         if agent_config:
-            reasons[tool_name] = agent_config.tool_block_reason(tool_name) or "blocked_by_policy"
+            reasons[tool_name] = agent_config.tool_block_reason(tool_name, approved_tools=approved_tools) or "blocked_by_policy"
         else:
             reasons[tool_name] = "blocked_by_policy"
     return reasons
@@ -102,6 +103,7 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     tc = ToolCollection()
     tc.agentContext = ctx
     selected_tools = _normalize_tool_selection(getattr(ctx, "selected_tools", None))
+    approved_tools = _normalize_tool_selection(getattr(ctx, "approved_tools", None))
     agent_config = agentRegistry.get(ctx.agent_id)
     if agent_config:
         tc.set_allowed_tool_patterns(selected_tools if selected_tools is not None else agent_config.tool_patterns())
@@ -113,12 +115,12 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
             }
         )
         tc.set_tool_allowed_checker(
-            lambda tool_name: agent_config.allows_tool(tool_name)
+            lambda tool_name: agent_config.allows_tool(tool_name, approved_tools=approved_tools)
             and _matches_selected_tool(selected_tools, tool_name)
         )
-        if agent_config.allows_tool("builtin:plan_tool"):
+        if agent_config.allows_tool("builtin:plan_tool", approved_tools=approved_tools):
             tc.add_tool(BuiltinPlanTool(ctx))
-        if agent_config.allows_tool("builtin:handoff"):
+        if agent_config.allows_tool("builtin:handoff", approved_tools=approved_tools):
             tc.add_tool(BuiltinHandoffTool(ctx, _start_handoff_task))
     elif selected_tools is not None:
         tc.set_allowed_tool_patterns(selected_tools)
@@ -445,6 +447,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
         agent_config = _resolve_agent_config(request.agent_id)
         resolved_mode = request.mode or (agent_config.mode if agent_config else None) or "plans_executor"
         selected_tools = _normalize_tool_selection(request.selected_tools)
+        approved_tools = _normalize_tool_selection(request.approved_tools)
 
         task_id = trace_id
         last_result: Dict[str, Optional[str]] = {"output": None}
@@ -471,6 +474,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "source": "autoagent",
                     "agentConfigId": agent_config.id if agent_config else None,
                     "selectedTools": selected_tools,
+                    "approvedTools": approved_tools,
                     "inputFiles": input_files,
                     "runEnvironment": request.run_environment,
                 },
@@ -485,6 +489,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "conversationId": request.conversation_id,
                     "agentConfigId": agent_config.id if agent_config else None,
                     "selectedTools": selected_tools,
+                    "approvedTools": approved_tools,
                     "inputFiles": input_files,
                     "runEnvironment": request.run_environment,
                     "workDir": created_task_payload.get("workDir"),
@@ -569,6 +574,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 work_dir=created_task_payload.get("workDir"),
                 agent_system_prompt=agent_config.system_prompt if agent_config else None,
                 selected_tools=selected_tools,
+                approved_tools=approved_tools,
                 run_environment=request.run_environment or "local",
             )
             _convert_agent_messages(ctx, messages)
@@ -595,12 +601,14 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 {
                     "agentId": ctx.agent_id,
                     "selectedTools": selected_tools,
+                    "approvedTools": approved_tools,
                     "availableTools": sorted(tc.tool_map.keys()),
                     "blockedTools": sorted(set(tc.blocked_tools)),
                     "blockedToolReasons": _blocked_tool_reasons(
                         sorted(set(tc.blocked_tools)),
                         agent_config,
                         selected_tools,
+                        approved_tools,
                     ),
                     "runEnvironment": request.run_environment,
                 },
@@ -915,9 +923,11 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
 
     _fill_request_defaults(request)
     trace_id = request.trace_id or str(uuid.uuid4())
+    request.trace_id = trace_id
     agent_config = _resolve_agent_config(request.agent_id or "")
     resolved_mode = request.mode or (agent_config.mode if agent_config else None) or "plans_executor"
     selected_tools = _normalize_tool_selection(request.selected_tools)
+    approved_tools = _normalize_tool_selection(request.approved_tools)
     latest_input = (messages[-1].content or "").strip()
     input_files = _serialize_file_items(messages[-1].uploadFile if messages else None)
 
@@ -935,6 +945,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
             "source": "api",
             "agentConfigId": agent_config.id if agent_config else None,
             "selectedTools": selected_tools,
+            "approvedTools": approved_tools,
             "inputFiles": input_files,
             "runEnvironment": request.run_environment,
         },
@@ -948,6 +959,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
             "outputStyle": request.outputStyle,
             "agentConfigId": agent_config.id if agent_config else None,
             "selectedTools": selected_tools,
+            "approvedTools": approved_tools,
             "inputFiles": input_files,
             "runEnvironment": request.run_environment,
         },
@@ -977,6 +989,7 @@ async def _start_handoff_task(
     output_style = str(options.get("outputStyle") or parent_ctx.outputStyle or "markdown")
     mode = str(options.get("mode") or target_config.mode or "plans_executor")
     selected_tools = _normalize_tool_selection(options.get("selected_tools"))
+    approved_tools = _normalize_tool_selection(parent_ctx.approved_tools)
     run_environment = _normalize_run_environment(parent_ctx.run_environment)
 
     request = GptQueryReq(
@@ -987,6 +1000,7 @@ async def _start_handoff_task(
         outputStyle=output_style,
         mode=mode,
         selected_tools=selected_tools,
+        approved_tools=approved_tools,
         run_environment=run_environment,
         messages=[AgentMessage(role=RoleType.USER.value, content=task_text)],
     )
@@ -1007,6 +1021,7 @@ async def _start_handoff_task(
             "parentTaskId": parent_ctx.task_id,
             "parentAgentId": parent_ctx.agent_id,
             "selectedTools": selected_tools,
+            "approvedTools": approved_tools,
             "runEnvironment": run_environment,
         },
     )
@@ -1021,6 +1036,7 @@ async def _start_handoff_task(
             "parentTaskId": parent_ctx.task_id,
             "parentAgentId": parent_ctx.agent_id,
             "selectedTools": selected_tools,
+            "approvedTools": approved_tools,
             "runEnvironment": run_environment,
         },
         trace_id=trace_id,
@@ -1037,6 +1053,8 @@ async def _start_handoff_task(
                 "task": task_text,
                 "mode": mode,
                 "outputStyle": request.outputStyle,
+                "selectedTools": selected_tools,
+                "approvedTools": approved_tools,
                 "runEnvironment": run_environment,
             },
             trace_id=parent_ctx.requestId,
@@ -1110,6 +1128,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     task_payload = serialize_task(task)
     metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
     selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
+    approved_tools = _normalize_tool_selection(metadata.get("approvedTools") if metadata else None)
     run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
     input_files = metadata.get("inputFiles") if metadata else None
     store.create_task(
@@ -1125,6 +1144,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
             "source": "retry",
             "parentTaskId": task.task_id,
             "selectedTools": selected_tools,
+            "approvedTools": approved_tools,
             "runEnvironment": run_environment,
             "inputFiles": input_files,
         },
@@ -1145,6 +1165,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         outputStyle=task.output_style,
         mode=task.mode,
         selected_tools=selected_tools,
+        approved_tools=approved_tools,
         run_environment=run_environment,
         messages=[
             AgentMessage(

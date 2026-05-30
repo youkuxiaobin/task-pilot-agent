@@ -35,6 +35,7 @@ class GptQueryReq(BaseModel):
     outputStyle: Optional[str] = None
     mode: Optional[str] = None
     selected_tools: Optional[List[str]] = None
+    approved_tools: Optional[List[str]] = None
     run_environment: Optional[str] = None
     messages: Optional[List[AgentMessage]] = None
 

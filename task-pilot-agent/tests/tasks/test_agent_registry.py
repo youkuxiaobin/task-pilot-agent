@@ -109,6 +109,8 @@ def test_agent_registry_blocks_high_risk_tools_until_enabled(tmp_path, monkeypat
     assert agent is not None
     assert not agent.allows_tool("mcp_local:code_interpreter")
     assert agent.tool_block_reason("mcp_local:code_interpreter") == "high_risk_requires_enable"
+    assert agent.allows_tool("mcp_local:code_interpreter", approved_tools=["mcp_local:code_interpreter"])
+    assert agent.tool_block_reason("mcp_local:code_interpreter", approved_tools=["mcp_local:code_interpreter"]) == ""
     assert agent.allows_tool("mcp_local:deepsearch")
     assert agent.to_dict()["tools"][0]["allowed"] is False
     assert agent.to_dict()["tools"][0]["blockReason"] == "high_risk_requires_enable"
@@ -254,6 +256,8 @@ def test_agent_registry_permissions_filter_risky_tool_categories(tmp_path):
     assert not agent.allows_tool("mcp_world:browser")
     assert not agent.allows_tool("mcp_local:file_write")
     assert not agent.allows_tool("mcp_local:report")
+    assert not agent.allows_tool("mcp_local:shell", approved_tools=["mcp_local:shell"])
+    assert not agent.allows_tool("mcp_local:deepsearch", approved_tools=["mcp_local:deepsearch"])
     assert agent.tool_block_reason("mcp_local:shell") == "permission_can_run_shell"
     assert agent.tool_block_reason("mcp_local:deepsearch") == "permission_can_access_network"
     assert agent.tool_block_reason("mcp_local:file_write") == "permission_can_write_files"

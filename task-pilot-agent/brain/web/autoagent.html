@@ -817,7 +817,7 @@
   function toolBlockReasonText(reason) {
     const map = {
       denied_tools: '已在拒绝列表中',
-      high_risk_requires_enable: '高风险工具需要显式开启',
+      high_risk_requires_enable: '高风险工具需要本次勾选确认',
       tool_disabled: '工具已关闭',
       permission_can_run_shell: '当前 Agent 不允许执行命令',
       permission_can_access_network: '当前 Agent 不允许访问网络',
@@ -869,16 +869,19 @@
       if(!name) return;
       const label = document.createElement('label');
       const allowed = tool.allowed !== false;
-      label.className = allowed ? 'tool-option' : 'tool-option disabled';
+      const requiresApproval = tool.blockReason === 'high_risk_requires_enable';
+      const selectable = allowed || requiresApproval;
+      label.className = selectable ? 'tool-option' : 'tool-option disabled';
       const risk = String(tool.policy?.risk || '').toLowerCase();
       const badges = [];
       if(risk === 'high' || risk === 'critical') badges.push('高风险');
-      if(!allowed) badges.push('不可用');
+      if(requiresApproval) badges.push('需审批');
+      else if(!allowed) badges.push('不可用');
       const riskHTML = badges.map(item => `<span class="tool-risk">${escapeHTML(item)}</span>`).join('');
       const schemaHTML = `${renderToolSchemaLine('输入', tool.inputSchema)}${renderToolSchemaLine('输出', tool.outputSchema)}`;
       const blockReason = !allowed ? toolBlockReasonText(tool.blockReason) : '';
       label.innerHTML = `
-        <input type="checkbox" value="${escapeHTML(name)}" ${allowed ? 'checked' : 'disabled'}>
+        <input type="checkbox" value="${escapeHTML(name)}" ${allowed ? 'checked' : ''} ${requiresApproval ? 'data-approval="high_risk"' : ''} ${selectable ? '' : 'disabled'}>
         <span>
           <strong>${escapeHTML(name)}</strong>${riskHTML}
           ${tool.description ? `<small>${escapeHTML(tool.description)}</small>` : ''}
@@ -911,6 +914,11 @@
   function getSelectedTools() {
     const inputs = Array.from(dom.toolOptions.querySelectorAll('input[type="checkbox"]'));
     if(!inputs.length) return null;
+    return inputs.filter(input => input.checked).map(input => input.value);
+  }
+
+  function getApprovedTools() {
+    const inputs = Array.from(dom.toolOptions.querySelectorAll('input[type="checkbox"][data-approval="high_risk"]'));
     return inputs.filter(input => input.checked).map(input => input.value);
   }
 
@@ -1588,6 +1596,7 @@
 
     const contextMessages = session.messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.messageType === 'result')).map(m => ({ role: m.role, content: m.content }));
     const selectedTools = getSelectedTools();
+    const approvedTools = getApprovedTools();
     const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, run_environment: dom.runEnvironment.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
 
     try {
@@ -1596,6 +1605,7 @@
          contextMessages[contextMessages.length - 1].uploadFile = uploadedFiles;
        }
        if(selectedTools !== null) payload.selected_tools = selectedTools;
+       if(approvedTools.length) payload.approved_tools = approvedTools;
        const resp = await fetch(dom.endpoint.value, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
        if(!resp.ok) throw new Error(`Server Error: ${resp.status}`);
        const reader = resp.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
