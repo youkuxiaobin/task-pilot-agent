@@ -72,6 +72,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "renderEvalOptions",
         "runSelectedEval",
         "runAllEvals",
+        "已启动评测任务",
+        "已启动 ${items.length} 个评测任务",
         "/evals/run",
         "/evals/",
         "uploadSelectedFiles",

@@ -969,6 +969,8 @@
       const taskId = data.task?.taskId || data.eval?.taskId;
       await refreshTaskList();
       if(taskId) await loadTask(taskId);
+      const session = getActiveSession() || createSession();
+      upsertReasonMessage(session, 'notifications', renderNotificationHTML(`已启动评测任务：${taskId || '未知任务'}`), Date.now(), false);
     } catch(err) {
       const session = getActiveSession() || createSession();
       upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">启动评测失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
@@ -991,8 +993,12 @@
       const data = await resp.json();
       const items = Array.isArray(data.items) ? data.items : [];
       const taskId = items[0]?.task?.taskId || items[0]?.eval?.taskId;
+      const taskIds = items.map(item => item?.task?.taskId || item?.eval?.taskId).filter(Boolean);
       await refreshTaskList();
       if(taskId) await loadTask(taskId);
+      const session = getActiveSession() || createSession();
+      const idText = taskIds.length ? `：${taskIds.join(', ')}` : '';
+      upsertReasonMessage(session, 'notifications', renderNotificationHTML(`已启动 ${items.length} 个评测任务${idText}`), Date.now(), false);
     } catch(err) {
       const session = getActiveSession() || createSession();
       upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">启动全部评测失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
