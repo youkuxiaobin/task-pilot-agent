@@ -1163,8 +1163,9 @@
     const data = payload?.resultMap && Object.keys(payload.resultMap).length ? payload.resultMap : (payload || {});
     if(eventType === 'task_created') {
       const tools = Array.isArray(data.selectedTools) ? data.selectedTools.join(', ') : '';
+      const approved = Array.isArray(data.approvedTools) && data.approvedTools.length ? ` · 已授权 ${data.approvedTools.length} 个` : '';
       const env = data.runEnvironment ? ` · 环境：${data.runEnvironment}` : '';
-      return `任务已创建：${data.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}`;
+      return `任务已创建：${data.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}${approved}`;
     }
     if(eventType === 'task_running') return '任务运行中';
     if(eventType === 'task_completed') return '任务已完成';
@@ -1181,7 +1182,8 @@
     if(eventType === 'tool_policy_applied') {
       const available = Array.isArray(data.availableTools) ? data.availableTools.length : 0;
       const blocked = Array.isArray(data.blockedTools) ? data.blockedTools.length : 0;
-      return `工具策略已应用：可用 ${available} 个，拦截 ${blocked} 个`;
+      const approved = Array.isArray(data.approvedTools) ? data.approvedTools.length : 0;
+      return `工具策略已应用：可用 ${available} 个，拦截 ${blocked} 个${approved ? `，本次授权 ${approved} 个` : ''}`;
     }
     if(eventType === 'agent_selected') return `Supervisor 已选择 Agent：${data.agentId || ''}${data.reason ? ` · ${data.reason}` : ''}`;
     if(eventType === 'agent_started') return `Agent 已启动：${data.agentId || ''}`;
