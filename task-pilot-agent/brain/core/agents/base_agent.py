@@ -72,6 +72,8 @@ class BaseAgent:
 
     def add_message(self, message: LLMMessage) -> None:
         #self.memory.add_memory([message], self.context.user_id, self.context.agent_id, self.context.run_id)
+        if not self.context.allows_memory_write("message_history"):
+            return
         self.memory.add_message(user_id=self.context.user_id, 
                                 conversation_id=self.context.run_id, 
                                 agent_id=self.context.agent_id, 
@@ -120,4 +122,3 @@ class BaseAgent:
             role = role.strip() or "unknown"
             blocks.append(f"<message><role>{role}</role><content>{content}</content></message>")
         return "\n".join(blocks)
-

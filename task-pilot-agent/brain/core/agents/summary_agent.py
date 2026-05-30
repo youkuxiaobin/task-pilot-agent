@@ -101,6 +101,8 @@ class SummaryAgent(BaseAgent):
         return await self.summarize(self.context.query, [], ["\n".join(history)] if history else [])
 
     def _record_summary_messages(self, query: str, final_text: str) -> None:
+        if not self.context.allows_memory_write("message_history"):
+            return
         for role, content in (
             (RoleType.USER.value, query),
             (RoleType.ASSISTANT.value, final_text),

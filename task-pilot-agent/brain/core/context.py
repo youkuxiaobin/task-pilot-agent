@@ -46,6 +46,29 @@ class AgentContext:
     memory_context: Dict[str, Any] = field(default_factory=dict)
     agent_memory: Dict[str, Any] = field(default_factory=dict)
 
+    def allows_memory_write(self, scope: str) -> bool:
+        memory_config = self.agent_memory if isinstance(self.agent_memory, dict) else {}
+        if "write" not in memory_config:
+            return True
+        raw_scopes = memory_config.get("write")
+        if raw_scopes in (None, ""):
+            return False
+        if isinstance(raw_scopes, str):
+            scopes = {raw_scopes}
+        elif isinstance(raw_scopes, list):
+            scopes = {str(item) for item in raw_scopes}
+        else:
+            return False
+        normalized = {item.strip().lower() for item in scopes if item.strip()}
+        if not normalized:
+            return False
+        requested = str(scope or "").strip().lower()
+        if "*" in normalized or "all" in normalized or requested in normalized:
+            return True
+        if requested in {"message_history", "agent_step"} and "task_history" in normalized:
+            return True
+        return False
+
     def compose_system_prompt(self, base_prompt: str) -> str:
         parts: List[str] = []
         agent_prompt = (self.agent_system_prompt or "").strip()

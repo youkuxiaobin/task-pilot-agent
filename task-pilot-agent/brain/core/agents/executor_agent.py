@@ -43,14 +43,15 @@ class ExecutorAgent(ReActAgent):
 
     def set_step(self, step: str) -> None:
         self.current_step = step
-        self.memory.add_memory(
-            LLMMessage(
-                role="user",
-                content="Execute the following step:\n{}".format(step)),
-            user_id=self.context.user_id,
-            agent_id=self.context.agent_id,
-            run_id=self.context.run_id,
-        )
+        if self.context.allows_memory_write("agent_step"):
+            self.memory.add_memory(
+                LLMMessage(
+                    role="user",
+                    content="Execute the following step:\n{}".format(step)),
+                user_id=self.context.user_id,
+                agent_id=self.context.agent_id,
+                run_id=self.context.run_id,
+            )
         #step.mark_running()
 
     def generate_tool_call_message(self) -> List[LLMMessage]:
