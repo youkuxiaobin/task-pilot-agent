@@ -111,3 +111,18 @@ def test_tasks_api_has_background_create_endpoint():
     assert '@agent_router.post("/tasks")' in source
     assert "async def create_agent_task" in source
     assert "task_queued" in source
+
+
+def test_autoagent_page_exposes_task_list_filters():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        "task-created-filter",
+        "task-duration-filter",
+        "task-error-filter",
+        "created_from",
+        "min_duration_ms",
+        "max_duration_ms",
+        "has_error",
+    ]:
+        assert marker in html

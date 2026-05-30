@@ -515,6 +515,11 @@ async def list_agent_tasks(
     status: Optional[str] = Query(default=None),
     agent_id: Optional[str] = Query(default=None),
     keyword: Optional[str] = Query(default=None),
+    created_from: Optional[int] = Query(default=None),
+    created_to: Optional[int] = Query(default=None),
+    min_duration_ms: Optional[int] = Query(default=None, ge=0),
+    max_duration_ms: Optional[int] = Query(default=None, ge=0),
+    has_error: Optional[bool] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
@@ -524,6 +529,11 @@ async def list_agent_tasks(
         status=status,
         agent_id=agent_id,
         keyword=keyword,
+        created_from_ms=created_from,
+        created_to_ms=created_to,
+        min_duration_ms=min_duration_ms,
+        max_duration_ms=max_duration_ms,
+        has_error=has_error,
         limit=limit,
         offset=offset,
     )

@@ -11,7 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from brain.core.sanitization import sanitize_payload
 from config.config import agentSettings
-from sqlalchemy import BigInteger, Column, Integer, String, Text, or_
+from sqlalchemy import BigInteger, Column, Integer, String, Text, and_, func, or_
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
@@ -222,6 +222,11 @@ class TaskStore:
         status: Optional[str] = None,
         agent_id: Optional[str] = None,
         keyword: Optional[str] = None,
+        created_from_ms: Optional[int] = None,
+        created_to_ms: Optional[int] = None,
+        min_duration_ms: Optional[int] = None,
+        max_duration_ms: Optional[int] = None,
+        has_error: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[AgentTaskRecord]:
@@ -234,6 +239,31 @@ class TaskStore:
                 query = query.filter(AgentTaskRecord.status == status)
             if agent_id:
                 query = query.filter(AgentTaskRecord.agent_id == agent_id)
+            if created_from_ms is not None:
+                query = query.filter(AgentTaskRecord.created_at >= int(created_from_ms))
+            if created_to_ms is not None:
+                query = query.filter(AgentTaskRecord.created_at <= int(created_to_ms))
+            duration_expr = func.coalesce(AgentTaskRecord.ended_at, AgentTaskRecord.updated_at) - func.coalesce(
+                AgentTaskRecord.started_at,
+                AgentTaskRecord.created_at,
+            )
+            if min_duration_ms is not None or max_duration_ms is not None:
+                query = query.filter(AgentTaskRecord.started_at.isnot(None))
+            if min_duration_ms is not None:
+                query = query.filter(duration_expr >= int(min_duration_ms))
+            if max_duration_ms is not None:
+                query = query.filter(duration_expr <= int(max_duration_ms))
+            error_filter = or_(
+                AgentTaskRecord.status == AgentTaskStatus.FAILED,
+                and_(AgentTaskRecord.error_message.isnot(None), AgentTaskRecord.error_message != ""),
+            )
+            if has_error is True:
+                query = query.filter(error_filter)
+            elif has_error is False:
+                query = query.filter(
+                    AgentTaskRecord.status != AgentTaskStatus.FAILED,
+                    or_(AgentTaskRecord.error_message.is_(None), AgentTaskRecord.error_message == ""),
+                )
             normalized_keyword = keyword.strip() if keyword else ""
             if normalized_keyword:
                 pattern = f"%{normalized_keyword}%"
@@ -486,6 +516,11 @@ def _task_work_dir_from_record(record: AgentTaskRecord) -> Path:
 
 def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
     metadata = _json_loads(record.metadata_json, {})
+    duration_ms = None
+    if record.started_at is not None:
+        duration_ms = (record.ended_at or record.updated_at or record.started_at) - record.started_at
+    elif record.ended_at is not None:
+        duration_ms = record.ended_at - record.created_at
     return {
         "id": record.id,
         "task_id": record.task_id,
@@ -510,6 +545,8 @@ def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
         "updatedAt": record.updated_at,
         "startedAt": record.started_at,
         "endedAt": record.ended_at,
+        "durationMs": duration_ms,
+        "hasError": bool(record.status == AgentTaskStatus.FAILED or record.error_message),
     }
 
 

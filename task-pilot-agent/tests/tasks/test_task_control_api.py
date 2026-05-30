@@ -133,6 +133,40 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     assert events[-1].event_type == "task_queued"
 
 
+def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, monkeypatch):
+    app, tasks = app_modules
+    timestamps = iter([1_000, 1_100, 1_800, 5_000, 5_100, 8_000])
+    monkeypatch.setattr(tasks, "now_ms", lambda: next(timestamps))
+    store = tasks.TaskStore()
+
+    store.create_task(task_id="fast", trace_id="trace-fast", input_text="fast task")
+    store.update_status("fast", tasks.AgentTaskStatus.RUNNING)
+    store.update_status("fast", tasks.AgentTaskStatus.COMPLETED)
+    store.create_task(task_id="broken", trace_id="trace-broken", input_text="broken task")
+    store.update_status("broken", tasks.AgentTaskStatus.RUNNING)
+    store.update_status("broken", tasks.AgentTaskStatus.FAILED, error_message="failed")
+
+    payload = asyncio.run(
+        app.list_agent_tasks(
+            user_id=None,
+            status=None,
+            agent_id=None,
+            keyword=None,
+            created_from=None,
+            created_to=None,
+            min_duration_ms=1_000,
+            max_duration_ms=None,
+            has_error=True,
+            limit=50,
+            offset=0,
+        )
+    )
+
+    assert [item["taskId"] for item in payload["items"]] == ["broken"]
+    assert payload["items"][0]["durationMs"] == 2_900
+    assert payload["items"][0]["hasError"] is True
+
+
 def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
     app, _tasks = app_modules
     cancelled = False

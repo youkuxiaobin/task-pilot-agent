@@ -137,6 +137,40 @@ def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
     assert [task.task_id for task in error_tasks] == ["task-b"]
 
 
+def test_task_store_lists_tasks_by_time_duration_and_error(task_modules, monkeypatch):
+    timestamps = iter([1_000, 1_100, 1_600, 2_000, 2_100, 7_500, 10_000])
+    monkeypatch.setattr(task_modules, "now_ms", lambda: next(timestamps))
+    store = task_modules.TaskStore()
+
+    store.create_task(task_id="short-task", trace_id="trace-short", input_text="quick")
+    store.update_status("short-task", task_modules.AgentTaskStatus.RUNNING)
+    store.update_status("short-task", task_modules.AgentTaskStatus.COMPLETED)
+
+    store.create_task(task_id="error-task", trace_id="trace-error", input_text="slow")
+    store.update_status("error-task", task_modules.AgentTaskStatus.RUNNING)
+    store.update_status(
+        "error-task",
+        task_modules.AgentTaskStatus.FAILED,
+        error_message="tool failed",
+    )
+
+    store.create_task(task_id="late-task", trace_id="trace-late", input_text="new")
+
+    assert [task.task_id for task in store.list_tasks(created_from_ms=5_000)] == ["late-task"]
+    assert [task.task_id for task in store.list_tasks(created_to_ms=1_500)] == ["short-task"]
+    assert [task.task_id for task in store.list_tasks(max_duration_ms=700)] == ["short-task"]
+    assert [task.task_id for task in store.list_tasks(min_duration_ms=1_000)] == ["error-task"]
+    assert [task.task_id for task in store.list_tasks(has_error=True)] == ["error-task"]
+    assert {task.task_id for task in store.list_tasks(has_error=False)} == {"short-task", "late-task"}
+
+    short_payload = task_modules.serialize_task(store.get_task("short-task"))
+    error_payload = task_modules.serialize_task(store.get_task("error-task"))
+    assert short_payload["durationMs"] == 500
+    assert short_payload["hasError"] is False
+    assert error_payload["durationMs"] == 5_400
+    assert error_payload["hasError"] is True
+
+
 def test_task_store_records_waiting_input_and_user_reply(task_modules):
     store = task_modules.TaskStore()
     store.create_task(task_id="needs-input", trace_id="trace-input", user_id="user-1")

@@ -347,6 +347,25 @@
         <select id="task-agent-filter" class="filter-select" title="任务 Agent">
           <option value="">全部 Agent</option>
         </select>
+        <select id="task-created-filter" class="filter-select" title="创建时间">
+          <option value="">全部时间</option>
+          <option value="hour">最近 1 小时</option>
+          <option value="today">今天</option>
+          <option value="week">最近 7 天</option>
+          <option value="month">最近 30 天</option>
+        </select>
+        <select id="task-duration-filter" class="filter-select" title="耗时">
+          <option value="">全部耗时</option>
+          <option value="short">1 秒内</option>
+          <option value="medium">1-10 秒</option>
+          <option value="long">10-60 秒</option>
+          <option value="very-long">超过 60 秒</option>
+        </select>
+        <select id="task-error-filter" class="filter-select" title="错误状态">
+          <option value="">全部错误状态</option>
+          <option value="true">有错误</option>
+          <option value="false">无错误</option>
+        </select>
       </div>
       <div id="task-list" class="task-list">
         <div class="task-empty">暂无任务记录</div>
@@ -434,6 +453,9 @@
     taskKeyword: document.getElementById('task-keyword'),
     taskStatusFilter: document.getElementById('task-status-filter'),
     taskAgentFilter: document.getElementById('task-agent-filter'),
+    taskCreatedFilter: document.getElementById('task-created-filter'),
+    taskDurationFilter: document.getElementById('task-duration-filter'),
+    taskErrorFilter: document.getElementById('task-error-filter'),
     newSession: document.getElementById('new-session'),
     chatMessages: document.getElementById('chat-messages'),
     statusText: document.getElementById('status-text'),
@@ -562,6 +584,7 @@
         <div class="task-item-meta">
           <span class="task-status ${escapeHTML(status)}">${escapeHTML(status || 'unknown')}</span>
           <span>${formatDate(task.createdAt)}</span>
+          <span>${formatDuration(task.durationMs)}</span>
         </div>`;
       item.onclick = () => {
         if(!state.running) {
@@ -578,6 +601,40 @@
     return new Date(Number(ts)).toLocaleString([], { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
   }
 
+  function formatDuration(ms) {
+    if(ms === null || ms === undefined || ms === '') return '';
+    const value = Math.max(0, Number(ms) || 0);
+    if(value < 1000) return `${value}ms`;
+    if(value < 60000) return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)}s`;
+    return `${Math.round(value / 60000)}m`;
+  }
+
+  function taskCreatedRange(value) {
+    const now = Date.now();
+    if(value === 'hour') return now - 60 * 60 * 1000;
+    if(value === 'today') {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      return start.getTime();
+    }
+    if(value === 'week') return now - 7 * 24 * 60 * 60 * 1000;
+    if(value === 'month') return now - 30 * 24 * 60 * 60 * 1000;
+    return null;
+  }
+
+  function applyDurationFilter(params, value) {
+    if(value === 'short') params.set('max_duration_ms', '1000');
+    else if(value === 'medium') {
+      params.set('min_duration_ms', '1000');
+      params.set('max_duration_ms', '10000');
+    } else if(value === 'long') {
+      params.set('min_duration_ms', '10000');
+      params.set('max_duration_ms', '60000');
+    } else if(value === 'very-long') {
+      params.set('min_duration_ms', '60000');
+    }
+  }
+
   async function refreshTaskList() {
     try {
       const params = new URLSearchParams({ limit: '30' });
@@ -585,6 +642,10 @@
       if(keyword) params.set('keyword', keyword);
       if(dom.taskStatusFilter.value) params.set('status', dom.taskStatusFilter.value);
       if(dom.taskAgentFilter.value) params.set('agent_id', dom.taskAgentFilter.value);
+      const createdFrom = taskCreatedRange(dom.taskCreatedFilter.value);
+      if(createdFrom !== null) params.set('created_from', String(createdFrom));
+      applyDurationFilter(params, dom.taskDurationFilter.value);
+      if(dom.taskErrorFilter.value) params.set('has_error', dom.taskErrorFilter.value);
       const resp = await fetch(`/agent/tasks?${params.toString()}`);
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
@@ -1381,6 +1442,9 @@
   dom.taskKeyword.oninput = scheduleTaskRefresh;
   dom.taskStatusFilter.onchange = refreshTaskList;
   dom.taskAgentFilter.onchange = refreshTaskList;
+  dom.taskCreatedFilter.onchange = refreshTaskList;
+  dom.taskDurationFilter.onchange = refreshTaskList;
+  dom.taskErrorFilter.onchange = refreshTaskList;
   dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); renderEvalOptions(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;
