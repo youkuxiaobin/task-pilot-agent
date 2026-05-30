@@ -76,6 +76,15 @@ def test_tool_collection_checker_overrides_patterns_and_blocks_add():
     assert collection.blocked_tools == ["mcp_local:code_interpreter"]
 
 
+def test_tool_collection_empty_pattern_list_blocks_all_tools():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns([])
+
+    assert collection.add_tool(DummyTool("mcp_local:deepsearch")) is False
+    assert collection.tool_map == {}
+    assert collection.blocked_tools == ["mcp_local:deepsearch"]
+
+
 def test_tool_collection_refuses_manual_bypass_at_execution_time():
     collection = ToolCollection()
     collection.set_allowed_tool_patterns(["mcp_local:deepsearch"])

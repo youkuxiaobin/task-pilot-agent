@@ -39,6 +39,7 @@ class AgentContext:
     task_id: Optional[str] = None
     work_dir: Optional[str] = None
     agent_system_prompt: Optional[str] = None
+    selected_tools: Optional[List[str]] = None
 
     def serialize_messages(self) -> List[Dict[str, str]]:
         """Convert stored conversation messages into a simple list for downstream prompts."""

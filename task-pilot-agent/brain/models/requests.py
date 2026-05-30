@@ -34,5 +34,5 @@ class GptQueryReq(BaseModel):
     conversation_id: Optional[str] = None
     outputStyle: Optional[str] = None
     mode: Optional[str] = None
+    selected_tools: Optional[List[str]] = None
     messages: Optional[List[AgentMessage]] = None
-

@@ -263,6 +263,23 @@
       padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer;
     }
     .select-style option { background: var(--bg-card); color: var(--text-main); }
+    .tool-picker { position: relative; }
+    .tool-picker summary {
+      list-style: none; min-width: 74px; text-align: center;
+      background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--text-muted);
+      padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer;
+    }
+    .tool-picker summary::-webkit-details-marker { display: none; }
+    .tool-options {
+      position: absolute; left: 0; bottom: calc(100% + 0.5rem); width: min(360px, 84vw); max-height: 280px; overflow-y: auto;
+      background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem; z-index: 30;
+      box-shadow: 0 16px 32px rgba(0,0,0,0.32);
+    }
+    .tool-option { display: flex; gap: 0.55rem; align-items: flex-start; padding: 0.45rem; border-radius: 6px; color: var(--text-main); font-size: 0.82rem; line-height: 1.35; }
+    .tool-option:hover { background: rgba(255,255,255,0.05); }
+    .tool-option input { margin-top: 0.15rem; }
+    .tool-option small { display: block; color: var(--text-muted); margin-top: 0.15rem; }
+    .tool-risk { color: #fbbf24; font-size: 0.72rem; margin-left: 0.35rem; }
     .btn-send {
       background: var(--color-accent); color: #0f172a; border: none; padding: 0.5rem 1.5rem;
       border-radius: 8px; font-weight: 600; cursor: pointer; transition: filter 0.2s;
@@ -336,6 +353,10 @@
             <select id="agent-id" class="select-style" title="选择 Agent">
               <option value="">默认 Agent</option>
             </select>
+            <details id="tool-picker" class="tool-picker">
+              <summary id="tool-summary">工具</summary>
+              <div id="tool-options" class="tool-options"></div>
+            </details>
             <input id="user-id" type="hidden" placeholder="User ID">
             <input id="endpoint" type="hidden" value="/agent/autoagent">
           </div>
@@ -372,6 +393,9 @@
     mode: document.getElementById('mode'),
     userId: document.getElementById('user-id'),
     agentId: document.getElementById('agent-id'),
+    toolPicker: document.getElementById('tool-picker'),
+    toolSummary: document.getElementById('tool-summary'),
+    toolOptions: document.getElementById('tool-options'),
     endpoint: document.getElementById('endpoint'),
   };
 
@@ -383,6 +407,7 @@
     running: false,
     tasks: [],
     agents: [],
+    defaultAgentId: '',
     activeTaskId: null,
     replaying: false,
   };
@@ -395,7 +420,7 @@
   const generateId = () => `sess_${Date.now().toString(36)}`;
   const getSession = id => state.sessions.find(s=>s.id===id);
   const getActiveSession = () => getSession(state.activeSessionId);
-  const escapeHTML = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const escapeHTML = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
   function createSession(extra={}){
     const s = { id: generateId(), title: `对话 ${state.nextSessionIndex++}`, messages: [], taskId: null, taskStatus: null, ...extra };
@@ -495,26 +520,43 @@
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       state.agents = Array.isArray(data.items) ? data.items : [];
+      state.defaultAgentId = data.defaultAgentId || '';
       renderAgentOptions();
     } catch(err) {
       state.agents = [];
+      state.defaultAgentId = '';
       renderAgentOptions();
     }
   }
 
   function renderAgentOptions() {
     const previous = dom.agentId.value;
-    dom.agentId.innerHTML = '<option value="">默认 Agent</option>';
-    state.agents.forEach(agent => {
+    const defaultAgent = state.agents.find(agent => agent.id === state.defaultAgentId);
+    dom.agentId.innerHTML = '';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = state.defaultAgentId || '';
+    defaultOption.textContent = defaultAgent ? `默认 Agent · ${defaultAgent.name || defaultAgent.id}` : '默认 Agent';
+    defaultOption.dataset.mode = defaultAgent?.mode || '';
+    dom.agentId.appendChild(defaultOption);
+    state.agents.filter(agent => agent.id !== state.defaultAgentId).forEach(agent => {
       const option = document.createElement('option');
       option.value = agent.id;
       option.textContent = agent.name || agent.id;
       option.dataset.mode = agent.mode || '';
       dom.agentId.appendChild(option);
     });
-    if(previous && state.agents.some(agent => agent.id === previous)) {
+    if(previous && (previous === state.defaultAgentId || state.agents.some(agent => agent.id === previous))) {
       dom.agentId.value = previous;
+    } else if(state.defaultAgentId) {
+      dom.agentId.value = state.defaultAgentId;
     }
+    applySelectedAgentDefaults();
+    renderToolOptions();
+  }
+
+  function getSelectedAgentConfig() {
+    const agentId = dom.agentId.value || state.defaultAgentId;
+    return state.agents.find(agent => agent.id === agentId) || null;
   }
 
   function applySelectedAgentDefaults() {
@@ -523,6 +565,52 @@
     if(mode && Array.from(dom.mode.options).some(option => option.value === mode)) {
       dom.mode.value = mode;
     }
+  }
+
+  function renderToolOptions() {
+    const agent = getSelectedAgentConfig();
+    const tools = Array.isArray(agent?.tools) ? agent.tools : [];
+    dom.toolOptions.innerHTML = '';
+    if(!tools.length) {
+      dom.toolSummary.textContent = '工具';
+      dom.toolOptions.innerHTML = '<div class="task-empty">暂无工具配置</div>';
+      return;
+    }
+    tools.forEach(tool => {
+      const name = tool.name || '';
+      if(!name) return;
+      const label = document.createElement('label');
+      label.className = 'tool-option';
+      const risk = String(tool.policy?.risk || '').toLowerCase();
+      const riskHTML = risk === 'high' || risk === 'critical' ? '<span class="tool-risk">高风险</span>' : '';
+      label.innerHTML = `
+        <input type="checkbox" value="${escapeHTML(name)}" checked>
+        <span>
+          <strong>${escapeHTML(name)}</strong>${riskHTML}
+          ${tool.description ? `<small>${escapeHTML(tool.description)}</small>` : ''}
+        </span>`;
+      dom.toolOptions.appendChild(label);
+    });
+    updateToolSummary();
+    dom.toolOptions.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      input.addEventListener('change', updateToolSummary);
+    });
+  }
+
+  function getSelectedTools() {
+    const inputs = Array.from(dom.toolOptions.querySelectorAll('input[type="checkbox"]'));
+    if(!inputs.length) return null;
+    return inputs.filter(input => input.checked).map(input => input.value);
+  }
+
+  function updateToolSummary() {
+    const inputs = Array.from(dom.toolOptions.querySelectorAll('input[type="checkbox"]'));
+    if(!inputs.length) {
+      dom.toolSummary.textContent = '工具';
+      return;
+    }
+    const selected = inputs.filter(input => input.checked).length;
+    dom.toolSummary.textContent = `工具 ${selected}/${inputs.length}`;
   }
 
   async function loadTask(taskId) {
@@ -609,7 +697,10 @@
   }
 
   function taskLifecycleText(eventType, payload) {
-    if(eventType === 'task_created') return `任务已创建：${payload.mode || ''}`;
+    if(eventType === 'task_created') {
+      const tools = Array.isArray(payload.selectedTools) ? payload.selectedTools.join(', ') : '';
+      return `任务已创建：${payload.mode || ''}${tools ? ` · 工具：${tools}` : ''}`;
+    }
     if(eventType === 'task_running') return '任务运行中';
     if(eventType === 'task_completed') return '任务已完成';
     if(eventType === 'task_failed') return `任务失败：${payload.error || ''}`;
@@ -1019,7 +1110,9 @@
     controller = new AbortController();
 
     const contextMessages = session.messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.messageType === 'result')).map(m => ({ role: m.role, content: m.content }));
+    const selectedTools = getSelectedTools();
     const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
+    if(selectedTools !== null) payload.selected_tools = selectedTools;
 
     try {
        const resp = await fetch(dom.endpoint.value, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
@@ -1066,7 +1159,7 @@
 
   dom.newSession.onclick = () => activateSession(createSession());
   dom.refreshTasks.onclick = refreshTaskList;
-  dom.agentId.onchange = applySelectedAgentDefaults;
+  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); };
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;
   dom.query.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(e); } };

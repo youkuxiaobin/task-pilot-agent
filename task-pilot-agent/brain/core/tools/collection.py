@@ -39,7 +39,10 @@ class ToolCollection:
     blocked_tools: List[str] = field(default_factory=list)
 
     def set_allowed_tool_patterns(self, patterns: Optional[List[str]]) -> None:
-        self.allowed_tool_patterns = [pattern for pattern in (patterns or []) if pattern]
+        if patterns is None:
+            self.allowed_tool_patterns = None
+            return
+        self.allowed_tool_patterns = [pattern for pattern in patterns if pattern]
 
     def set_tool_allowed_checker(self, checker: Optional[Callable[[str], bool]]) -> None:
         self.tool_allowed_checker = checker
@@ -48,8 +51,10 @@ class ToolCollection:
         if self.tool_allowed_checker is not None:
             return self.tool_allowed_checker(name)
         patterns = self.allowed_tool_patterns
-        if not patterns:
+        if patterns is None:
             return True
+        if not patterns:
+            return False
         for pattern in patterns:
             if pattern in {"*", "all"}:
                 return True

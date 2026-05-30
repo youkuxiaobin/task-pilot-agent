@@ -1,4 +1,5 @@
 from __future__ import annotations
+import fnmatch
 import json
 import asyncio
 import time
@@ -37,16 +38,43 @@ agentFactory = AgentHandlerFactory([PlanSolveHandler(), ReactHandler()])
 agentRegistry = AgentRegistry()
 runningAgentTasks: Dict[str, asyncio.Task] = {}
 
+def _normalize_tool_selection(selected_tools: Any) -> Optional[List[str]]:
+    if selected_tools is None:
+        return None
+    if isinstance(selected_tools, str):
+        selected_tools = [selected_tools]
+    if not isinstance(selected_tools, list):
+        return []
+    return [str(tool).strip() for tool in selected_tools if str(tool).strip()]
+
+
+def _matches_selected_tool(selected_patterns: Optional[List[str]], tool_name: str) -> bool:
+    if selected_patterns is None:
+        return True
+    if not selected_patterns:
+        return False
+    for pattern in selected_patterns:
+        if pattern in {"*", "all"} or fnmatch.fnmatch(tool_name, pattern):
+            return True
+    return False
+
+
 async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     """build tool collection, including local tools and mcp market tools"""
     tc = ToolCollection()
     tc.agentContext = ctx
+    selected_tools = _normalize_tool_selection(getattr(ctx, "selected_tools", None))
     agent_config = agentRegistry.get(ctx.agent_id)
     if agent_config:
-        tc.set_allowed_tool_patterns(agent_config.tool_patterns())
-        tc.set_tool_allowed_checker(agent_config.allows_tool)
+        tc.set_allowed_tool_patterns(selected_tools if selected_tools is not None else agent_config.tool_patterns())
+        tc.set_tool_allowed_checker(
+            lambda tool_name: agent_config.allows_tool(tool_name)
+            and _matches_selected_tool(selected_tools, tool_name)
+        )
         if agent_config.allows_tool("builtin:plan_tool"):
             tc.add_tool(BuiltinPlanTool(ctx))
+    elif selected_tools is not None:
+        tc.set_allowed_tool_patterns(selected_tools)
 
     try:
         mcp_market_url = getattr(agentSettings, 'mcp_market_url', 'http://127.0.0.1:9010/aggre_mcp_market')
@@ -200,6 +228,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
         fill_output_styles(request)
         agent_config = _resolve_agent_config(request.agent_id)
         resolved_mode = request.mode or (agent_config.mode if agent_config else None) or "plans_executor"
+        selected_tools = _normalize_tool_selection(request.selected_tools)
 
         task_id = trace_id
         last_result: Dict[str, Optional[str]] = {"output": None}
@@ -224,6 +253,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 metadata={
                     "source": "autoagent",
                     "agentConfigId": agent_config.id if agent_config else None,
+                    "selectedTools": selected_tools,
                 },
             )
             created_task_payload = serialize_task(created_task)
@@ -235,6 +265,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "outputStyle": request.outputStyle,
                     "conversationId": request.conversation_id,
                     "agentConfigId": agent_config.id if agent_config else None,
+                    "selectedTools": selected_tools,
                     "workDir": created_task_payload.get("workDir"),
                 },
                 trace_id=trace_id,
@@ -285,6 +316,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 task_id=task_id,
                 work_dir=created_task_payload.get("workDir"),
                 agent_system_prompt=agent_config.system_prompt if agent_config else None,
+                selected_tools=selected_tools,
             )
             _convert_agent_messages(ctx, messages)
             logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
@@ -366,7 +398,10 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
 @agent_router.get("/agents")
 async def list_agents() -> Dict[str, Any]:
     agentRegistry.reload()
-    return {"items": [agent.to_dict() for agent in agentRegistry.list_agents()]}
+    return {
+        "items": [agent.to_dict() for agent in agentRegistry.list_agents()],
+        "defaultAgentId": agentSettings.core.agent_id,
+    }
 
 
 @agent_router.get("/agents/{agent_id}")
@@ -467,6 +502,9 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="task has no input to retry")
 
     retry_trace_id = str(uuid.uuid4())
+    task_payload = serialize_task(task)
+    metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
+    selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
     store.create_task(
         task_id=retry_trace_id,
         trace_id=retry_trace_id,
@@ -476,7 +514,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         mode=task.mode,
         output_style=task.output_style,
         input_text=task.input_text,
-        metadata={"source": "retry", "parentTaskId": task.task_id},
+        metadata={"source": "retry", "parentTaskId": task.task_id, "selectedTools": selected_tools},
     )
     store.add_event(
         task.task_id,
@@ -493,6 +531,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         conversation_id=task.conversation_id,
         outputStyle=task.output_style,
         mode=task.mode,
+        selected_tools=selected_tools,
         messages=[AgentMessage(role=RoleType.USER.value, content=task.input_text)],
     )
     asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
