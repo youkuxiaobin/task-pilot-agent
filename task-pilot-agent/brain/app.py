@@ -427,6 +427,7 @@ async def list_agent_tasks(
     user_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     agent_id: Optional[str] = Query(default=None),
+    keyword: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
@@ -435,6 +436,7 @@ async def list_agent_tasks(
         user_id=user_id,
         status=status,
         agent_id=agent_id,
+        keyword=keyword,
         limit=limit,
         offset=offset,
     )

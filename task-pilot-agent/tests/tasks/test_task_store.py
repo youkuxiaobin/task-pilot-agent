@@ -97,11 +97,29 @@ def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_
 def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
     store = task_modules.TaskStore()
 
-    store.create_task(task_id="task-a", trace_id="trace-a", user_id="user-a", agent_id="agent-a")
-    store.create_task(task_id="task-b", trace_id="trace-b", user_id="user-a", agent_id="agent-b")
-    store.create_task(task_id="task-c", trace_id="trace-c", user_id="user-b", agent_id="agent-a")
+    store.create_task(
+        task_id="task-a",
+        trace_id="trace-a",
+        user_id="user-a",
+        agent_id="agent-a",
+        input_text="weather lookup",
+    )
+    store.create_task(
+        task_id="task-b",
+        trace_id="trace-b",
+        user_id="user-a",
+        agent_id="agent-b",
+        input_text="report draft",
+    )
+    store.create_task(
+        task_id="task-c",
+        trace_id="trace-c",
+        user_id="user-b",
+        agent_id="agent-a",
+        input_text="browser task",
+    )
     store.update_status("task-a", task_modules.AgentTaskStatus.COMPLETED)
-    store.update_status("task-b", task_modules.AgentTaskStatus.FAILED, error_message="failed")
+    store.update_status("task-b", task_modules.AgentTaskStatus.FAILED, error_message="missing source")
 
     user_a_tasks = store.list_tasks(user_id="user-a")
     assert {task.task_id for task in user_a_tasks} == {"task-a", "task-b"}
@@ -111,6 +129,12 @@ def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
 
     agent_a_tasks = store.list_tasks(agent_id="agent-a")
     assert {task.task_id for task in agent_a_tasks} == {"task-a", "task-c"}
+
+    weather_tasks = store.list_tasks(keyword="weather")
+    assert [task.task_id for task in weather_tasks] == ["task-a"]
+
+    error_tasks = store.list_tasks(keyword="missing source")
+    assert [task.task_id for task in error_tasks] == ["task-b"]
 
 
 def test_task_workspace_sanitizes_task_id(task_modules, tmp_path):

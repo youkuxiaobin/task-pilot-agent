@@ -80,6 +80,12 @@
     .sidebar-title { display: flex; justify-content: space-between; align-items: center; color: var(--text-muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 0.75rem; }
     .btn-small { border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(255,255,255,0.04); color: var(--text-muted); border-radius: 6px; padding: 0.2rem 0.5rem; cursor: pointer; font-size: 0.75rem; }
     .btn-small:hover { color: var(--text-main); border-color: rgba(148, 163, 184, 0.4); }
+    .task-filters { display: grid; gap: 0.45rem; margin-bottom: 0.75rem; }
+    .filter-input, .filter-select {
+      width: 100%; border: 1px solid rgba(148, 163, 184, 0.18); background: rgba(0,0,0,0.18);
+      color: var(--text-main); border-radius: 6px; padding: 0.42rem 0.55rem; font-size: 0.8rem;
+    }
+    .filter-select option { background: var(--bg-card); color: var(--text-main); }
     .task-list { display: flex; flex-direction: column; gap: 0.45rem; max-height: 260px; overflow-y: auto; }
     .task-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem; background: rgba(255,255,255,0.03); cursor: pointer; transition: border-color 0.2s, background 0.2s; }
     .task-item:hover { border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.06); }
@@ -311,6 +317,21 @@
         <span>任务回看</span>
         <button id="refresh-tasks" class="btn-small" type="button">刷新</button>
       </div>
+      <div class="task-filters">
+        <input id="task-keyword" class="filter-input" type="search" placeholder="搜索任务">
+        <select id="task-status-filter" class="filter-select" title="任务状态">
+          <option value="">全部状态</option>
+          <option value="queued">排队中</option>
+          <option value="running">运行中</option>
+          <option value="waiting_input">等待输入</option>
+          <option value="completed">已完成</option>
+          <option value="failed">失败</option>
+          <option value="cancelled">已取消</option>
+        </select>
+        <select id="task-agent-filter" class="filter-select" title="任务 Agent">
+          <option value="">全部 Agent</option>
+        </select>
+      </div>
       <div id="task-list" class="task-list">
         <div class="task-empty">暂无任务记录</div>
       </div>
@@ -380,6 +401,9 @@
     sessionList: document.getElementById('session-list'),
     taskList: document.getElementById('task-list'),
     refreshTasks: document.getElementById('refresh-tasks'),
+    taskKeyword: document.getElementById('task-keyword'),
+    taskStatusFilter: document.getElementById('task-status-filter'),
+    taskAgentFilter: document.getElementById('task-agent-filter'),
     newSession: document.getElementById('new-session'),
     chatMessages: document.getElementById('chat-messages'),
     statusText: document.getElementById('status-text'),
@@ -416,6 +440,7 @@
   if (markedLib?.setOptions) markedLib.setOptions({ breaks:true, gfm:true });
   const purifier = window.DOMPurify;
   let controller = null;
+  let taskFilterTimer = null;
 
   const generateId = () => `sess_${Date.now().toString(36)}`;
   const getSession = id => state.sessions.find(s=>s.id===id);
@@ -504,7 +529,12 @@
 
   async function refreshTaskList() {
     try {
-      const resp = await fetch('/agent/tasks?limit=30');
+      const params = new URLSearchParams({ limit: '30' });
+      const keyword = dom.taskKeyword.value.trim();
+      if(keyword) params.set('keyword', keyword);
+      if(dom.taskStatusFilter.value) params.set('status', dom.taskStatusFilter.value);
+      if(dom.taskAgentFilter.value) params.set('agent_id', dom.taskAgentFilter.value);
+      const resp = await fetch(`/agent/tasks?${params.toString()}`);
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       state.tasks = Array.isArray(data.items) ? data.items : [];
@@ -522,10 +552,12 @@
       state.agents = Array.isArray(data.items) ? data.items : [];
       state.defaultAgentId = data.defaultAgentId || '';
       renderAgentOptions();
+      renderTaskAgentFilter();
     } catch(err) {
       state.agents = [];
       state.defaultAgentId = '';
       renderAgentOptions();
+      renderTaskAgentFilter();
     }
   }
 
@@ -552,6 +584,25 @@
     }
     applySelectedAgentDefaults();
     renderToolOptions();
+  }
+
+  function renderTaskAgentFilter() {
+    const previous = dom.taskAgentFilter.value;
+    dom.taskAgentFilter.innerHTML = '<option value="">全部 Agent</option>';
+    state.agents.forEach(agent => {
+      const option = document.createElement('option');
+      option.value = agent.id;
+      option.textContent = agent.name || agent.id;
+      dom.taskAgentFilter.appendChild(option);
+    });
+    if(previous && state.agents.some(agent => agent.id === previous)) {
+      dom.taskAgentFilter.value = previous;
+    }
+  }
+
+  function scheduleTaskRefresh() {
+    if(taskFilterTimer) clearTimeout(taskFilterTimer);
+    taskFilterTimer = setTimeout(refreshTaskList, 250);
   }
 
   function getSelectedAgentConfig() {
@@ -1159,6 +1210,9 @@
 
   dom.newSession.onclick = () => activateSession(createSession());
   dom.refreshTasks.onclick = refreshTaskList;
+  dom.taskKeyword.oninput = scheduleTaskRefresh;
+  dom.taskStatusFilter.onchange = refreshTaskList;
+  dom.taskAgentFilter.onchange = refreshTaskList;
   dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderToolOptions(); };
   dom.stop.onclick = onStop;
   dom.form.onsubmit = onSubmit;

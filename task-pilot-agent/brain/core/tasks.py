@@ -11,7 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from brain.core.sanitization import sanitize_payload
 from config.config import agentSettings
-from sqlalchemy import BigInteger, Column, Integer, String, Text
+from sqlalchemy import BigInteger, Column, Integer, String, Text, or_
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
@@ -221,6 +221,7 @@ class TaskStore:
         user_id: Optional[str] = None,
         status: Optional[str] = None,
         agent_id: Optional[str] = None,
+        keyword: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[AgentTaskRecord]:
@@ -233,6 +234,17 @@ class TaskStore:
                 query = query.filter(AgentTaskRecord.status == status)
             if agent_id:
                 query = query.filter(AgentTaskRecord.agent_id == agent_id)
+            normalized_keyword = keyword.strip() if keyword else ""
+            if normalized_keyword:
+                pattern = f"%{normalized_keyword}%"
+                query = query.filter(
+                    or_(
+                        AgentTaskRecord.task_id.like(pattern),
+                        AgentTaskRecord.input_text.like(pattern),
+                        AgentTaskRecord.output_text.like(pattern),
+                        AgentTaskRecord.error_message.like(pattern),
+                    )
+                )
             records = (
                 query.order_by(AgentTaskRecord.created_at.desc())
                 .offset(max(offset, 0))
