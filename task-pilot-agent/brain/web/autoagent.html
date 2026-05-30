@@ -412,6 +412,10 @@
               <option value="plans_executor">Plans Executor</option>
               <option value="react">ReAct</option>
             </select>
+            <select id="run-environment" class="select-style" title="运行环境">
+              <option value="local">本地环境</option>
+              <option value="sandbox">沙箱环境</option>
+            </select>
             <select id="agent-id" class="select-style" title="选择 Agent">
               <option value="">默认 Agent</option>
             </select>
@@ -470,6 +474,7 @@
     stop: document.getElementById('stop'),
     outputStyle: document.getElementById('output-style'),
     mode: document.getElementById('mode'),
+    runEnvironment: document.getElementById('run-environment'),
     userId: document.getElementById('user-id'),
     agentId: document.getElementById('agent-id'),
     toolPicker: document.getElementById('tool-picker'),
@@ -941,7 +946,8 @@
   function taskLifecycleText(eventType, payload) {
     if(eventType === 'task_created') {
       const tools = Array.isArray(payload.selectedTools) ? payload.selectedTools.join(', ') : '';
-      return `任务已创建：${payload.mode || ''}${tools ? ` · 工具：${tools}` : ''}`;
+      const env = payload.runEnvironment ? ` · 环境：${payload.runEnvironment}` : '';
+      return `任务已创建：${payload.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}`;
     }
     if(eventType === 'task_running') return '任务运行中';
     if(eventType === 'task_completed') return '任务已完成';
@@ -1374,7 +1380,7 @@
 
     const contextMessages = session.messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.messageType === 'result')).map(m => ({ role: m.role, content: m.content }));
     const selectedTools = getSelectedTools();
-    const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
+    const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, run_environment: dom.runEnvironment.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
 
     try {
        const uploadedFiles = await uploadSelectedFiles(session.id);

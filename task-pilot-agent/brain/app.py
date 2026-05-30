@@ -61,6 +61,13 @@ def _matches_selected_tool(selected_patterns: Optional[List[str]], tool_name: st
     return False
 
 
+def _normalize_run_environment(value: Optional[str]) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"local", "sandbox"}:
+        return normalized
+    return "local"
+
+
 async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     """build tool collection, including local tools and mcp market tools"""
     tc = ToolCollection()
@@ -301,6 +308,7 @@ def _fill_request_defaults(request: GptQueryReq) -> None:
         request.agent_id = agentSettings.core.agent_id
     if not request.conversation_id:
         request.conversation_id = str(uuid.uuid4())
+    request.run_environment = _normalize_run_environment(request.run_environment)
     fill_output_styles(request)
 
 
@@ -404,6 +412,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "agentConfigId": agent_config.id if agent_config else None,
                     "selectedTools": selected_tools,
                     "inputFiles": input_files,
+                    "runEnvironment": request.run_environment,
                 },
             )
             created_task_payload = serialize_task(created_task)
@@ -417,6 +426,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "agentConfigId": agent_config.id if agent_config else None,
                     "selectedTools": selected_tools,
                     "inputFiles": input_files,
+                    "runEnvironment": request.run_environment,
                     "workDir": created_task_payload.get("workDir"),
                 },
                 trace_id=trace_id,
@@ -486,6 +496,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 work_dir=created_task_payload.get("workDir"),
                 agent_system_prompt=agent_config.system_prompt if agent_config else None,
                 selected_tools=selected_tools,
+                run_environment=request.run_environment or "local",
             )
             _convert_agent_messages(ctx, messages)
             logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
@@ -702,6 +713,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
             "agentConfigId": agent_config.id if agent_config else None,
             "selectedTools": selected_tools,
             "inputFiles": input_files,
+            "runEnvironment": request.run_environment,
         },
     )
     store.add_event(
@@ -714,6 +726,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
             "agentConfigId": agent_config.id if agent_config else None,
             "selectedTools": selected_tools,
             "inputFiles": input_files,
+            "runEnvironment": request.run_environment,
         },
         trace_id=trace_id,
         source="api",
@@ -786,6 +799,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     task_payload = serialize_task(task)
     metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
     selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
+    run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
     store.create_task(
         task_id=retry_trace_id,
         trace_id=retry_trace_id,
@@ -795,7 +809,12 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         mode=task.mode,
         output_style=task.output_style,
         input_text=task.input_text,
-        metadata={"source": "retry", "parentTaskId": task.task_id, "selectedTools": selected_tools},
+        metadata={
+            "source": "retry",
+            "parentTaskId": task.task_id,
+            "selectedTools": selected_tools,
+            "runEnvironment": run_environment,
+        },
     )
     store.add_event(
         task.task_id,
@@ -813,6 +832,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         outputStyle=task.output_style,
         mode=task.mode,
         selected_tools=selected_tools,
+        run_environment=run_environment,
         messages=[AgentMessage(role=RoleType.USER.value, content=task.input_text)],
     )
     asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))

@@ -40,6 +40,7 @@ class AgentContext:
     work_dir: Optional[str] = None
     agent_system_prompt: Optional[str] = None
     selected_tools: Optional[List[str]] = None
+    run_environment: str = "local"
 
     def compose_system_prompt(self, base_prompt: str) -> str:
         agent_prompt = (self.agent_system_prompt or "").strip()

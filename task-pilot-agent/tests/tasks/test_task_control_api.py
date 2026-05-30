@@ -117,6 +117,7 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
                 conversation_id="conversation-1",
                 outputStyle="markdown",
                 mode="react",
+                run_environment="sandbox",
                 messages=[app.AgentMessage(role="user", content="run in background")],
             )
         )
@@ -125,12 +126,14 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     assert payload["taskId"] == "create-task"
     assert payload["status"] == tasks.AgentTaskStatus.QUEUED
     assert payload["metadata"]["source"] == "api"
+    assert payload["metadata"]["runEnvironment"] == "sandbox"
     assert created_background
     created_background[0].close()
 
     store = tasks.TaskStore()
     events = store.list_events("create-task")
     assert events[-1].event_type == "task_queued"
+    assert tasks.serialize_event(events[-1])["payload"]["runEnvironment"] == "sandbox"
 
 
 def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, monkeypatch):

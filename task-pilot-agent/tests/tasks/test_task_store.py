@@ -335,6 +335,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
         conversation_id="conversation-autoagent",
         mode="react",
         outputStyle="markdown",
+        run_environment="sandbox",
         messages=[app_module.AgentMessage(role="user", content="hello")],
     )
 
@@ -345,6 +346,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert task is not None
     assert task.status == task_modules.AgentTaskStatus.COMPLETED
     assert task.output_text == "final answer"
+    assert task_modules.serialize_task(task)["metadata"]["runEnvironment"] == "sandbox"
 
     event_types = [event.event_type for event in store.list_events("trace-autoagent")]
     assert "task_created" in event_types
