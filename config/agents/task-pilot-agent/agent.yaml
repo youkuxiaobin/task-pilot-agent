@@ -1,17 +1,17 @@
 id: task-pilot-agent
 name: TaskPilot 默认 Agent
-type: plan_solve_worker
-description: 默认兼容 Agent，保持现有计划执行流程。
+type: react_worker
+description: 默认通用 Agent，使用 ReAct 循环直接推理、调用工具并总结结果。
 version: "1"
 enabled: true
-mode: plans_executor
+mode: react
 system_prompt_file: system_prompt.md
 model:
-  context: legacy
-  max_steps: 20
+  context: react
+  max_steps: 6
 capabilities:
-  - plan
-  - execute
+  - react
+  - use_tools
   - summarize
 tools:
   - name: mcp_local:code_interpreter

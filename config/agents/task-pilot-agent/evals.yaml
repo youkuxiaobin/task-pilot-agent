@@ -1,10 +1,10 @@
 cases:
-  - id: legacy_plan_executor
-    name: 兼容计划执行链路
-    input: 制定一个三步计划，执行每一步，并总结最终结果。
-    expected: 应继续走 plans_executor 模式，计划、步骤进度、工具调用和最终答案都应可见。
-    tags: [legacy, plans_executor, regression]
+  - id: default_react
+    name: 默认 ReAct 链路
+    input: 用 ReAct 模式完成一个简单任务，并总结最终结果。
+    expected: 应走 react 模式，推理阶段、工具调用和最终答案都应可见。
+    tags: [default, react, regression]
     metadata:
       checks:
         final_status: completed
-        required_event_types: [task_created, task_running, plan, result, task_completed]
+        required_event_types: [task_created, task_running, agent_phase, result, task_completed]
