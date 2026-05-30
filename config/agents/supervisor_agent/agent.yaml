@@ -42,6 +42,35 @@ tools:
           type: string
         plan:
           type: object
+  - name: builtin:handoff
+    description: 把子任务交给 handoffs.allowed 中声明的目标 Agent。
+    input_schema:
+      type: object
+      properties:
+        target_agent_id:
+          type: string
+          description: 目标 Agent ID，必须在 handoffs.allowed 中。
+        task:
+          type: string
+          description: 要交给目标 Agent 的任务内容。
+        mode:
+          type: string
+          description: 可选运行模式。
+        outputStyle:
+          type: string
+          description: 可选输出样式。
+      required:
+        - target_agent_id
+        - task
+    output_schema:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: 子任务 ID。
+        status:
+          type: string
+          description: 子任务状态。
   - name: mcp_local:code_interpreter
     description: 执行代码，默认需要显式打开高风险工具开关。
     input_schema:

@@ -426,3 +426,6 @@ def test_default_eval_cases_cover_core_task_categories():
     assert {"search", "file", "data", "browser", "code", "report"}.issubset(tags)
     assert supervisor is not None
     assert supervisor.handoffs["allowed"] == ["task-pilot-agent"]
+    assert supervisor.allows_tool("builtin:handoff")
+    handoff = next(tool for tool in supervisor.tools if tool.name == "builtin:handoff")
+    assert handoff.input_schema["required"] == ["target_agent_id", "task"]
