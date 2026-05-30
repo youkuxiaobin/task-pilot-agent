@@ -1420,6 +1420,9 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
     input_files = metadata.get("inputFiles") if metadata else None
     agent_snapshot = metadata.get("agentSnapshot") if isinstance(metadata.get("agentSnapshot"), dict) else None
+    if agent_snapshot is None:
+        agent_config = _resolve_agent_config(task.agent_id)
+        agent_snapshot = agent_config.to_runtime_snapshot(approved_tools=approved_tools) if agent_config else None
     store.create_task(
         task_id=retry_trace_id,
         trace_id=retry_trace_id,
@@ -1438,6 +1441,24 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
             "runEnvironment": run_environment,
             "inputFiles": input_files,
         },
+    )
+    store.add_event(
+        retry_trace_id,
+        "task_queued",
+        {
+            "status": AgentTaskStatus.QUEUED,
+            "mode": task.mode,
+            "outputStyle": task.output_style,
+            "parentTaskId": task.task_id,
+            "agentConfigId": task.agent_id,
+            "agentSnapshot": agent_snapshot,
+            "selectedTools": selected_tools,
+            "approvedTools": approved_tools,
+            "runEnvironment": run_environment,
+            "inputFiles": input_files,
+        },
+        trace_id=retry_trace_id,
+        source="retry",
     )
     store.add_event(
         task.task_id,

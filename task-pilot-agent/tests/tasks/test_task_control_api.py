@@ -90,6 +90,11 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
 
         return DoneTask()
 
+    monkeypatch.setattr(
+        app,
+        "_resolve_agent_config",
+        lambda agent_id: app.AgentConfig(id="agent-1", name="Retry Agent") if agent_id == "agent-1" else None,
+    )
     monkeypatch.setattr(app.asyncio, "create_task", fake_create_task)
     payload = asyncio.run(app.retry_agent_task("retry-me"))
 
@@ -100,12 +105,17 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     assert payload["metadata"]["runEnvironment"] == "sandbox"
     assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert payload["metadata"]["inputFiles"][0]["fileName"] == "source.csv"
+    assert payload["metadata"]["agentSnapshot"]["name"] == "Retry Agent"
     assert app._deserialize_file_items(payload["metadata"]["inputFiles"])[0].fileName == "source.csv"
     assert created_background
     created_background[0].close()
 
     parent_events = store.list_events("retry-me")
     assert parent_events[-1].event_type == "task_retry_requested"
+    retry_events = store.list_events(payload["taskId"])
+    assert retry_events[0].event_type == "task_queued"
+    assert tasks.serialize_event(retry_events[0])["payload"]["parentTaskId"] == "retry-me"
+    assert tasks.serialize_event(retry_events[0])["payload"]["agentSnapshot"]["name"] == "Retry Agent"
 
 
 def test_create_task_api_persists_task_and_starts_background_run(app_modules, monkeypatch):
