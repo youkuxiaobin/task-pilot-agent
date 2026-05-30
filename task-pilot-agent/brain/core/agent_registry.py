@@ -597,8 +597,7 @@ def _agent_search_text(agent: AgentConfig) -> str:
     for tool in agent.tools:
         parts.extend([tool.name, tool.description, tool.alias, tool.purpose, tool.when_to_use])
     for value in agent.metadata.values():
-        if isinstance(value, (str, int, float, bool)):
-            parts.append(str(value))
+        parts.extend(_metadata_text_values(value))
     return " ".join(part for part in parts if part)
 
 
@@ -606,6 +605,8 @@ def _agent_keywords(agent: AgentConfig) -> List[str]:
     raw = [agent.id, agent.name, agent.description, *agent.capabilities]
     for tool in agent.tools:
         raw.extend([tool.name, tool.description, tool.alias, tool.purpose, tool.when_to_use])
+    for value in agent.metadata.values():
+        raw.extend(_metadata_text_values(value))
 
     keywords: List[str] = []
     seen: set[str] = set()
@@ -616,3 +617,19 @@ def _agent_keywords(agent: AgentConfig) -> List[str]:
             seen.add(token)
             keywords.append(token)
     return keywords
+
+
+def _metadata_text_values(value: Any) -> List[str]:
+    if isinstance(value, (str, int, float, bool)):
+        return [str(value)]
+    if isinstance(value, list):
+        items: List[str] = []
+        for item in value:
+            items.extend(_metadata_text_values(item))
+        return items
+    if isinstance(value, dict):
+        items: List[str] = []
+        for item in value.values():
+            items.extend(_metadata_text_values(item))
+        return items
+    return []

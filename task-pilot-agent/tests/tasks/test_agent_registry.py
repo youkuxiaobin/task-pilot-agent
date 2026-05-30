@@ -471,10 +471,15 @@ def test_default_eval_cases_cover_core_task_categories():
 
     tags = {tag for case in registry.list_evals() for tag in case.tags}
     supervisor = registry.get("supervisor_agent")
+    agent_ids = {agent.id for agent in registry.list_agents()}
+    specialist_ids = {"search_agent", "browser_agent", "data_agent", "code_agent", "report_agent"}
 
     assert {"search", "file", "data", "browser", "code", "report"}.issubset(tags)
+    assert specialist_ids.issubset(agent_ids)
     assert supervisor is not None
-    assert supervisor.handoffs["allowed"] == ["task-pilot-agent"]
+    assert specialist_ids.issubset(set(supervisor.handoffs["allowed"]))
+    assert registry.select_agent_for_task("supervisor_agent", "请搜索资料并给出来源").agent_id == "search_agent"
+    assert registry.select_agent_for_task("supervisor_agent", "分析表格数据并找出异常").agent_id == "data_agent"
     assert supervisor.allows_tool("builtin:handoff")
     handoff = next(tool for tool in supervisor.tools if tool.name == "builtin:handoff")
     assert handoff.input_schema["required"] == ["target_agent_id", "task"]

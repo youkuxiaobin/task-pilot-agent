@@ -1,0 +1,11 @@
+cases:
+  - id: report_artifact
+    name: 报告产物生成
+    input: 基于一个主题生成结构化报告，并把报告作为任务结果或产物返回。
+    expected: 应调用报告或文件工具，最终能在任务详情看到报告内容或产物。
+    tags: [report, artifact, file, regression]
+    metadata:
+      checks:
+        final_status: completed
+        required_event_types: [agent_started, tool_call, result, task_completed]
+        min_artifacts: 1

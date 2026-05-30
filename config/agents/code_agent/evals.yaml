@@ -1,0 +1,10 @@
+cases:
+  - id: code_change_with_test
+    name: 代码修改并验证
+    input: 修改一个小功能并运行相关测试，最后说明结果。
+    expected: 应调用代码或文件工具，记录验证过程，并输出修改和测试结果。
+    tags: [code, test, sandbox, regression]
+    metadata:
+      checks:
+        final_status: completed
+        required_event_types: [agent_started, tool_call, tool_result, result, task_completed]

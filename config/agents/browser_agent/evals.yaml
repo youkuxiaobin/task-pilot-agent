@@ -1,0 +1,10 @@
+cases:
+  - id: browser_extract_summary
+    name: 网页信息提取
+    input: 打开一个网页，提取标题和关键内容，并说明访问过程。
+    expected: 应调用浏览器或网页工具，保留工具调用和最终摘要。
+    tags: [browser, web, extraction, regression]
+    metadata:
+      checks:
+        final_status: completed
+        required_event_types: [agent_started, tool_call, result, task_completed]

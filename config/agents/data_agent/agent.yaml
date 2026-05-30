@@ -1,0 +1,47 @@
+id: data_agent
+name: 数据分析 Agent
+type: react_worker
+description: 面向表格、结构化数据、统计计算、异常值分析和数据结论生成的专家 Agent。
+version: "1"
+enabled: true
+mode: react
+system_prompt_file: system_prompt.md
+capabilities:
+  - data
+  - analysis
+  - table
+  - artifact
+tools:
+  - name: mcp_local:code_interpreter
+    description: 在任务工作目录内执行数据分析代码。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:*data*
+    description: 本地数据处理工具。
+  - name: mcp_local:*file*
+    description: 文件读取和产物处理工具。
+metadata:
+  owner: core
+  role: specialist
+  keywords:
+    - 数据
+    - 表格
+    - 分析
+    - 统计
+memory:
+  read:
+    - task_history
+  write: []
+permissions:
+  can_write_files: true
+  can_run_shell: false
+  can_access_network: false
+  require_approval_for:
+    - high_risk_tools
+output:
+  format: markdown
+  required_sections:
+    - 结论
+    - 数据依据
+    - 方法

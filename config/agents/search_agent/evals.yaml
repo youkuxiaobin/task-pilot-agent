@@ -1,0 +1,10 @@
+cases:
+  - id: search_with_sources
+    name: 搜索并给出来源
+    input: 查找一个新技术主题的关键信息，并用要点总结。
+    expected: 应调用搜索类工具，并在最终答案中说明来源和不确定点。
+    tags: [search, research, citation, regression]
+    metadata:
+      checks:
+        final_status: completed
+        required_event_types: [agent_started, tool_call, result, task_completed]

@@ -100,6 +100,11 @@ tools:
 handoffs:
   allowed:
     - task-pilot-agent
+    - search_agent
+    - browser_agent
+    - data_agent
+    - code_agent
+    - report_agent
 memory:
   read:
     - user_profile

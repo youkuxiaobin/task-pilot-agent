@@ -1,0 +1,44 @@
+id: search_agent
+name: 搜索研究 Agent
+type: react_worker
+description: 面向搜索研究、事实核验、来源整理和引用摘要的专家 Agent。
+version: "1"
+enabled: true
+mode: react
+system_prompt_file: system_prompt.md
+capabilities:
+  - search
+  - research
+  - citation
+tools:
+  - name: mcp_local:deepsearch
+    description: 多源搜索和信息检索。
+  - name: mcp_local:*search*
+    description: 本地搜索类工具。
+  - name: mcp_world:*search*
+    description: 外部搜索类扩展工具。
+metadata:
+  owner: core
+  role: specialist
+  keywords:
+    - 搜索
+    - 研究
+    - 来源
+    - 引用
+memory:
+  read:
+    - user_profile
+    - task_history
+  write:
+    - research_findings
+permissions:
+  can_write_files: false
+  can_run_shell: false
+  can_access_network: true
+  require_approval_for: []
+output:
+  format: markdown
+  required_sections:
+    - 结论
+    - 证据
+    - 来源

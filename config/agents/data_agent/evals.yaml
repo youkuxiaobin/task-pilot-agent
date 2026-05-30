@@ -1,0 +1,10 @@
+cases:
+  - id: data_summary_metrics
+    name: 数据汇总指标
+    input: 对一组结构化数据计算总数、平均值和异常值，并说明方法。
+    expected: 应调用数据或代码工具，记录工具结果，并输出数据依据。
+    tags: [data, analysis, code, artifact, regression]
+    metadata:
+      checks:
+        final_status: completed
+        required_event_types: [agent_started, tool_call, tool_result, result, task_completed]
