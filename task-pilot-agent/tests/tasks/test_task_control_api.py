@@ -167,6 +167,22 @@ def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, mo
     assert payload["items"][0]["hasError"] is True
 
 
+def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(task_id="remote-download", trace_id="trace-remote-download")
+    artifact = store.add_remote_artifact(
+        "remote-download",
+        "https://files.example.test/output.csv",
+        filename="output.csv",
+    )
+
+    response = asyncio.run(app.download_agent_task_artifact("remote-download", artifact.artifact_id))
+
+    assert response.status_code in {302, 307}
+    assert response.headers["location"] == "https://files.example.test/output.csv"
+
+
 def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
     app, _tasks = app_modules
     cancelled = False

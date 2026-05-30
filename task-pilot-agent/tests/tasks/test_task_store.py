@@ -236,6 +236,32 @@ def test_task_artifacts_are_scoped_to_task_workspace(task_modules, tmp_path):
         store.add_artifact("artifact-task", str(outside_path))
 
 
+def test_remote_task_artifacts_are_serialized_for_replay(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="remote-artifact-task", trace_id="trace-remote")
+
+    artifact = store.add_remote_artifact(
+        "remote-artifact-task",
+        "https://files.example.test/output/report.md",
+        filename="report.md",
+        file_size=128,
+        metadata={"api_key": "sk-test-remote-secretvalue123"},
+    )
+
+    payload = task_modules.serialize_artifact(artifact)
+    assert payload["filename"] == "report.md"
+    assert payload["remoteUrl"] == "https://files.example.test/output/report.md"
+    assert payload["isRemote"] is True
+    assert payload["fileSize"] == 128
+    assert payload["metadata"]["api_key"] == "***"
+    assert [item.artifact_id for item in store.list_artifacts("remote-artifact-task")] == [
+        artifact.artifact_id
+    ]
+
+    with pytest.raises(ValueError, match="http or https"):
+        store.add_remote_artifact("remote-artifact-task", "file:///tmp/report.md")
+
+
 def test_sse_printer_adds_task_id_and_reports_events(task_modules):
     from brain.core.printer import SSEPrinter
 
@@ -268,6 +294,26 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
 
     class FakeHandler:
         async def handle(self, ctx, _request):
+            ctx.printer.send(
+                "tool-1",
+                "tool_result",
+                {
+                    "tool": "mcp_local:code_interpreter",
+                    "result": json.dumps(
+                        {
+                            "fileInfo": [
+                                {
+                                    "fileName": "analysis.txt",
+                                    "download_url": "https://files.example.test/analysis.txt",
+                                    "fileSize": 42,
+                                }
+                            ]
+                        }
+                    ),
+                },
+                None,
+                True,
+            )
             ctx.printer.send("result-1", "result", "final answer", None, True)
 
     monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
@@ -295,8 +341,17 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     event_types = [event.event_type for event in store.list_events("trace-autoagent")]
     assert "task_created" in event_types
     assert "task_running" in event_types
+    assert "tool_result" in event_types
+    assert "task_artifact_added" in event_types
     assert "result" in event_types
     assert "task_completed" in event_types
+
+    artifacts = store.list_artifacts("trace-autoagent")
+    assert len(artifacts) == 1
+    artifact_payload = task_modules.serialize_artifact(artifacts[0])
+    assert artifact_payload["filename"] == "analysis.txt"
+    assert artifact_payload["remoteUrl"] == "https://files.example.test/analysis.txt"
+    assert artifact_payload["isRemote"] is True
 
     streamed_events = [
         json.loads(item.removeprefix("data: ").strip())

@@ -8,6 +8,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import urlparse
 
 from brain.core.sanitization import sanitize_payload
 from config.config import agentSettings
@@ -474,6 +475,54 @@ class TaskStore:
         finally:
             session.close()
 
+    def add_remote_artifact(
+        self,
+        task_id: str,
+        remote_url: str,
+        *,
+        artifact_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        description: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        file_size: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentTaskArtifactRecord:
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"task not found: {task_id}")
+
+        normalized_url = (remote_url or "").strip()
+        if not normalized_url.startswith(("http://", "https://")):
+            raise ValueError("remote artifact url must be http or https")
+
+        parsed_name = Path(urlparse(normalized_url).path).name
+        resolved_filename = filename or parsed_name or artifact_id or "artifact"
+        resolved_artifact_id = artifact_id or str(uuid.uuid4())
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = AgentTaskArtifactRecord(
+                artifact_id=resolved_artifact_id,
+                task_id=task_id,
+                filename=resolved_filename,
+                file_path=normalized_url,
+                mime_type=mime_type or mimetypes.guess_type(resolved_filename)[0] or "application/octet-stream",
+                file_size=max(int(file_size or 0), 0),
+                description=description,
+                metadata_json=_json_dumps(sanitize_payload(metadata or {})),
+                created_at=timestamp,
+            )
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def get_artifact(self, task_id: str, artifact_id: str) -> Optional[AgentTaskArtifactRecord]:
         session = self._session_maker()
         try:
@@ -566,12 +615,15 @@ def serialize_event(record: AgentTaskEventRecord) -> Dict[str, Any]:
 
 
 def serialize_artifact(record: AgentTaskArtifactRecord) -> Dict[str, Any]:
+    is_remote = str(record.file_path).startswith(("http://", "https://"))
     return {
         "id": record.id,
         "artifactId": record.artifact_id,
         "taskId": record.task_id,
         "filename": record.filename,
         "filePath": record.file_path,
+        "remoteUrl": record.file_path if is_remote else None,
+        "isRemote": is_remote,
         "mimeType": record.mime_type,
         "fileSize": record.file_size,
         "description": record.description,
