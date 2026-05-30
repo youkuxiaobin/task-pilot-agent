@@ -80,6 +80,7 @@ class CoreSettings(BaseModel):
         "gaia": ""
     })
     default_output_style: str = Field("markdown", description="默认输出样式")
+    default_run_environment: str = Field("local", description="默认运行环境：local 或 sandbox")
     planer_max_steps: int = Field(10)
     planer_min_steps: int = Field(1)
     executor_max_steps: int = Field(3)

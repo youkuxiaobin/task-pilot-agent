@@ -211,6 +211,11 @@ plan_system: |
   {history_dialogue}
   </history_dialogue>
 
+  ## User original query:
+  <query>
+  {query}
+  </query>
+
   ## Initial plan:
   <plan>
   {plan}

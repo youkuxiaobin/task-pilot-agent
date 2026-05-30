@@ -1,0 +1,133 @@
+# 本地运行配置：不写真实密钥，启动时用环境变量覆盖 API key。
+env: dev
+lang: ch
+prompt_file: "../config/prompt.yaml"
+
+core:
+  agent_id: "task-pilot-agent"
+  upload_dir: "./uploads"
+  output_styles:
+    html: ""
+    markdown: "，最后以 markdown 展示最终结果"
+    table: "，最后以excel 展示最终结果"
+    ppt: "，最后以 ppt 展示最终结果"
+    gaia: ""
+  default_output_style: "markdown"
+  default_run_environment: "local"
+  planer_max_steps: 10
+  planer_min_steps: 1
+  executor_max_steps: 5
+  react_max_steps: 6
+  planner_replan_each_step: true
+  planner_replan_on_failure: true
+  planner_max_replans: 3
+
+server:
+  host: 127.0.0.1
+  port: 9010
+  debug: false
+  cors_allow_origins:
+    - "*"
+
+logging:
+  level: info
+  directory: "./logs"
+  filename_prefix: "task-pilot-agent-local"
+  max_bytes: 10485760
+  backup_count: 3
+
+db:
+  DATABASE_URL: "sqlite:///./uploads/taskpilot-local.db"
+  host: "127.0.0.1"
+  port: 3306
+  user: "local"
+  password: "local"
+  name: "taskpilot_local"
+  pool_pre_ping: true
+  pool_recycle: 1800
+
+summary_agent:
+  enable_thinking: false
+  discard_reasoning_content: true
+
+memory:
+  search_memory: false
+  search_rag: false
+
+search: []
+
+llm:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME_RUNTIME_ENV"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "deepseek-ai/DeepSeek-V3.2"
+    temperature: 0.0
+    context_length: 128000
+  contexts: {}
+  configs: []
+
+audio_llm:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME_RUNTIME_ENV"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+image_llm:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME_RUNTIME_ENV"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+video_llm:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME_RUNTIME_ENV"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    temperature: 0.0
+    context_length: 128000
+
+browser_use:
+  sandbox_url: ""
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME_RUNTIME_ENV"
+    site_url: "https://api.siliconflow.cn/v1"
+    model: "deepseek-ai/DeepSeek-V3.2"
+    temperature: 0.0
+    context_length: 128000
+
+embedder:
+  provider: "openai"
+  config:
+    api_key: "CHANGE_ME_RUNTIME_ENV"
+    model: "Qwen/Qwen3-Embedding-8B"
+    openai_base_url: "https://api.siliconflow.cn/v1"
+    embedding_dims: 1024
+
+vector_store:
+  provider: "qdrant"
+  config:
+    collection_name: "taskpilot_local"
+    embedding_model_dims: 1024
+    url: "http://localhost:6333"
+
+mcp:
+  mcp_local:
+    transport: streamable-http
+    host: 127.0.0.1
+    port: 9009
+  mcp_market:
+    refresh_interval_seconds: 600
+    mcp_servers:
+      - url: "http://127.0.0.1:9009/mcp"
+        transport: "streamable-http"
+        authorization: ""
+        tool_prefix: "mcp_local"

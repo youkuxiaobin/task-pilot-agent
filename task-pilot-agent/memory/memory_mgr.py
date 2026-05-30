@@ -155,6 +155,8 @@ class MemoryManager:
     
     def _initialize_memory(self) -> Any:
         """Initialize mem0 memory client with configuration"""
+        if not bool(getattr(self.settings.memory, "search_memory", True)):
+            return DisabledMemoryClient()
         if Memory is None:
             self._record_degradation("memory_client", ImportError("mem0 is not installed"))
             return DisabledMemoryClient()

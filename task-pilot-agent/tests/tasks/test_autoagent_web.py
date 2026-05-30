@@ -12,7 +12,7 @@ HTML_PATH = Path(__file__).resolve().parents[2] / "brain" / "web" / "autoagent.h
 APP_PATH = Path(__file__).resolve().parents[2] / "brain" / "app.py"
 
 
-def test_autoagent_page_contains_task_replay_controls():
+def test_autoagent_page_keeps_task_replay_and_agent_selector():
     html = HTML_PATH.read_text(encoding="utf-8")
 
     for marker in [
@@ -54,14 +54,6 @@ def test_autoagent_page_contains_task_replay_controls():
         "formatArtifactMeta",
         "产物 ${artifacts.length}",
         'id="agent-id"',
-        'id="run-environment"',
-        'id="tool-picker"',
-        'id="tool-options"',
-        'id="eval-case"',
-        'id="run-eval"',
-        'id="run-all-evals"',
-        'id="file-input"',
-        'id="file-summary"',
         "refreshTaskList",
         "renderTaskAgentFilter",
         "renderTaskAgentTypeFilter",
@@ -76,28 +68,6 @@ def test_autoagent_page_contains_task_replay_controls():
         "agent_type",
         "refreshAgentList",
         "applySelectedAgentDefaults",
-        "renderToolOptions",
-        "refreshToolCatalog",
-        "toolCatalog",
-        "/agent/tools",
-        "getSelectedTools",
-        "getApprovedTools",
-        "approved_tools",
-        'data-approval="high_risk"',
-        "schemaFieldNames",
-        "renderToolSchemaLine",
-        "inputSchema",
-        "outputSchema",
-        "selected_tools",
-        "approvedTools",
-        "tool.allowed",
-        "blockReason",
-        "toolBlockReasonText",
-        "high_risk_requires_approval",
-        "高风险工具需要本次审批",
-        "原因：",
-        "不可用",
-        "需审批",
         "tool_policy_applied",
         "工具策略已应用",
         "task_queued",
@@ -117,18 +87,7 @@ def test_autoagent_page_contains_task_replay_controls():
         "阶段",
         "runtime_boundary_applied",
         "运行边界已应用",
-        "run_environment",
         "runEnvironment",
-        "renderEvalOptions",
-        "runSelectedEval",
-        "runAllEvals",
-        "已启动评测任务",
-        "已启动 ${items.length} 个评测任务",
-        "/evals/run",
-        "/evals/",
-        "uploadSelectedFiles",
-        "upload_file_form",
-        "uploadFile",
         "durationMs",
         "formatUsageMeta",
         "工具耗时",
@@ -173,14 +132,57 @@ def test_autoagent_page_contains_task_replay_controls():
         "formatAgentSnapshotMeta",
         "renderAgentSnapshotHTML",
         "Agent 说明",
-        "能力",
-        "交接",
         "agent_started",
         "agent_completed",
         "task_handoff_requested",
         "任务已交接",
     ]:
         assert marker in html
+
+
+def test_autoagent_page_hides_runtime_configuration_controls():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    for control_id in [
+        "output-style",
+        "mode",
+        "run-environment",
+        "tool-picker",
+        "eval-case",
+        "run-eval",
+        "run-all-evals",
+        "file-input",
+        "file-summary",
+        "task-event-type-filter",
+        "task-event-source-filter",
+    ]:
+        assert re.search(rf'id="{control_id}"[^>]*hidden', html)
+
+    for control_id in [
+        "task-keyword",
+        "task-user-filter",
+        "task-status-filter",
+        "task-agent-filter",
+        "task-agent-type-filter",
+        "task-created-filter",
+        "task-duration-filter",
+        "task-error-filter",
+    ]:
+        assert re.search(rf'<div class="task-filters" hidden>[\s\S]*id="{control_id}"', html)
+
+
+def test_autoagent_submit_uses_config_defaults_except_agent():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    submit_block = html.split("async function onSubmit", 1)[1].split("async function onStop", 1)[0]
+
+    assert "agent_id: dom.agentId.value || undefined" in submit_block
+    assert "conversation_id: session.id" in submit_block
+    assert "outputStyle:" not in submit_block
+    assert "mode:" not in submit_block
+    assert "run_environment:" not in submit_block
+    assert "selected_tools" not in submit_block
+    assert "approved_tools" not in submit_block
+    assert "uploadSelectedFiles" not in submit_block
 
 
 def test_autoagent_inline_javascript_has_valid_syntax(tmp_path):
@@ -220,7 +222,7 @@ def test_tasks_api_has_background_create_endpoint():
     assert "task_queued" in source
 
 
-def test_autoagent_page_exposes_task_list_filters():
+def test_autoagent_page_keeps_task_list_filter_logic_hidden():
     html = HTML_PATH.read_text(encoding="utf-8")
 
     for marker in [

@@ -159,6 +159,7 @@ class PlanningAgent(ReActAgent):
             date=self.context.dateInfo or "",
             files=files_desc,
             history_dialogue=history_dialogue,
+            query=self.context.query or "",
             min_step=str(agentSettings.core.planer_min_steps),
             max_step=str(agentSettings.core.planer_max_steps),
             current_step=next_step,

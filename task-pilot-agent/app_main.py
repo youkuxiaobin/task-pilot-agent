@@ -7,7 +7,7 @@ from fastapi import FastAPI
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-os.environ["APP_CONFIG_FILE"] = str(project_root / "config" / "config.yaml")
+os.environ.setdefault("APP_CONFIG_FILE", str(project_root / "config" / "config.yaml"))
 
 from config.config import agentSettings  # noqa: E402
 from tools.aggre_mcp_market.app import aggre_mcp_market_router, init_mcp_market_registry  # noqa: E402

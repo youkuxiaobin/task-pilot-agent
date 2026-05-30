@@ -3,3 +3,9 @@ __pycache__/
 
 .pytest_cache/
 .mypy_cache/
+.DS_Store
+
+logs/
+uploads/
+task-pilot-agent/logs/
+task-pilot-agent/uploads/

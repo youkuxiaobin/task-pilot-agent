@@ -33,6 +33,7 @@
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+    [hidden] { display: none !important; }
     
     body {
       background-color: var(--bg-app);
@@ -350,10 +351,10 @@
     <div id="session-list" class="session-list"></div>
     <div class="sidebar-section">
       <div class="sidebar-title">
-        <span>任务回看</span>
-        <button id="refresh-tasks" class="btn-small" type="button">刷新</button>
+        <span>最近任务</span>
+        <button id="refresh-tasks" class="btn-small" type="button" hidden>刷新</button>
       </div>
-      <div class="task-filters">
+      <div class="task-filters" hidden>
         <input id="task-keyword" class="filter-input" type="search" placeholder="搜索任务">
         <input id="task-user-filter" class="filter-input" type="search" placeholder="用户 ID">
         <select id="task-status-filter" class="filter-select" title="任务状态">
@@ -406,7 +407,7 @@
       </div>
       <div id="task-actions" class="task-actions" hidden>
         <div id="task-meta" class="task-meta"></div>
-        <select id="task-event-type-filter" class="filter-select event-filter-select" title="事件类型">
+        <select id="task-event-type-filter" class="filter-select event-filter-select" title="事件类型" hidden>
           <option value="">全部事件</option>
           <option value="tool_call,tool_result">工具调用</option>
           <option value="agent_phase">Agent 阶段</option>
@@ -415,7 +416,7 @@
           <option value="eval_result">评测结果</option>
           <option value="memory_context_loaded">上下文检索</option>
         </select>
-        <select id="task-event-source-filter" class="filter-select event-filter-select" title="事件来源">
+        <select id="task-event-source-filter" class="filter-select event-filter-select" title="事件来源" hidden>
           <option value="">全部来源</option>
           <option value="sse">SSE</option>
           <option value="autoagent">任务系统</option>
@@ -444,35 +445,35 @@
         
         <div class="controls">
           <div class="settings-group">
-            <select id="output-style" class="select-style" title="输出格式">
+            <select id="output-style" class="select-style" title="输出格式" hidden>
               <option value="markdown">Markdown</option>
               <option value="html">HTML</option>
               <option value="table">Table</option>
               <option value="ppt">PPT</option>
               <option value="gaia">Gaia</option>
             </select>
-            <select id="mode" class="select-style" title="运行模式">
+            <select id="mode" class="select-style" title="运行模式" hidden>
               <option value="plans_executor">Plans Executor</option>
               <option value="react">ReAct</option>
             </select>
-            <select id="run-environment" class="select-style" title="运行环境">
+            <select id="run-environment" class="select-style" title="运行环境" hidden>
               <option value="local">本地环境</option>
               <option value="sandbox">沙箱环境</option>
             </select>
             <select id="agent-id" class="select-style" title="选择 Agent">
               <option value="">默认 Agent</option>
             </select>
-            <details id="tool-picker" class="tool-picker">
+            <details id="tool-picker" class="tool-picker" hidden>
               <summary id="tool-summary">工具</summary>
               <div id="tool-options" class="tool-options"></div>
             </details>
-            <select id="eval-case" class="select-style" title="选择评测">
+            <select id="eval-case" class="select-style" title="选择评测" hidden>
               <option value="">评测</option>
             </select>
-            <button id="run-eval" class="btn-small" type="button" disabled>运行评测</button>
-            <button id="run-all-evals" class="btn-small" type="button" disabled>全部评测</button>
-            <input id="file-input" class="file-input" type="file" multiple title="上传文件">
-            <span id="file-summary" class="file-summary"></span>
+            <button id="run-eval" class="btn-small" type="button" disabled hidden>运行评测</button>
+            <button id="run-all-evals" class="btn-small" type="button" disabled hidden>全部评测</button>
+            <input id="file-input" class="file-input" type="file" multiple title="上传文件" hidden>
+            <span id="file-summary" class="file-summary" hidden></span>
             <input id="user-id" type="hidden" placeholder="User ID">
             <input id="endpoint" type="hidden" value="/agent/autoagent">
           </div>
@@ -834,9 +835,6 @@
     }
     applySelectedAgentDefaults();
     renderAgentSummary();
-    renderToolOptions();
-    renderEvalOptions();
-    refreshToolCatalog();
   }
 
   function renderTaskAgentFilter() {
@@ -930,7 +928,8 @@
   function renderAgentSummary() {
     const agent = getSelectedAgentConfig();
     const diagnosticsHTML = renderAgentDiagnosticsHTML(agent?.id || state.defaultAgentId || '');
-    if(!agent && !diagnosticsHTML) {
+    const hasDiagnosticsProblem = state.agentDiagnostics?.status && state.agentDiagnostics.status !== 'ok';
+    if(!hasDiagnosticsProblem) {
       dom.agentSummary.hidden = true;
       dom.agentSummary.innerHTML = '';
       return;
@@ -940,21 +939,12 @@
       dom.agentSummary.innerHTML = diagnosticsHTML;
       return;
     }
-    const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : [];
-    const tools = Array.isArray(agent.tools) ? agent.tools.map(tool => tool.name || tool.id || '') : [];
-    const handoffs = Array.isArray(agent.handoffs?.allowed) ? agent.handoffs.allowed : [];
-    const typeText = [agent.type, agent.mode].filter(Boolean).join(' · ');
     dom.agentSummary.hidden = false;
     dom.agentSummary.innerHTML = `
       <div>
         <strong>${escapeHTML(agent.name || agent.id)}</strong>
-        ${typeText ? `<div>${escapeHTML(typeText)}</div>` : ''}
-        ${agent.description ? `<p>${escapeHTML(agent.description)}</p>` : ''}
       </div>
       <div>
-        ${renderPillLine('能力', capabilities)}
-        ${renderPillLine('工具', tools)}
-        ${renderPillLine('交接', handoffs)}
         ${diagnosticsHTML}
       </div>`;
   }
@@ -1813,17 +1803,13 @@
     controller = new AbortController();
 
     const contextMessages = session.messages.filter(m => m.role === 'user' || (m.role === 'assistant' && m.messageType === 'result')).map(m => ({ role: m.role, content: m.content }));
-    const selectedTools = getSelectedTools();
-    const approvedTools = getApprovedTools();
-    const payload = { messages: contextMessages, outputStyle: dom.outputStyle.value, mode: dom.mode.value, run_environment: dom.runEnvironment.value, conversation_id: session.id, user_id: dom.userId.value, agent_id: dom.agentId.value };
+    const payload = {
+      messages: contextMessages,
+      conversation_id: session.id,
+      agent_id: dom.agentId.value || undefined,
+    };
 
     try {
-       const uploadedFiles = await uploadSelectedFiles(session.id);
-       if(uploadedFiles.length && contextMessages.length) {
-         contextMessages[contextMessages.length - 1].uploadFile = uploadedFiles;
-       }
-       if(selectedTools !== null) payload.selected_tools = selectedTools;
-       if(approvedTools.length) payload.approved_tools = approvedTools;
        const resp = await fetch(dom.endpoint.value, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
        if(!resp.ok) throw new Error(`Server Error: ${resp.status}`);
        const reader = resp.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
@@ -1834,7 +1820,7 @@
          while((idx = buffer.indexOf('\n\n')) >= 0) { const chunk = buffer.slice(0, idx); buffer = buffer.slice(idx + 2); const event = parseSSE(chunk); if(event) handleEvent(event); }
        }
     } catch(err) { if(err.name !== 'AbortError') upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">Error: ${err.message}</span>`, Date.now(), false); } 
-    finally { setUIStatus('就绪', false); state.stream = null; controller = null; dom.fileInput.value = ''; updateFileSummary(); refreshTaskList(); renderMessages(true); }
+    finally { setUIStatus('就绪', false); state.stream = null; controller = null; refreshTaskList(); renderMessages(true); }
   }
 
   async function onStop() {
@@ -1927,7 +1913,7 @@
   dom.taskErrorFilter.onchange = refreshTaskList;
   dom.taskEventTypeFilter.onchange = reloadActiveTaskEvents;
   dom.taskEventSourceFilter.onchange = reloadActiveTaskEvents;
-  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderAgentSummary(); renderToolOptions(); renderEvalOptions(); refreshToolCatalog(); };
+  dom.agentId.onchange = () => { applySelectedAgentDefaults(); renderAgentSummary(); };
   dom.evalCase.onchange = () => { dom.runEval.disabled = !dom.evalCase.value; };
   dom.runEval.onclick = runSelectedEval;
   dom.runAllEvals.onclick = runAllEvals;

@@ -616,7 +616,9 @@ def _fill_request_defaults(request: GptQueryReq) -> None:
         request.agent_id = agentSettings.core.agent_id
     if not request.conversation_id:
         request.conversation_id = str(uuid.uuid4())
-    request.run_environment = _normalize_run_environment(request.run_environment)
+    request.run_environment = _normalize_run_environment(
+        request.run_environment or agentSettings.core.default_run_environment
+    )
     fill_output_styles(request)
 
 
