@@ -374,6 +374,7 @@ def _extract_result_text(event_data: Dict[str, Any]) -> Optional[str]:
 
 REMOTE_ARTIFACT_URL_KEYS = ("domainUrl", "downloadUrl", "download_url", "ossUrl", "url", "href")
 REMOTE_ARTIFACT_NAME_KEYS = ("fileName", "filename", "name")
+LOCAL_ARTIFACT_SCAN_LIMIT = 100
 
 
 def _json_value(value: Any) -> Any:
@@ -462,6 +463,57 @@ def _extract_remote_artifacts(event_data: Dict[str, Any]) -> List[Dict[str, Any]
             }
         )
     return artifacts
+
+
+def _register_workspace_artifacts(
+    task_store: TaskStore,
+    task_id: str,
+    trace_id: str,
+    work_dir: Optional[str],
+) -> None:
+    if not work_dir:
+        return
+    root = Path(work_dir).expanduser().resolve()
+    if not root.is_dir():
+        return
+
+    existing_paths = {
+        str(Path(item.file_path).expanduser().resolve())
+        for item in task_store.list_artifacts(task_id)
+        if not str(item.file_path).startswith(("http://", "https://"))
+    }
+    registered = 0
+    for path in sorted(root.rglob("*")):
+        if registered >= LOCAL_ARTIFACT_SCAN_LIMIT:
+            break
+        if not path.is_file():
+            continue
+        resolved_path = path.expanduser().resolve()
+        if str(resolved_path) in existing_paths:
+            continue
+        try:
+            relative_path = str(resolved_path.relative_to(root))
+        except ValueError:
+            continue
+        artifact_record = task_store.add_artifact(
+            task_id,
+            str(resolved_path),
+            filename=resolved_path.name,
+            description="Generated in task workspace",
+            metadata={
+                "source": "task_workspace",
+                "relativePath": relative_path,
+            },
+        )
+        task_store.add_event(
+            task_id,
+            "task_artifact_added",
+            serialize_artifact(artifact_record),
+            trace_id=trace_id,
+            source="artifact",
+        )
+        existing_paths.add(str(resolved_path))
+        registered += 1
 
 
 def _usage_increments_from_event(event_data: Dict[str, Any]) -> Dict[str, int]:
@@ -815,6 +867,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
 
             try:
                 await handler.handle(ctx, request)
+                _register_workspace_artifacts(task_store, task_id, trace_id, ctx.work_dir)
                 task_store.update_status(
                     task_id,
                     AgentTaskStatus.COMPLETED,
@@ -841,6 +894,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.exception("autoagent handler failed for request %s", ctx.requestId)
                 printer.send(None, "result", f"autoagent error: {exc}", None, True)
+                _register_workspace_artifacts(task_store, task_id, trace_id, ctx.work_dir)
                 task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=str(exc))
                 task_store.add_event(
                     task_id,

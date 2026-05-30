@@ -358,6 +358,8 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
             assert ctx.memory_context["memoryCount"] == 1
             assert ctx.memory_context["ragCount"] == 1
             assert ctx.memory_context["memoryResults"][0]["metadata"]["api_key"] == "***"
+            Path(ctx.work_dir, "reports").mkdir(parents=True)
+            Path(ctx.work_dir, "reports", "local_report.txt").write_text("local artifact", encoding="utf-8")
             ctx.printer.send(
                 "phase-1",
                 "agent_phase",
@@ -428,11 +430,15 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert "task_completed" in event_types
 
     artifacts = store.list_artifacts("trace-autoagent")
-    assert len(artifacts) == 1
-    artifact_payload = task_modules.serialize_artifact(artifacts[0])
-    assert artifact_payload["filename"] == "analysis.txt"
-    assert artifact_payload["remoteUrl"] == "https://files.example.test/analysis.txt"
-    assert artifact_payload["isRemote"] is True
+    assert len(artifacts) == 2
+    artifact_payloads = [task_modules.serialize_artifact(item) for item in artifacts]
+    remote_artifact = next(item for item in artifact_payloads if item["isRemote"])
+    local_artifact = next(item for item in artifact_payloads if not item["isRemote"])
+    assert remote_artifact["filename"] == "analysis.txt"
+    assert remote_artifact["remoteUrl"] == "https://files.example.test/analysis.txt"
+    assert local_artifact["filename"] == "local_report.txt"
+    assert local_artifact["metadata"]["source"] == "task_workspace"
+    assert local_artifact["metadata"]["relativePath"] == "reports/local_report.txt"
 
     task_payload = task_modules.serialize_task(store.get_task("trace-autoagent"))
     assert task_payload["usage"]["toolResults"] == 1
