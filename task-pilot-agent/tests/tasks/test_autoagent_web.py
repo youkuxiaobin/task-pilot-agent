@@ -93,6 +93,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "tool.allowed",
         "blockReason",
         "toolBlockReasonText",
+        "high_risk_requires_approval",
+        "高风险工具需要本次审批",
         "原因：",
         "不可用",
         "需审批",

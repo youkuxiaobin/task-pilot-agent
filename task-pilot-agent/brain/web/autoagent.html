@@ -881,6 +881,7 @@
     const map = {
       denied_tools: '已在拒绝列表中',
       high_risk_requires_enable: '高风险工具需要本次勾选确认',
+      high_risk_requires_approval: '高风险工具需要本次审批',
       tool_disabled: '工具已关闭',
       permission_can_run_shell: '当前 Agent 不允许执行命令',
       permission_can_access_network: '当前 Agent 不允许访问网络',
@@ -932,7 +933,7 @@
       if(!name) return;
       const label = document.createElement('label');
       const allowed = tool.allowed !== false;
-      const requiresApproval = tool.blockReason === 'high_risk_requires_enable';
+      const requiresApproval = tool.blockReason === 'high_risk_requires_enable' || tool.blockReason === 'high_risk_requires_approval';
       const selectable = allowed || requiresApproval;
       label.className = selectable ? 'tool-option' : 'tool-option disabled';
       const risk = String(tool.policy?.risk || '').toLowerCase();

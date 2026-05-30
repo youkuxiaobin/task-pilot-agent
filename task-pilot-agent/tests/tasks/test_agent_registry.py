@@ -125,6 +125,37 @@ def test_agent_registry_blocks_high_risk_tools_until_enabled(tmp_path, monkeypat
     assert agent.to_dict()["tools"][0]["blockReason"] == ""
 
 
+def test_agent_registry_requires_per_task_approval_for_high_risk_tools(tmp_path, monkeypatch):
+    agent_dir = tmp_path / "agents" / "approval_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: approval_agent
+            name: Approval Agent
+            tools:
+              - name: mcp_local:code_interpreter
+                policy:
+                  risk: high
+            permissions:
+              require_approval_for:
+                - high_risk_tools
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ALLOW_HIGH_RISK_TOOLS", "true")
+
+    agent = AgentRegistry(tmp_path / "agents").get("approval_agent")
+
+    assert agent is not None
+    assert not agent.allows_tool("mcp_local:code_interpreter")
+    assert agent.tool_block_reason("mcp_local:code_interpreter") == "high_risk_requires_approval"
+    assert agent.allows_tool("mcp_local:code_interpreter", approved_tools=["mcp_local:code_interpreter"])
+    assert agent.tool_block_reason("mcp_local:code_interpreter", approved_tools=["mcp_local:code_interpreter"]) == ""
+    assert agent.to_dict()["tools"][0]["blockReason"] == "high_risk_requires_approval"
+
+
 def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
     agents_root = tmp_path / "agents"
     target_dir = agents_root / "report_agent"

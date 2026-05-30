@@ -102,6 +102,14 @@ class AgentConfig:
         if not matched:
             return "not_in_allowed_tools"
         for tool in matched:
+            approval_reason = _tool_approval_block_reason(
+                self.permissions,
+                tool.policy,
+                tool_name,
+                approved_tools or [],
+            )
+            if approval_reason:
+                return approval_reason
             policy_reason = _tool_policy_block_reason(tool.policy)
             if policy_reason:
                 if policy_reason == "high_risk_requires_enable" and _matches_any_tool_pattern(tool_name, approved_tools or []):
@@ -173,6 +181,33 @@ def _tool_policy_block_reason(policy: Dict[str, Any]) -> str:
     risk = str(policy.get("risk") or "").lower()
     if risk in {"high", "critical"} and not _high_risk_tools_enabled():
         return "high_risk_requires_enable"
+    return ""
+
+
+def _tool_approval_block_reason(
+    permissions: Dict[str, Any],
+    policy: Dict[str, Any],
+    tool_name: str,
+    approved_tools: List[str],
+) -> str:
+    approval_items = permissions.get("require_approval_for") if isinstance(permissions, dict) else None
+    if not approval_items:
+        return ""
+    if isinstance(approval_items, str):
+        required = {approval_items}
+    elif isinstance(approval_items, list):
+        required = {str(item) for item in approval_items}
+    else:
+        return ""
+
+    risk = str((policy or {}).get("risk") or "").lower()
+    requires_high_risk_approval = "high_risk_tools" in required and risk in {"high", "critical"}
+    requires_explicit_approval = bool((policy or {}).get("requires_explicit_enable"))
+    if (requires_high_risk_approval or requires_explicit_approval) and not _matches_any_tool_pattern(
+        tool_name,
+        approved_tools,
+    ):
+        return "high_risk_requires_approval"
     return ""
 
 

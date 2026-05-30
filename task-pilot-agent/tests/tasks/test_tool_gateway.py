@@ -107,3 +107,31 @@ def test_tool_gateway_honors_per_request_selected_tools(monkeypatch):
     assert "mcp_local:deepsearch" in collection.tool_map
     assert "mcp_local:code_interpreter" not in collection.tool_map
     assert collection.blocked_tools == ["mcp_local:code_interpreter"]
+
+
+def test_tool_gateway_requires_per_task_approval_even_when_high_risk_enabled(monkeypatch):
+    monkeypatch.setenv("ALLOW_HIGH_RISK_TOOLS", "true")
+    agent = AgentConfig(
+        id="gateway-agent",
+        name="Gateway Agent",
+        permissions={"require_approval_for": ["high_risk_tools"]},
+        tools=[
+            AgentToolSpec(name="mcp_local:deepsearch"),
+            AgentToolSpec(name="mcp_local:code_interpreter", policy={"risk": "high"}),
+        ],
+    )
+    gateway = ToolGateway(
+        FakeRegistry(agent),
+        mcp_market_url="http://mcp.example.test",
+        mcp_fetcher_cls=FakeFetcher,
+    )
+
+    blocked_collection = asyncio.run(gateway.build_collection(make_context()))
+    approved_collection = asyncio.run(
+        gateway.build_collection(make_context(approved_tools=["mcp_local:code_interpreter"]))
+    )
+
+    assert "mcp_local:deepsearch" in blocked_collection.tool_map
+    assert "mcp_local:code_interpreter" not in blocked_collection.tool_map
+    assert blocked_collection.blocked_tools == ["mcp_local:code_interpreter"]
+    assert "mcp_local:code_interpreter" in approved_collection.tool_map
