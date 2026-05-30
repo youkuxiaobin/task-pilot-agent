@@ -30,6 +30,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "taskAgentId",
         "taskMode",
         "环境 ${session.runEnvironment}",
+        "formatArtifactMeta",
+        "产物 ${artifacts.length}",
         'id="agent-id"',
         'id="run-environment"',
         'id="tool-picker"',

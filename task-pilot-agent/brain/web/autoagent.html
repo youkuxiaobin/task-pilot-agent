@@ -592,6 +592,7 @@
       session.taskAgentId,
       session.taskMode,
       session.runEnvironment ? `环境 ${session.runEnvironment}` : '',
+      formatArtifactMeta(session.artifacts),
       usageText,
     ].filter(Boolean);
     dom.taskMeta.textContent = parts.join(' · ');
@@ -654,6 +655,12 @@
     if(usage.toolFailures) parts.push(`失败 ${usage.toolFailures}`);
     if(usage.toolDurationMs) parts.push(`工具耗时 ${formatDuration(usage.toolDurationMs)}`);
     return parts.join(' · ');
+  }
+
+  function formatArtifactMeta(artifacts) {
+    if(!Array.isArray(artifacts) || !artifacts.length) return '';
+    const types = [...new Set(artifacts.map(item => item.mimeType || (item.isRemote ? 'remote' : 'file')).filter(Boolean))].slice(0, 3);
+    return `产物 ${artifacts.length}${types.length ? ` (${types.join(', ')})` : ''}`;
   }
 
   function taskCreatedRange(value) {
@@ -1049,6 +1056,7 @@
     session.taskMode = task.mode || '';
     session.runEnvironment = task.runEnvironment || task.metadata?.runEnvironment || '';
     session.usage = task.usage || task.metadata?.usage || null;
+    session.artifacts = artifacts;
     session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
     session.messages = [];
     session.replayState = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: -1, lastIndexByKind: {}, gotAnyResult: false };
