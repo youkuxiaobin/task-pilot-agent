@@ -220,7 +220,8 @@ class ReActAgentImp(ReActAgent):
 
         if not isinstance(self._prompt, str):
             raise TypeError("React system prompt must be a string template.")
-        return self._prompt.format(**template_vars).strip()
+        prompt = self._prompt.format(**template_vars).strip()
+        return self.context.compose_system_prompt(prompt)
 
     def _collect_tool_specs(self) -> List[Dict[str, Any]]:
         specs: List[Dict[str, Any]] = []

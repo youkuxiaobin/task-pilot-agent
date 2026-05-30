@@ -1,5 +1,6 @@
 from __future__ import annotations
 import fnmatch
+import inspect
 import json
 import asyncio
 import time
@@ -16,6 +17,7 @@ from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext, FileItem
 from brain.core.eval_runner import build_eval_run
 from brain.core.printer import SSEPrinter
+from brain.core.sanitization import sanitize_payload
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
 from brain.core.tools.collection import ToolCollection
 from brain.core.tools.gateway import ToolGateway
@@ -29,6 +31,7 @@ from pydantic import ValidationError
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from utils.logger import get_logger, configure_log_context, clear_log_context
 from llm.types import LLMMessage, RoleType
+from memory.memory_mgr import memory_manager
 
 logger = get_logger(__name__)
 
@@ -138,6 +141,155 @@ def _normalize_run_environment(value: Optional[str]) -> str:
     if normalized in {"local", "sandbox"}:
         return normalized
     return "local"
+
+
+def _truncate_for_event(value: Any, limit: int = 320) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _coerce_score(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return round(float(value), 4)
+    except (TypeError, ValueError):
+        return None
+
+
+def _summarize_context_metadata(value: Any) -> Dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    summarized: Dict[str, str] = {}
+    for key, item in list(value.items())[:8]:
+        summarized[str(key)] = _truncate_for_event(item, 120)
+    return summarized
+
+
+def _summarize_context_result(item: Any, fallback_source: str) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        return {
+            "id": "",
+            "source": fallback_source,
+            "score": None,
+            "metadata": {},
+            "snippet": _truncate_for_event(item),
+        }
+
+    text_value = (
+        item.get("content")
+        or item.get("text")
+        or item.get("chunk")
+        or item.get("page_content")
+        or item.get("summary")
+        or ""
+    )
+    source = str(item.get("source") or fallback_source)
+    identifier = str(item.get("id") or item.get("document_id") or item.get("doc_id") or "")
+    return {
+        "id": _truncate_for_event(identifier, 128),
+        "source": _truncate_for_event(source, 128),
+        "score": _coerce_score(item.get("score")),
+        "metadata": _summarize_context_metadata(item.get("metadata")),
+        "snippet": _truncate_for_event(text_value),
+    }
+
+
+def _summarize_context_results(items: Any, fallback_source: str, limit: int = 5) -> List[Dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    return [
+        _summarize_context_result(item, fallback_source)
+        for item in items[:limit]
+        if item is not None
+    ]
+
+
+async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, Any]:
+    search_config: Dict[str, Any] = {}
+    if hasattr(memory_manager, "get_search_config"):
+        try:
+            raw_config = memory_manager.get_search_config()
+            if isinstance(raw_config, dict):
+                search_config = raw_config
+        except Exception as exc:  # pragma: no cover - defensive
+            search_config = {"warning": exc.__class__.__name__}
+
+    payload: Dict[str, Any] = {
+        "querySummary": _truncate_for_event(query, 160),
+        "scope": {
+            "userId": ctx.user_id,
+            "agentId": ctx.agent_id,
+            "runId": ctx.run_id,
+        },
+        "memoryEnabled": bool(search_config.get("memory_enabled", True)),
+        "ragEnabled": bool(search_config.get("rag_enabled", True)),
+        "memoryCount": 0,
+        "ragCount": 0,
+        "warningCount": 0,
+        "warnings": [],
+        "memoryResults": [],
+        "ragResults": [],
+    }
+
+    if not query.strip():
+        payload["warnings"] = [{"component": "memory_context", "reason": "empty_query"}]
+        payload["warningCount"] = 1
+        ctx.memory_context = sanitize_payload(payload)
+        return ctx.memory_context
+
+    try:
+        search_fn = getattr(memory_manager, "unified_search_async", None) or memory_manager.unified_search
+        raw_result = search_fn(
+            query=query,
+            user_id=ctx.user_id,
+            agent_id=ctx.agent_id,
+            run_id=ctx.run_id,
+            memory_limit=5,
+            rag_limit=5,
+        )
+        if inspect.isawaitable(raw_result):
+            raw_result = await raw_result
+        if not isinstance(raw_result, dict):
+            raw_result = {}
+    except Exception as exc:  # pragma: no cover - should not block tasks
+        logger.warning("memory context lookup degraded for request %s: %s", ctx.requestId, exc.__class__.__name__)
+        raw_result = {
+            "memory_results": [],
+            "rag_results": [],
+            "warnings": [{"component": "memory_context", "reason": exc.__class__.__name__}],
+        }
+
+    memory_results = raw_result.get("memory_results") or []
+    rag_results = raw_result.get("rag_results") or []
+    warnings = raw_result.get("warnings") or []
+    if not isinstance(warnings, list):
+        warnings = [{"component": "memory_context", "reason": str(warnings)}]
+
+    payload["memoryCount"] = len(memory_results) if isinstance(memory_results, list) else 0
+    payload["ragCount"] = len(rag_results) if isinstance(rag_results, list) else 0
+    payload["warningCount"] = len(warnings)
+    payload["warnings"] = warnings[:5]
+    payload["memoryResults"] = _summarize_context_results(memory_results, "memory")
+    payload["ragResults"] = _summarize_context_results(rag_results, "knowledge")
+    sanitized_payload = sanitize_payload(payload)
+    ctx.memory_context = sanitized_payload if isinstance(sanitized_payload, dict) else {}
+    return ctx.memory_context
+
+
+def _memory_context_status_text(payload: Dict[str, Any]) -> str:
+    memory_count = int(payload.get("memoryCount") or 0)
+    rag_count = int(payload.get("ragCount") or 0)
+    warning_count = int(payload.get("warningCount") or 0)
+    status = f"上下文已检索：记忆 {memory_count} 条，知识库 {rag_count} 条"
+    if warning_count:
+        status += f"，降级 {warning_count} 项"
+    return status
 
 
 async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
@@ -589,6 +741,16 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             )
             _convert_agent_messages(ctx, messages)
             logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
+
+            memory_context_payload = await _load_task_memory_context(ctx, latest_input)
+            task_store.add_event(
+                task_id,
+                "memory_context_loaded",
+                memory_context_payload,
+                trace_id=trace_id,
+                source="memory",
+            )
+            printer.send(None, "task", _memory_context_status_text(memory_context_payload), None, True)
 
             task_store.add_event(
                 task_id,

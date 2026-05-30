@@ -54,9 +54,9 @@ class SummaryAgent(BaseAgent):
         )
        
         messages: List[LLMMessage] = []
-        agent_prompt = (self.context.agent_system_prompt or "").strip()
-        if agent_prompt:
-            messages.append(LLMMessage(role=RoleType.SYSTEM.value, content=agent_prompt))
+        system_prompt = self.context.compose_system_prompt(self.system_prompt)
+        if system_prompt:
+            messages.append(LLMMessage(role=RoleType.SYSTEM.value, content=system_prompt))
         messages.append(LLMMessage(role=RoleType.USER.value, content=prompt_content))
 
         streamed_chunks: List[str] = []

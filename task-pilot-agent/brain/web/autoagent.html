@@ -1155,8 +1155,21 @@
   function mapTaskEventType(eventType) {
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
-    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
+  }
+
+  function memoryContextSourceText(data) {
+    const items = []
+      .concat(Array.isArray(data.memoryResults) ? data.memoryResults : [])
+      .concat(Array.isArray(data.ragResults) ? data.ragResults : []);
+    const sources = [];
+    items.forEach(item => {
+      const meta = item?.metadata || {};
+      const label = meta.title || meta.source_file || item?.id || item?.source || '';
+      if(label && !sources.includes(label)) sources.push(String(label));
+    });
+    return sources.slice(0, 4).join(', ');
   }
 
   function taskLifecycleText(eventType, payload) {
@@ -1174,6 +1187,13 @@
     if(eventType === 'task_cancelled') return '任务已取消';
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
+    if(eventType === 'memory_context_loaded') {
+      const memoryCount = Number(data.memoryCount || 0);
+      const ragCount = Number(data.ragCount || 0);
+      const warningCount = Number(data.warningCount || 0);
+      const sources = memoryContextSourceText(data);
+      return `上下文已检索：记忆 ${memoryCount} 条，知识库 ${ragCount} 条${sources ? ` · 来源：${sources}` : ''}${warningCount ? `，降级 ${warningCount} 项` : ''}`;
+    }
     if(eventType === 'runtime_boundary_applied') {
       const env = data.runEnvironment || 'local';
       const rootCount = Array.isArray(data.writableRoots) ? data.writableRoots.length : 0;

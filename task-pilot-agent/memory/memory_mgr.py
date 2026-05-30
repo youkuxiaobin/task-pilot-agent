@@ -514,6 +514,61 @@ class MemoryManager:
                 results['rag_results'] = []
         
         return results
+
+    async def unified_search_async(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        memory_limit: int = 10,
+        rag_limit: int = 10,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Unified search for async Agent flows without dropping async RAG results."""
+        results: Dict[str, Any] = {
+            'memory_results': [],
+            'rag_results': [],
+            'scope': {
+                'user_id': user_id,
+                'agent_id': agent_id,
+                'run_id': run_id,
+            },
+            'warnings': []
+        }
+
+        if self.search_memory_enabled:
+            try:
+                memory_results = self.search_memory(
+                    query=query,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    run_id=run_id,
+                    limit=memory_limit
+                )
+                results['memory_results'] = self._format_memory_results(memory_results)
+            except Exception as e:
+                self._record_degradation("memory_search", e)
+                results['warnings'].append({
+                    "component": "memory_search",
+                    "reason": e.__class__.__name__,
+                })
+                results['memory_results'] = []
+
+        if self.search_rag_enabled:
+            try:
+                rag_results = self.rag_retriever.search_rag(query, rag_limit)
+                if inspect.isawaitable(rag_results):
+                    rag_results = await rag_results
+                results['rag_results'] = rag_results or []
+            except Exception as e:
+                self._record_degradation("rag_search", e)
+                results['warnings'].append({
+                    "component": "rag_search",
+                    "reason": e.__class__.__name__,
+                })
+                results['rag_results'] = []
+
+        return results
     
     def _format_memory_results(self, memory_objects: List[Any]) -> List[Dict[str, Any]]:
         """

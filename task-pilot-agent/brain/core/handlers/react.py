@@ -29,8 +29,7 @@ class ReactHandler(AgentHandlerService):
 
     async def handle(self, ctx: AgentContext, req: AgentRequest) -> None:
         summary_agent = SummaryAgent(ctx)
-        prompt = ctx.agent_system_prompt or self._prompt
-        react_agent = ReActAgentImp(ctx, prompt, self._max_steps)
+        react_agent = ReActAgentImp(ctx, self._prompt, self._max_steps)
 
         result = await react_agent.run(ctx.query)
 

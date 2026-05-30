@@ -320,8 +320,41 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     async def fake_build_tool_collection(_ctx):
         return ToolCollection()
 
+    class FakeMemoryManager:
+        def get_search_config(self):
+            return {"memory_enabled": True, "rag_enabled": True}
+
+        def unified_search(self, **kwargs):
+            assert kwargs["query"] == "hello"
+            assert kwargs["user_id"] == "user-autoagent"
+            assert kwargs["agent_id"] == "agent-autoagent"
+            assert kwargs["run_id"] == "conversation-autoagent"
+            return {
+                "memory_results": [
+                    {
+                        "id": "memory-1",
+                        "content": "remember public context",
+                        "metadata": {"source_file": "notes.md", "api_key": "hidden"},
+                        "score": 0.91,
+                        "source": "memory",
+                    }
+                ],
+                "rag_results": [
+                    {
+                        "id": "doc-1",
+                        "content": "knowledge base context",
+                        "metadata": {"title": "demo"},
+                        "score": 0.82,
+                    }
+                ],
+                "warnings": [],
+            }
+
     class FakeHandler:
         async def handle(self, ctx, _request):
+            assert ctx.memory_context["memoryCount"] == 1
+            assert ctx.memory_context["ragCount"] == 1
+            assert ctx.memory_context["memoryResults"][0]["metadata"]["api_key"] == "***"
             ctx.printer.send(
                 "tool-1",
                 "tool_result",
@@ -346,6 +379,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
             ctx.printer.send("result-1", "result", "final answer", None, True)
 
     monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
+    monkeypatch.setattr(app_module, "memory_manager", FakeMemoryManager())
     monkeypatch.setattr(app_module.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
 
     output: List[str] = []
@@ -373,6 +407,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert "task_created" in event_types
     assert "task_running" in event_types
     assert "agent_started" in event_types
+    assert "memory_context_loaded" in event_types
     assert "runtime_boundary_applied" in event_types
     assert "tool_policy_applied" in event_types
     assert "tool_result" in event_types
@@ -398,6 +433,15 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert runtime_payload["runEnvironment"] == "sandbox"
     assert runtime_payload["workDir"] == task_payload["workDir"]
     assert runtime_payload["artifactPolicy"] == "task_workspace_only"
+    memory_event = next(
+        event for event in store.list_events("trace-autoagent") if event.event_type == "memory_context_loaded"
+    )
+    memory_payload = task_modules.serialize_event(memory_event)["payload"]
+    assert memory_payload["memoryCount"] == 1
+    assert memory_payload["ragCount"] == 1
+    assert memory_payload["memoryResults"][0]["snippet"] == "remember public context"
+    assert memory_payload["memoryResults"][0]["metadata"]["api_key"] == "***"
+    assert memory_payload["ragResults"][0]["metadata"]["title"] == "demo"
 
     streamed_events = [
         json.loads(item.removeprefix("data: ").strip())

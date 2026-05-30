@@ -74,12 +74,14 @@ def test_agent_system_prompt_is_used_by_plan_solve_agents():
     context_source = (APP_ROOT / "brain" / "core" / "context.py").read_text(encoding="utf-8")
     planning_source = (APP_ROOT / "brain" / "core" / "agents" / "planning_agent.py").read_text(encoding="utf-8")
     executor_source = (APP_ROOT / "brain" / "core" / "agents" / "executor_agent.py").read_text(encoding="utf-8")
+    react_source = (APP_ROOT / "brain" / "core" / "agents" / "ReActAgentImp.py").read_text(encoding="utf-8")
     summary_source = (APP_ROOT / "brain" / "core" / "agents" / "summary_agent.py").read_text(encoding="utf-8")
 
     assert "def compose_system_prompt" in context_source
     assert "compose_system_prompt(prompt)" in planning_source
     assert "compose_system_prompt(prompt)" in executor_source
-    assert "agent_system_prompt" in summary_source
+    assert "compose_system_prompt(prompt)" in react_source
+    assert "compose_system_prompt(self.system_prompt)" in summary_source
     assert "RoleType.SYSTEM" in summary_source
 
 

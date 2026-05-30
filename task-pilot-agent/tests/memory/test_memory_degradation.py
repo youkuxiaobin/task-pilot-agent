@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -92,3 +93,21 @@ def test_unified_search_includes_scope_and_warning_on_failures():
         "run_id": "run-1",
     }
     assert result["warnings"] == [{"component": "memory_search", "reason": "RuntimeError"}]
+
+
+def test_unified_search_async_keeps_rag_results_inside_running_loop():
+    manager = MemoryManager(_settings(search_memory=False, search_rag=True))
+
+    class AsyncRAGRetriever:
+        async def search_rag(self, query, limit):
+            assert query == "query"
+            assert limit == 3
+            return [{"content": "rag result", "score": 0.8}]
+
+    manager.rag_retriever = AsyncRAGRetriever()
+
+    result = asyncio.run(manager.unified_search_async("query", rag_limit=3))
+
+    assert result["memory_results"] == []
+    assert result["rag_results"] == [{"content": "rag result", "score": 0.8}]
+    assert result["warnings"] == []
