@@ -80,15 +80,59 @@ def _blocked_tool_reasons(
     return reasons
 
 
-def _serialize_available_tool(tool: Any) -> Dict[str, Any]:
+def _find_agent_tool_spec(agent_config: Optional[AgentConfig], tool_name: str) -> Any:
+    if not agent_config:
+        return None
+    exact = next((tool for tool in agent_config.tools if tool.name == tool_name), None)
+    if exact:
+        return exact
+    return next(
+        (tool for tool in agent_config.tools if tool.name and fnmatch.fnmatch(tool_name, tool.name)),
+        None,
+    )
+
+
+def _serialize_tool_spec_fields(tool_spec: Any) -> Dict[str, Any]:
+    if not tool_spec:
+        return {}
     return {
-        "name": str(getattr(tool, "name", "") or getattr(tool, "full_name", "")),
-        "description": str(getattr(tool, "description", "") or ""),
+        "alias": getattr(tool_spec, "alias", ""),
+        "purpose": getattr(tool_spec, "purpose", ""),
+        "whenToUse": getattr(tool_spec, "when_to_use", ""),
+        "required": bool(getattr(tool_spec, "required", False)),
+        "timeoutSeconds": getattr(tool_spec, "timeout_seconds", None),
+        "policy": getattr(tool_spec, "policy", None) or {},
+    }
+
+
+def _serialize_available_tool(tool: Any, agent_config: Optional[AgentConfig] = None) -> Dict[str, Any]:
+    name = str(getattr(tool, "name", "") or getattr(tool, "full_name", ""))
+    tool_spec = _find_agent_tool_spec(agent_config, name)
+    description = str(getattr(tool, "description", "") or getattr(tool_spec, "description", "") or "")
+    payload = {
+        "name": name,
+        "description": description,
         "allowed": True,
         "blockReason": "",
-        "inputSchema": getattr(tool, "input_schema", None) or {},
-        "outputSchema": getattr(tool, "output_schema", None) or {},
+        "inputSchema": getattr(tool, "input_schema", None) or getattr(tool_spec, "input_schema", None) or {},
+        "outputSchema": getattr(tool, "output_schema", None) or getattr(tool_spec, "output_schema", None) or {},
     }
+    payload.update(_serialize_tool_spec_fields(tool_spec))
+    return payload
+
+
+def _serialize_blocked_tool(tool_name: str, reason: str, agent_config: Optional[AgentConfig]) -> Dict[str, Any]:
+    tool_spec = _find_agent_tool_spec(agent_config, tool_name)
+    payload = {
+        "name": tool_name,
+        "description": str(getattr(tool_spec, "description", "") or ""),
+        "allowed": False,
+        "blockReason": reason,
+        "inputSchema": getattr(tool_spec, "input_schema", None) or {},
+        "outputSchema": getattr(tool_spec, "output_schema", None) or {},
+    }
+    payload.update(_serialize_tool_spec_fields(tool_spec))
+    return payload
 
 
 def _normalize_run_environment(value: Optional[str]) -> str:
@@ -782,13 +826,9 @@ async def list_agent_tools(agent_id: Optional[str] = Query(default=None)) -> Dic
     blocked = sorted(set(tc.blocked_tools))
     return {
         "agentId": resolved_agent_id,
-        "items": [_serialize_available_tool(tool) for tool in tc.tool_map.values()],
+        "items": [_serialize_available_tool(tool, agent_config) for tool in tc.tool_map.values()],
         "blockedTools": [
-            {
-                "name": tool_name,
-                "allowed": False,
-                "blockReason": reason,
-            }
+            _serialize_blocked_tool(tool_name, reason, agent_config)
             for tool_name, reason in _blocked_tool_reasons(blocked, agent_config, None).items()
         ],
     }

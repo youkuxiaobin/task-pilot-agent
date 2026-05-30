@@ -255,7 +255,13 @@ def test_list_agent_tools_returns_builtin_and_mcp_tools(app_modules, monkeypatch
         tools=[
             AgentToolSpec(name="builtin:plan_tool"),
             AgentToolSpec(name="mcp_local:deepsearch"),
-            AgentToolSpec(name="mcp_local:code_interpreter", policy={"risk": "high"}),
+            AgentToolSpec(
+                name="mcp_local:code_interpreter",
+                description="Configured code runner",
+                input_schema={"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
+                output_schema={"type": "object", "properties": {"result": {"type": "string"}}},
+                policy={"risk": "high"},
+            ),
         ],
     )
 
@@ -290,8 +296,17 @@ def test_list_agent_tools_returns_builtin_and_mcp_tools(app_modules, monkeypatch
     assert payload["blockedTools"] == [
         {
             "name": "mcp_local:code_interpreter",
+            "description": "Configured code runner",
             "allowed": False,
             "blockReason": "high_risk_requires_enable",
+            "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]},
+            "outputSchema": {"type": "object", "properties": {"result": {"type": "string"}}},
+            "alias": "",
+            "purpose": "",
+            "whenToUse": "",
+            "required": False,
+            "timeoutSeconds": None,
+            "policy": {"risk": "high"},
         }
     ]
 
