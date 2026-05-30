@@ -186,5 +186,7 @@ class ExecutorAgent(ReActAgent):
                 "requestId",
                 "runId",
                 "sessionId",
+                "runEnvironment",
+                "workDir",
             }
         }

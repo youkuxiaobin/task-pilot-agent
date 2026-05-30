@@ -197,6 +197,39 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
     assert collection.last_execution["completedAt"]
 
 
+def test_agent_tool_result_metadata_includes_runtime_boundary():
+    from brain.core.agents.ReActAgentImp import ReActAgentImp
+    from brain.core.agents.executor_agent import ExecutorAgent
+
+    tool_collection = SimpleNamespace(
+        last_execution={
+            "tool": "mcp_local:deepsearch",
+            "durationMs": 12,
+            "failed": False,
+            "resultSummary": "ok",
+            "startedAt": "2026-05-30T00:00:00+00:00",
+            "completedAt": "2026-05-30T00:00:01+00:00",
+            "userId": "user-1",
+            "agentId": "agent-1",
+            "taskId": "task-1",
+            "requestId": "request-1",
+            "runId": "run-1",
+            "sessionId": "session-1",
+            "runEnvironment": "sandbox",
+            "workDir": "/tmp/task-work",
+        }
+    )
+    context = SimpleNamespace(toolCollection=tool_collection)
+
+    for cls in (ReActAgentImp, ExecutorAgent):
+        agent = object.__new__(cls)
+        agent.context = context
+        metadata = agent._tool_execution_metadata("mcp_local:deepsearch")
+
+        assert metadata["runEnvironment"] == "sandbox"
+        assert metadata["workDir"] == "/tmp/task-work"
+
+
 def test_tool_collection_enforces_configured_tool_timeout():
     collection = ToolCollection()
     slow_tool = SlowTool("mcp_local:slow")

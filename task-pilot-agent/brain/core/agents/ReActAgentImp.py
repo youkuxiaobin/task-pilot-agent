@@ -316,6 +316,8 @@ class ReActAgentImp(ReActAgent):
                 "requestId",
                 "runId",
                 "sessionId",
+                "runEnvironment",
+                "workDir",
             }
         }
 
