@@ -215,6 +215,10 @@ React/Supervisor Agent
 - 每次工具调用都要记录工具名、入参摘要、结果摘要、耗时、失败状态。
 - 密钥、token、cookie 等敏感值必须在日志、事件和页面中脱敏。
 - 新增工具必须至少有一个代表性测试；如果本地无法测试，必须说明原因。
+- 默认通用 Agent 必须具备基础文件能力：读文件、写文件、列目录、查看文件信息、创建目录、复制、移动、删除。
+- 读文件可以读取用户明确给出的本机路径；写入、删除、移动等修改类文件工具默认必须限制在任务工作目录内。
+- Shell/命令执行属于高风险工具，必须通过工具策略和权限开关控制，不能默认暴露给模型。
+- MCP Market 返回的工具名可能使用 `mcp_local-file_read` 这类短横线格式；Agent 配置可使用 `mcp_local:file_read`，策略匹配必须兼容这两种写法。
 
 ### 5. 沙箱运行环境
 
@@ -720,6 +724,15 @@ MCP 集成：
 内置工具包括：
 
 - `code_interpreter`：执行 Python 代码。
+- `file_read`：读取 Linux/macOS/Windows 本机文件。
+- `file_write`：在任务工作目录内写入文本文件。
+- `file_list`：列出目录内容。
+- `file_stat`：查看文件或目录基础信息。
+- `directory_create`：在任务工作目录内创建目录。
+- `file_copy`：复制文件到任务工作目录。
+- `file_move`：移动或重命名任务工作目录内的文件或目录。
+- `file_delete`：删除任务工作目录内的文件或目录。
+- `shell_exec`：执行本机命令，高风险，默认需要显式授权。
 - `deepsearch`：多源搜索。
 - `report`：生成 markdown、HTML、PPT 报告。
 - `weather`：天气查询。
@@ -930,6 +943,8 @@ class MyCustomAgent(BaseAgent):
 3. 确保 MCP Market 能发现工具。
 4. 增加工具成功、失败、输入校验测试。
 5. 确保工具权限、日志、脱敏和任务事件记录符合要求。
+6. 文件或命令类工具必须测试允许路径和拒绝路径；跨平台路径逻辑要避免写死 Linux/macOS 专属假设。
+7. 修改 Agent 工具 allowlist 时，同时验证实际 MCP 工具名和 Agent 配置模式能匹配。
 
 示例：
 
