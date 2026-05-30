@@ -66,6 +66,7 @@ class SupervisorHandler(AgentHandlerService):
         original_mode = ctx.mode
         original_prompt = ctx.agent_system_prompt
         original_tools = ctx.toolCollection
+        original_memory = ctx.agent_memory
 
         delegate_req = _copy_request(req)
         _set_request_attr(delegate_req, "agent_id", target.id)
@@ -75,6 +76,7 @@ class SupervisorHandler(AgentHandlerService):
             ctx.agent_id = target.id
             ctx.mode = target.mode or "react"
             ctx.agent_system_prompt = target.system_prompt
+            ctx.agent_memory = target.memory
             ctx.toolCollection = await self.tool_collection_builder(ctx)
             worker = self._select_worker(ctx, delegate_req)
             if worker is None:
@@ -94,6 +96,7 @@ class SupervisorHandler(AgentHandlerService):
             ctx.mode = original_mode
             ctx.agent_system_prompt = original_prompt
             ctx.toolCollection = original_tools
+            ctx.agent_memory = original_memory
 
     def _select_worker(self, ctx: AgentContext, req: AgentRequest) -> Optional[AgentHandlerService]:
         for handler in self.worker_handlers:

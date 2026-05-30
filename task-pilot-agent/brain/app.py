@@ -210,6 +210,32 @@ def _summarize_context_results(items: Any, fallback_source: str, limit: int = 5)
     ]
 
 
+def _agent_memory_read_limits(ctx: AgentContext) -> tuple[int, int]:
+    memory_config = ctx.agent_memory if isinstance(ctx.agent_memory, dict) else {}
+    if "read" not in memory_config:
+        return 5, 5
+    raw_scopes = memory_config.get("read")
+    if raw_scopes in (None, ""):
+        return 0, 0
+    if isinstance(raw_scopes, str):
+        scopes = {raw_scopes}
+    elif isinstance(raw_scopes, list):
+        scopes = {str(item) for item in raw_scopes}
+    else:
+        return 0, 0
+    normalized = {scope.strip().lower() for scope in scopes if scope.strip()}
+    if not normalized:
+        return 0, 0
+    if "*" in normalized or "all" in normalized:
+        return 5, 5
+
+    memory_scopes = {"memory", "task_history", "user_profile", "conversation_history"}
+    knowledge_scopes = {"knowledge", "knowledge_base", "rag", "documents", "files"}
+    memory_limit = 5 if normalized.intersection(memory_scopes) else 0
+    rag_limit = 5 if normalized.intersection(knowledge_scopes) else 0
+    return memory_limit, rag_limit
+
+
 async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, Any]:
     search_config: Dict[str, Any] = {}
     if hasattr(memory_manager, "get_search_config"):
@@ -220,6 +246,7 @@ async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, 
         except Exception as exc:  # pragma: no cover - defensive
             search_config = {"warning": exc.__class__.__name__}
 
+    memory_limit, rag_limit = _agent_memory_read_limits(ctx)
     payload: Dict[str, Any] = {
         "querySummary": _truncate_for_event(query, 160),
         "scope": {
@@ -227,8 +254,8 @@ async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, 
             "agentId": ctx.agent_id,
             "runId": ctx.run_id,
         },
-        "memoryEnabled": bool(search_config.get("memory_enabled", True)),
-        "ragEnabled": bool(search_config.get("rag_enabled", True)),
+        "memoryEnabled": bool(search_config.get("memory_enabled", True)) and memory_limit > 0,
+        "ragEnabled": bool(search_config.get("rag_enabled", True)) and rag_limit > 0,
         "memoryCount": 0,
         "ragCount": 0,
         "warningCount": 0,
@@ -243,6 +270,10 @@ async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, 
         ctx.memory_context = sanitize_payload(payload)
         return ctx.memory_context
 
+    if not payload["memoryEnabled"] and not payload["ragEnabled"]:
+        ctx.memory_context = sanitize_payload(payload)
+        return ctx.memory_context
+
     try:
         search_fn = getattr(memory_manager, "unified_search_async", None) or memory_manager.unified_search
         raw_result = search_fn(
@@ -250,8 +281,8 @@ async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, 
             user_id=ctx.user_id,
             agent_id=ctx.agent_id,
             run_id=ctx.run_id,
-            memory_limit=5,
-            rag_limit=5,
+            memory_limit=memory_limit if payload["memoryEnabled"] else 0,
+            rag_limit=rag_limit if payload["ragEnabled"] else 0,
         )
         if inspect.isawaitable(raw_result):
             raw_result = await raw_result
@@ -283,6 +314,8 @@ async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, 
 
 
 def _memory_context_status_text(payload: Dict[str, Any]) -> str:
+    if payload.get("memoryEnabled") is False and payload.get("ragEnabled") is False:
+        return "上下文检索已按 Agent 配置关闭"
     memory_count = int(payload.get("memoryCount") or 0)
     rag_count = int(payload.get("ragCount") or 0)
     warning_count = int(payload.get("warningCount") or 0)
@@ -801,6 +834,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 task_id=task_id,
                 work_dir=created_task_payload.get("workDir"),
                 agent_system_prompt=agent_config.system_prompt if agent_config else None,
+                agent_memory=agent_config.memory if agent_config else {},
                 selected_tools=selected_tools,
                 approved_tools=approved_tools,
                 run_environment=request.run_environment or "local",

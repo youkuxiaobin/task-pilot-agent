@@ -106,6 +106,7 @@ def test_autoagent_page_contains_task_replay_controls():
         "已授权",
         "memory_context_loaded",
         "上下文已检索",
+        "上下文检索已按 Agent 配置关闭",
         "来源：",
         "memoryContextSourceText",
         "agent_phase",

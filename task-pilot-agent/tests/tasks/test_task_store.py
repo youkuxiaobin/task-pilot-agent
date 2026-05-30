@@ -330,6 +330,57 @@ def test_sse_printer_adds_task_id_and_reports_events(task_modules):
     assert streamed_payload["toolCall"]["name"] == "deepsearch"
 
 
+def test_memory_context_respects_agent_read_scope(task_modules, monkeypatch):
+    import brain.app as app_module
+
+    app_module = importlib.reload(app_module)
+    calls: List[dict[str, Any]] = []
+
+    class FakeMemoryManager:
+        def get_search_config(self):
+            return {"memory_enabled": True, "rag_enabled": True}
+
+        def unified_search(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "memory_results": [{"id": "memory-1", "content": "remember this"}]
+                if kwargs["memory_limit"]
+                else [],
+                "rag_results": [{"id": "doc-1", "content": "knowledge"}] if kwargs["rag_limit"] else [],
+                "warnings": [],
+            }
+
+    monkeypatch.setattr(app_module, "memory_manager", FakeMemoryManager())
+    base_context = {
+        "requestId": "memory-scope-request",
+        "sessionId": "memory-scope-session",
+        "user_id": "user-1",
+        "agent_id": "memory-agent",
+        "run_id": "conversation-1",
+        "query": "hello",
+        "task": None,
+        "printer": None,
+        "toolCollection": None,
+        "dateInfo": "2026-05-30",
+    }
+
+    disabled_ctx = app_module.AgentContext(**base_context, agent_memory={"read": []})
+    disabled_payload = asyncio.run(app_module._load_task_memory_context(disabled_ctx, "hello"))
+
+    assert calls == []
+    assert disabled_payload["memoryEnabled"] is False
+    assert disabled_payload["ragEnabled"] is False
+    assert app_module._memory_context_status_text(disabled_payload) == "上下文检索已按 Agent 配置关闭"
+
+    memory_only_ctx = app_module.AgentContext(**base_context, agent_memory={"read": ["task_history"]})
+    memory_payload = asyncio.run(app_module._load_task_memory_context(memory_only_ctx, "hello"))
+
+    assert calls[-1]["memory_limit"] == 5
+    assert calls[-1]["rag_limit"] == 0
+    assert memory_payload["memoryCount"] == 1
+    assert memory_payload["ragCount"] == 0
+
+
 def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monkeypatch):
     pytest.importorskip("fastapi")
 

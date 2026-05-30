@@ -44,6 +44,7 @@ class AgentContext:
     approved_tools: Optional[List[str]] = None
     run_environment: str = "local"
     memory_context: Dict[str, Any] = field(default_factory=dict)
+    agent_memory: Dict[str, Any] = field(default_factory=dict)
 
     def compose_system_prompt(self, base_prompt: str) -> str:
         parts: List[str] = []

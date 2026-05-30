@@ -1288,6 +1288,7 @@
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
     if(eventType === 'memory_context_loaded') {
+      if(data.memoryEnabled === false && data.ragEnabled === false) return '上下文检索已按 Agent 配置关闭';
       const memoryCount = Number(data.memoryCount || 0);
       const ragCount = Number(data.ragCount || 0);
       const warningCount = Number(data.warningCount || 0);
