@@ -320,6 +320,37 @@ def test_agent_registry_rejects_missing_handoff_target(tmp_path):
         AgentRegistry(tmp_path / "agents")
 
 
+def test_agent_registry_diagnostics_reports_invalid_configs(tmp_path):
+    agents_root = tmp_path / "agents"
+    report_dir = agents_root / "report_agent"
+    router_dir = agents_root / "router_agent"
+    report_dir.mkdir(parents=True)
+    router_dir.mkdir()
+    (report_dir / "agent.yaml").write_text("id: report_agent\nname: Report Agent\n", encoding="utf-8")
+    (router_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: router_agent
+            name: Router Agent
+            type: supervisor
+            handoffs:
+              allowed:
+                - missing_agent
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    payload = AgentRegistry.diagnostics_for(agents_root)
+
+    assert payload["status"] == "invalid"
+    assert payload["validCount"] == 1
+    assert payload["invalidCount"] == 1
+    router = next(item for item in payload["items"] if item["agentId"] == "router_agent")
+    assert router["status"] == "invalid"
+    assert "handoff target not found" in router["error"]
+
+
 def test_agent_registry_supervisor_selects_allowed_agent_by_task_terms(tmp_path):
     agents_root = tmp_path / "agents"
     supervisor_dir = agents_root / "supervisor"

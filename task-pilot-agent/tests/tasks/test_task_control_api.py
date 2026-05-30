@@ -281,6 +281,30 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     assert tasks.serialize_event(events[-1])["payload"]["agentSnapshot"]["id"] == "task-pilot-agent"
 
 
+def test_agent_diagnostics_api_reports_config_errors(app_modules, tmp_path, monkeypatch):
+    app, _tasks = app_modules
+    agents_root = tmp_path / "agents"
+    good_dir = agents_root / "good_agent"
+    bad_dir = agents_root / "bad_agent"
+    good_dir.mkdir(parents=True)
+    bad_dir.mkdir()
+    (good_dir / "agent.yaml").write_text("id: good_agent\nname: Good Agent\n", encoding="utf-8")
+    (bad_dir / "agent.yaml").write_text(
+        "id: bad_agent\nname: Bad Agent\ntype: python.module.Agent\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(app.agentRegistry, "root_dir", agents_root)
+
+    payload = asyncio.run(app.get_agent_diagnostics())
+
+    assert payload["status"] == "invalid"
+    assert payload["validCount"] == 1
+    assert payload["invalidCount"] == 1
+    bad_agent = next(item for item in payload["items"] if item["agentId"] == "bad_agent")
+    assert bad_agent["status"] == "invalid"
+    assert "Unsupported agent type" in bad_agent["error"]
+
+
 def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, monkeypatch):
     app, tasks = app_modules
     timestamps = iter([1_000, 1_100, 1_800, 5_000, 5_100, 8_000])

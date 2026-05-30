@@ -1043,6 +1043,11 @@ async def list_agents() -> Dict[str, Any]:
     }
 
 
+@agent_router.get("/agents/diagnostics")
+async def get_agent_diagnostics() -> Dict[str, Any]:
+    return agentRegistry.diagnostics()
+
+
 @agent_router.get("/agents/{agent_id}")
 async def get_agent(agent_id: str) -> Dict[str, Any]:
     agentRegistry.reload()

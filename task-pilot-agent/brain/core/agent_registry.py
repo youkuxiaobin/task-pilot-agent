@@ -319,6 +319,72 @@ class AgentRegistry:
         self._validate_handoffs(agents)
         self._agents = agents
 
+    def diagnostics(self) -> Dict[str, Any]:
+        return self.diagnostics_for(self.root_dir)
+
+    @classmethod
+    def diagnostics_for(cls, root_dir: Path | str) -> Dict[str, Any]:
+        root = Path(root_dir).expanduser().resolve()
+        diagnostics_by_id: Dict[str, Dict[str, Any]] = {}
+        items: List[Dict[str, Any]] = []
+        agents: Dict[str, AgentConfig] = {}
+
+        if not root.exists():
+            return {
+                "rootDir": str(root),
+                "status": "missing",
+                "validCount": 0,
+                "invalidCount": 0,
+                "items": [],
+            }
+
+        loader = cls.__new__(cls)
+        loader.root_dir = root
+        loader._agents = {}
+
+        for agent_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+            yaml_path = agent_dir / "agent.yaml"
+            if not yaml_path.exists():
+                continue
+            agent_id = cls._best_effort_agent_id(agent_dir, yaml_path)
+            item = {
+                "directory": str(agent_dir),
+                "agentId": agent_id,
+                "status": "valid",
+                "error": "",
+                "errors": [],
+            }
+            try:
+                agent = loader._load_agent(agent_dir, yaml_path)
+                agent_id = agent.id
+                item["agentId"] = agent_id
+                if agent_id in agents:
+                    raise ValueError(f"Duplicate agent id: {agent_id}")
+                agents[agent_id] = agent
+            except Exception as exc:
+                item["status"] = "invalid"
+                item["error"] = str(exc)
+                item["errors"] = [str(exc)]
+            diagnostics_by_id[agent_id] = item
+            items.append(item)
+
+        for agent_id, errors in cls._handoff_errors(agents).items():
+            item = diagnostics_by_id.get(agent_id)
+            if not item:
+                continue
+            item["status"] = "invalid"
+            item["errors"] = list(item.get("errors") or []) + errors
+            item["error"] = "; ".join(item["errors"])
+
+        invalid_count = sum(1 for item in items if item["status"] == "invalid")
+        return {
+            "rootDir": str(root),
+            "status": "invalid" if invalid_count else "ok",
+            "validCount": len(items) - invalid_count,
+            "invalidCount": invalid_count,
+            "items": items,
+        }
+
     def list_agents(self, *, include_disabled: bool = False) -> List[AgentConfig]:
         agents = list(self._agents.values())
         if not include_disabled:
@@ -501,16 +567,38 @@ class AgentRegistry:
 
     @staticmethod
     def _validate_handoffs(agents: Dict[str, AgentConfig]) -> None:
+        errors_by_agent = AgentRegistry._handoff_errors(agents)
+        for agent_id, errors in errors_by_agent.items():
+            if errors:
+                raise ValueError(errors[0])
+
+    @staticmethod
+    def _handoff_errors(agents: Dict[str, AgentConfig]) -> Dict[str, List[str]]:
+        errors: Dict[str, List[str]] = {}
         for agent in agents.values():
             allowed = agent.handoffs.get("allowed") if isinstance(agent.handoffs, dict) else None
             if not allowed:
                 continue
             if not isinstance(allowed, list):
-                raise ValueError(f"Agent handoffs.allowed must be a list: {agent.id}")
+                errors.setdefault(agent.id, []).append(f"Agent handoffs.allowed must be a list: {agent.id}")
+                continue
             for target in allowed:
                 target_id = str(target).strip()
                 if target_id and target_id not in agents:
-                    raise ValueError(f"Agent handoff target not found: {agent.id} -> {target_id}")
+                    errors.setdefault(agent.id, []).append(
+                        f"Agent handoff target not found: {agent.id} -> {target_id}"
+                    )
+        return errors
+
+    @staticmethod
+    def _best_effort_agent_id(agent_dir: Path, yaml_path: Path) -> str:
+        try:
+            raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            if isinstance(raw, dict) and raw.get("id"):
+                return str(raw.get("id")).strip() or agent_dir.name
+        except Exception:
+            pass
+        return agent_dir.name
 
     @classmethod
     def _load_evals(cls, agent_dir: Path) -> List[AgentEvalCase]:
