@@ -893,6 +893,7 @@ async def list_agent_tasks(
     user_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     agent_id: Optional[str] = Query(default=None),
+    agent_type: Optional[str] = Query(default=None),
     keyword: Optional[str] = Query(default=None),
     created_from: Optional[int] = Query(default=None),
     created_to: Optional[int] = Query(default=None),
@@ -916,6 +917,18 @@ async def list_agent_tasks(
         limit=limit,
         offset=offset,
     )
+    if agent_type:
+        normalized_agent_type = agent_type.strip()
+        agentRegistry.reload()
+        def task_matches_agent_type(task: Any) -> bool:
+            agent = agentRegistry.get(task.agent_id)
+            return bool(agent and agent.type == normalized_agent_type)
+
+        tasks = [
+            task
+            for task in tasks
+            if task_matches_agent_type(task)
+        ]
     return {"items": [serialize_task(task) for task in tasks], "limit": limit, "offset": offset}
 
 

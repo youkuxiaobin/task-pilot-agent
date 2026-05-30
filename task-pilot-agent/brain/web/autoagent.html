@@ -365,6 +365,9 @@
         <select id="task-agent-filter" class="filter-select" title="任务 Agent">
           <option value="">全部 Agent</option>
         </select>
+        <select id="task-agent-type-filter" class="filter-select" title="Agent 类型">
+          <option value="">全部类型</option>
+        </select>
         <select id="task-created-filter" class="filter-select" title="创建时间">
           <option value="">全部时间</option>
           <option value="hour">最近 1 小时</option>
@@ -478,6 +481,7 @@
     taskUserFilter: document.getElementById('task-user-filter'),
     taskStatusFilter: document.getElementById('task-status-filter'),
     taskAgentFilter: document.getElementById('task-agent-filter'),
+    taskAgentTypeFilter: document.getElementById('task-agent-type-filter'),
     taskCreatedFilter: document.getElementById('task-created-filter'),
     taskDurationFilter: document.getElementById('task-duration-filter'),
     taskErrorFilter: document.getElementById('task-error-filter'),
@@ -698,6 +702,7 @@
       if(userId) params.set('user_id', userId);
       if(dom.taskStatusFilter.value) params.set('status', dom.taskStatusFilter.value);
       if(dom.taskAgentFilter.value) params.set('agent_id', dom.taskAgentFilter.value);
+      if(dom.taskAgentTypeFilter.value) params.set('agent_type', dom.taskAgentTypeFilter.value);
       const createdFrom = taskCreatedRange(dom.taskCreatedFilter.value);
       if(createdFrom !== null) params.set('created_from', String(createdFrom));
       applyDurationFilter(params, dom.taskDurationFilter.value);
@@ -721,11 +726,13 @@
       state.defaultAgentId = data.defaultAgentId || '';
       renderAgentOptions();
       renderTaskAgentFilter();
+      renderTaskAgentTypeFilter();
     } catch(err) {
       state.agents = [];
       state.defaultAgentId = '';
       renderAgentOptions();
       renderTaskAgentFilter();
+      renderTaskAgentTypeFilter();
     }
   }
 
@@ -768,6 +775,21 @@
     });
     if(previous && state.agents.some(agent => agent.id === previous)) {
       dom.taskAgentFilter.value = previous;
+    }
+  }
+
+  function renderTaskAgentTypeFilter() {
+    const previous = dom.taskAgentTypeFilter.value;
+    const types = [...new Set(state.agents.map(agent => agent.type).filter(Boolean))].sort();
+    dom.taskAgentTypeFilter.innerHTML = '<option value="">全部类型</option>';
+    types.forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      dom.taskAgentTypeFilter.appendChild(option);
+    });
+    if(previous && types.includes(previous)) {
+      dom.taskAgentTypeFilter.value = previous;
     }
   }
 
@@ -1678,6 +1700,7 @@
   dom.taskUserFilter.oninput = scheduleTaskRefresh;
   dom.taskStatusFilter.onchange = refreshTaskList;
   dom.taskAgentFilter.onchange = refreshTaskList;
+  dom.taskAgentTypeFilter.onchange = refreshTaskList;
   dom.taskCreatedFilter.onchange = refreshTaskList;
   dom.taskDurationFilter.onchange = refreshTaskList;
   dom.taskErrorFilter.onchange = refreshTaskList;

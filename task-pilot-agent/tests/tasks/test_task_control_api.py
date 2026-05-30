@@ -175,6 +175,7 @@ def test_list_tasks_api_supports_time_duration_and_error_filters(app_modules, mo
             user_id=None,
             status=None,
             agent_id=None,
+            agent_type=None,
             keyword=None,
             created_from=None,
             created_to=None,
@@ -202,6 +203,7 @@ def test_list_tasks_api_filters_by_user(app_modules):
             user_id="user-a",
             status=None,
             agent_id=None,
+            agent_type=None,
             keyword=None,
             created_from=None,
             created_to=None,
@@ -214,6 +216,40 @@ def test_list_tasks_api_filters_by_user(app_modules):
     )
 
     assert [item["taskId"] for item in payload["items"]] == ["user-task-a"]
+
+
+def test_list_tasks_api_filters_by_agent_type(app_modules, monkeypatch):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(task_id="task-supervisor", trace_id="trace-supervisor", agent_id="supervisor-agent", input_text="alpha")
+    store.create_task(task_id="task-worker", trace_id="trace-worker", agent_id="worker-agent", input_text="beta")
+
+    configs = {
+        "supervisor-agent": app.AgentConfig(id="supervisor-agent", name="Supervisor", type="supervisor"),
+        "worker-agent": app.AgentConfig(id="worker-agent", name="Worker", type="react_worker"),
+    }
+
+    monkeypatch.setattr(app.agentRegistry, "reload", lambda: None)
+    monkeypatch.setattr(app.agentRegistry, "get", lambda agent_id: configs.get(agent_id))
+
+    payload = asyncio.run(
+        app.list_agent_tasks(
+            user_id=None,
+            status=None,
+            agent_id=None,
+            agent_type="supervisor",
+            keyword=None,
+            created_from=None,
+            created_to=None,
+            min_duration_ms=None,
+            max_duration_ms=None,
+            has_error=None,
+            limit=50,
+            offset=0,
+        )
+    )
+
+    assert [item["taskId"] for item in payload["items"]] == ["task-supervisor"]
 
 
 def test_blocked_tool_reasons_include_policy_and_selection(app_modules, monkeypatch):
