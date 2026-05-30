@@ -691,6 +691,7 @@ async def autoagent_ws(websocket: WebSocket) -> None:
         queue.put_nowait(data)
 
     worker = asyncio.create_task(_run_autoagent(req, enqueue))
+    detached = False
     try:
         while True:
             data = await queue.get()
@@ -717,10 +718,11 @@ async def autoagent_ws(websocket: WebSocket) -> None:
             if payload_text == "[DONE]":
                 break
     except WebSocketDisconnect:
-        worker.cancel()
+        detached = True
     finally:
-        with contextlib.suppress(asyncio.CancelledError):
-            await worker
+        if not detached:
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker
         with contextlib.suppress(Exception):
             await websocket.close()
 

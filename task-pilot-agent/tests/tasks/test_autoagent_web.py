@@ -9,6 +9,7 @@ import pytest
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "brain" / "web" / "autoagent.html"
+APP_PATH = Path(__file__).resolve().parents[2] / "brain" / "app.py"
 
 
 def test_autoagent_page_contains_task_replay_controls():
@@ -86,3 +87,12 @@ def test_autoagent_inline_javascript_has_valid_syntax(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_websocket_disconnect_keeps_background_worker_detached():
+    source = APP_PATH.read_text(encoding="utf-8")
+    ws_block = source.split("async def autoagent_ws", 1)[1].split("@agent_router.get(\"/web/health\")", 1)[0]
+
+    assert "except WebSocketDisconnect:" in ws_block
+    assert "detached = True" in ws_block
+    assert "worker.cancel()" not in ws_block

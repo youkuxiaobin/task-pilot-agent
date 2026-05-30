@@ -89,3 +89,63 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
 
     parent_events = store.list_events("retry-me")
     assert parent_events[-1].event_type == "task_retry_requested"
+
+
+def test_websocket_disconnect_does_not_cancel_background_task(app_modules, monkeypatch):
+    app, _tasks = app_modules
+    cancelled = False
+
+    class FakeWebSocket:
+        async def accept(self):
+            return None
+
+        async def receive_json(self):
+            return {
+                "trace_id": "ws-trace",
+                "user_id": "user-1",
+                "agent_id": "task-pilot-agent",
+                "conversation_id": "conversation-1",
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+
+        async def send_json(self, _payload):
+            raise app.WebSocketDisconnect()
+
+        async def send_text(self, _payload):
+            raise app.WebSocketDisconnect()
+
+        async def close(self, code=None):
+            return None
+
+    async def run_scenario():
+        nonlocal cancelled
+        created_tasks = []
+        stop_worker = asyncio.Event()
+        real_create_task = asyncio.create_task
+
+        async def fake_run_autoagent(_req, enqueue):
+            nonlocal cancelled
+            enqueue('data: {"messageType":"stream","result":"hello"}\n\n')
+            try:
+                await stop_worker.wait()
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+
+        def tracking_create_task(coro):
+            task = real_create_task(coro)
+            created_tasks.append(task)
+            return task
+
+        monkeypatch.setattr(app, "_run_autoagent", fake_run_autoagent)
+        monkeypatch.setattr(app.asyncio, "create_task", tracking_create_task)
+
+        await asyncio.wait_for(app.autoagent_ws(FakeWebSocket()), timeout=1)
+
+        assert created_tasks
+        assert created_tasks[0].done() is False
+        assert cancelled is False
+        stop_worker.set()
+        await created_tasks[0]
+
+    asyncio.run(run_scenario())
