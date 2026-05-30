@@ -586,7 +586,15 @@
       return;
     }
     const usageText = formatUsageMeta(session.usage);
-    dom.taskMeta.textContent = `任务 ${session.taskId} · ${session.taskStatus || 'running'}${usageText ? ` · ${usageText}` : ''}`;
+    const parts = [
+      `任务 ${session.taskId}`,
+      session.taskStatus || 'running',
+      session.taskAgentId,
+      session.taskMode,
+      session.runEnvironment ? `环境 ${session.runEnvironment}` : '',
+      usageText,
+    ].filter(Boolean);
+    dom.taskMeta.textContent = parts.join(' · ');
     updateTaskInputPanel(session);
   }
 
@@ -1037,6 +1045,9 @@
   function renderTaskToSession(session, task, events, artifacts=[]) {
     session.taskId = task.taskId || task.task_id;
     session.taskStatus = task.status || '';
+    session.taskAgentId = task.agentId || task.agent_id || '';
+    session.taskMode = task.mode || '';
+    session.runEnvironment = task.runEnvironment || task.metadata?.runEnvironment || '';
     session.usage = task.usage || task.metadata?.usage || null;
     session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
     session.messages = [];
@@ -1510,6 +1521,9 @@
     if(payload.taskId) {
       session.taskId = payload.taskId;
       session.taskStatus = payload.finish ? 'completed' : (session.taskStatus || 'running');
+      if(payload.agentId) session.taskAgentId = payload.agentId;
+      if(payload.mode) session.taskMode = payload.mode;
+      if(payload.runEnvironment) session.runEnvironment = payload.runEnvironment;
       state.activeTaskId = payload.taskId;
       updateTaskMeta(session);
       renderSessionList();
