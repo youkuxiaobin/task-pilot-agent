@@ -351,9 +351,11 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     event_types = [event.event_type for event in store.list_events("trace-autoagent")]
     assert "task_created" in event_types
     assert "task_running" in event_types
+    assert "agent_started" in event_types
     assert "tool_result" in event_types
     assert "task_artifact_added" in event_types
     assert "result" in event_types
+    assert "agent_completed" in event_types
     assert "task_completed" in event_types
 
     artifacts = store.list_artifacts("trace-autoagent")

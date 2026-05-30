@@ -270,6 +270,10 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     events = store.list_events(payload["taskId"])
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["parentAgentId"] == "parent-agent"
+    parent_events = store.list_events("parent-task")
+    assert parent_events[-1].event_type == "task_handoff_requested"
+    assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentId"] == "child-agent"
+    assert tasks.serialize_event(parent_events[-1])["payload"]["childTaskId"] == payload["taskId"]
 
     with pytest.raises(ValueError, match="cannot hand off"):
         asyncio.run(app._start_handoff_task(parent_ctx, "blocked-agent", "blocked", {}))

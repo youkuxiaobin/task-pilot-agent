@@ -500,6 +500,19 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 trace_id=trace_id,
                 source="autoagent",
             )
+            task_store.add_event(
+                task_id,
+                "agent_started",
+                {
+                    "agentId": request.agent_id,
+                    "agentConfigId": agent_config.id if agent_config else None,
+                    "agentType": agent_config.type if agent_config else None,
+                    "mode": resolved_mode,
+                    "runEnvironment": request.run_environment,
+                },
+                trace_id=trace_id,
+                source="agent",
+            )
             ctx = AgentContext(
                 requestId=trace_id,
                 sessionId=trace_id,
@@ -534,6 +547,17 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=error_message)
                 task_store.add_event(
                     task_id,
+                    "agent_failed",
+                    {
+                        "agentId": request.agent_id,
+                        "agentConfigId": agent_config.id if agent_config else None,
+                        "error": error_message,
+                    },
+                    trace_id=trace_id,
+                    source="agent",
+                )
+                task_store.add_event(
+                    task_id,
                     "task_failed",
                     {"error": error_message},
                     trace_id=trace_id,
@@ -550,6 +574,17 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 )
                 task_store.add_event(
                     task_id,
+                    "agent_completed",
+                    {
+                        "agentId": request.agent_id,
+                        "agentConfigId": agent_config.id if agent_config else None,
+                        "status": AgentTaskStatus.COMPLETED,
+                    },
+                    trace_id=trace_id,
+                    source="agent",
+                )
+                task_store.add_event(
+                    task_id,
                     "task_completed",
                     {"status": AgentTaskStatus.COMPLETED},
                     trace_id=trace_id,
@@ -559,6 +594,17 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 logger.exception("autoagent handler failed for request %s", ctx.requestId)
                 printer.send(None, "result", f"autoagent error: {exc}", None, True)
                 task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=str(exc))
+                task_store.add_event(
+                    task_id,
+                    "agent_failed",
+                    {
+                        "agentId": request.agent_id,
+                        "agentConfigId": agent_config.id if agent_config else None,
+                        "error": str(exc),
+                    },
+                    trace_id=trace_id,
+                    source="agent",
+                )
                 task_store.add_event(
                     task_id,
                     "task_failed",
@@ -573,6 +619,17 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 task_store.update_status(task_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
                 task_store.add_event(
                     task_id,
+                    "agent_cancelled",
+                    {
+                        "agentId": request.agent_id,
+                        "agentConfigId": agent_config.id if agent_config else None,
+                        "status": AgentTaskStatus.CANCELLED,
+                    },
+                    trace_id=trace_id,
+                    source="agent",
+                )
+                task_store.add_event(
+                    task_id,
                     "task_cancelled",
                     {"status": AgentTaskStatus.CANCELLED},
                     trace_id=trace_id,
@@ -583,6 +640,17 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
             printer.send(None, "result", f"autoagent error: {exc}", None, True)
             if task_store is not None:
                 task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=str(exc))
+                task_store.add_event(
+                    task_id,
+                    "agent_failed",
+                    {
+                        "agentId": request.agent_id,
+                        "agentConfigId": agent_config.id if agent_config else None,
+                        "error": str(exc),
+                    },
+                    trace_id=trace_id,
+                    source="agent",
+                )
                 task_store.add_event(
                     task_id,
                     "task_failed",
@@ -826,6 +894,22 @@ async def _start_handoff_task(
         trace_id=trace_id,
         source="handoff",
     )
+    if parent_ctx.task_id:
+        store.add_event(
+            parent_ctx.task_id,
+            "task_handoff_requested",
+            {
+                "parentAgentId": parent_ctx.agent_id,
+                "targetAgentId": target_agent_id,
+                "childTaskId": trace_id,
+                "task": task_text,
+                "mode": mode,
+                "outputStyle": request.outputStyle,
+                "runEnvironment": run_environment,
+            },
+            trace_id=parent_ctx.requestId,
+            source="handoff",
+        )
     asyncio.create_task(_run_autoagent(request, lambda _data: None))
     return serialize_task(task)
 

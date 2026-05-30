@@ -939,7 +939,7 @@
   function mapTaskEventType(eventType) {
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
-    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input') return 'task';
+    if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
     return null;
   }
 
@@ -956,6 +956,11 @@
     if(eventType === 'task_cancelled') return '任务已取消';
     if(eventType === 'waiting_input') return `等待补充输入：${payload.prompt || ''}`;
     if(eventType === 'user_input') return `用户补充：${payload.content || ''}`;
+    if(eventType === 'agent_started') return `Agent 已启动：${payload.agentId || ''}`;
+    if(eventType === 'agent_completed') return `Agent 已完成：${payload.agentId || ''}`;
+    if(eventType === 'agent_failed') return `Agent 失败：${payload.agentId || ''}${payload.error ? ` · ${payload.error}` : ''}`;
+    if(eventType === 'agent_cancelled') return `Agent 已取消：${payload.agentId || ''}`;
+    if(eventType === 'task_handoff_requested') return `任务已交接：${payload.parentAgentId || ''} -> ${payload.targetAgentId || ''}`;
     return eventType || '';
   }
 
