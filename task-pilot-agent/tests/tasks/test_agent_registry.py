@@ -155,6 +155,17 @@ def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
                   alias: 深度搜索
                   purpose: 搜索公开网页和资料。
                   when_to_use: 需要最新信息时使用。
+                  input_schema:
+                    type: object
+                    properties:
+                      query:
+                        type: string
+                    required: [query]
+                  output_schema:
+                    type: object
+                    properties:
+                      summary:
+                        type: string
                   risk_level: low
                   timeout_seconds: 120
               denied:
@@ -189,6 +200,8 @@ def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
     assert agent.tools[0].purpose == "搜索公开网页和资料。"
     assert agent.tools[0].when_to_use == "需要最新信息时使用。"
     assert agent.tools[0].timeout_seconds == 120
+    assert agent.tools[0].input_schema["required"] == ["query"]
+    assert agent.tools[0].output_schema["properties"]["summary"]["type"] == "string"
     assert agent.tools[0].policy["risk"] == "low"
     assert agent.denied_tools == ["mcp_local:shell"]
     assert agent.handoffs["allowed"] == ["report_agent"]
@@ -200,6 +213,8 @@ def test_agent_registry_loads_structured_agent_yaml_and_denied_tools(tmp_path):
     payload = agent.to_dict()
     assert payload["type"] == "react_worker"
     assert payload["tools"][0]["timeoutSeconds"] == 120
+    assert payload["tools"][0]["inputSchema"]["properties"]["query"]["type"] == "string"
+    assert payload["tools"][0]["outputSchema"]["properties"]["summary"]["type"] == "string"
     assert payload["tools"][0]["allowed"] is True
     assert payload["deniedTools"] == ["mcp_local:shell"]
     assert payload["permissions"]["can_run_shell"] is False
@@ -366,6 +381,26 @@ def test_agent_registry_rejects_unsupported_agent_type(tmp_path):
     )
 
     with pytest.raises(ValueError, match="Unsupported agent type"):
+        AgentRegistry(tmp_path / "agents")
+
+
+def test_agent_registry_rejects_invalid_tool_schema(tmp_path):
+    agent_dir = tmp_path / "agents" / "bad_schema_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: bad_schema_agent
+            name: Bad Schema Agent
+            tools:
+              - name: mcp_local:deepsearch
+                input_schema: not-a-mapping
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Expected mapping for input_schema"):
         AgentRegistry(tmp_path / "agents")
 
 

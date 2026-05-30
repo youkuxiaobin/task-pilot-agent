@@ -16,6 +16,23 @@ capabilities:
 tools:
   - name: mcp_local:code_interpreter
     description: 执行代码，默认需要显式打开高风险工具开关。
+    input_schema:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 要执行的代码。
+      required:
+        - code
+    output_schema:
+      type: object
+      properties:
+        result:
+          type: string
+          description: 执行结果或错误摘要。
+        files:
+          type: array
+          description: 任务产物列表。
     policy:
       risk: high
       requires_explicit_enable: true

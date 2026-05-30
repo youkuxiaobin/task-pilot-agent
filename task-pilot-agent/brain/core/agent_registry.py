@@ -28,6 +28,8 @@ class AgentToolSpec:
     when_to_use: str = ""
     required: bool = False
     timeout_seconds: Optional[int] = None
+    input_schema: Dict[str, Any] = field(default_factory=dict)
+    output_schema: Dict[str, Any] = field(default_factory=dict)
     policy: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -122,6 +124,8 @@ class AgentConfig:
                     "whenToUse": tool.when_to_use,
                     "required": tool.required,
                     "timeoutSeconds": tool.timeout_seconds,
+                    "inputSchema": tool.input_schema,
+                    "outputSchema": tool.output_schema,
                     "policy": tool.policy,
                 }
                 for tool in self.tools
@@ -201,6 +205,19 @@ def _optional_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         raise ValueError(f"Expected integer value, got: {value!r}") from None
+
+
+def _optional_mapping(mapping: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    for key in keys:
+        if key not in mapping:
+            continue
+        value = mapping.get(key)
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"Expected mapping for {key}, got: {value!r}")
+        return value
+    return {}
 
 
 def default_agents_dir() -> Path:
@@ -379,6 +396,8 @@ class AgentRegistry:
                     when_to_use=str(item.get("when_to_use") or ""),
                     required=bool(item.get("required", False)),
                     timeout_seconds=_optional_int(item.get("timeout_seconds")),
+                    input_schema=_optional_mapping(item, "input_schema", "inputSchema"),
+                    output_schema=_optional_mapping(item, "output_schema", "outputSchema"),
                     policy=policy,
                 )
             )
