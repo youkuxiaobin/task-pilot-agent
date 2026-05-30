@@ -61,6 +61,17 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
         mode="react",
         output_style="markdown",
         input_text="retry this",
+        metadata={
+            "inputFiles": [
+                {
+                    "fileName": "source.csv",
+                    "description": "input data",
+                    "ossUrl": "https://files.example.test/source.csv",
+                    "fileSize": 10,
+                }
+            ],
+            "runEnvironment": "sandbox",
+        },
     )
 
     created_background = []
@@ -84,6 +95,9 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     assert payload["input"] == "retry this"
     assert payload["metadata"]["source"] == "retry"
     assert payload["metadata"]["parentTaskId"] == "retry-me"
+    assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["inputFiles"][0]["fileName"] == "source.csv"
+    assert app._deserialize_file_items(payload["metadata"]["inputFiles"])[0].fileName == "source.csv"
     assert created_background
     created_background[0].close()
 

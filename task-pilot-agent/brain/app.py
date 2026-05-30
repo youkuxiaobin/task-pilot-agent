@@ -368,6 +368,26 @@ def _serialize_file_items(files: Optional[List[FileItem]]) -> List[Dict[str, Any
     return serialized
 
 
+def _deserialize_file_items(files: Any) -> List[FileItem]:
+    if not isinstance(files, list):
+        return []
+    restored: List[FileItem] = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        restored.append(
+            FileItem(
+                fileName=str(item.get("fileName") or ""),
+                description=item.get("description"),
+                ossUrl=item.get("ossUrl"),
+                domainUrl=item.get("domainUrl"),
+                fileSize=item.get("fileSize"),
+                isInternalFile=bool(item.get("isInternalFile") or False),
+            )
+        )
+    return [item for item in restored if item.fileName]
+
+
 async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> None:
     request = _clone_gpt_request(req)
     trace_id = request.trace_id or str(uuid.uuid4())
@@ -800,6 +820,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
     selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
     run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
+    input_files = metadata.get("inputFiles") if metadata else None
     store.create_task(
         task_id=retry_trace_id,
         trace_id=retry_trace_id,
@@ -814,6 +835,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
             "parentTaskId": task.task_id,
             "selectedTools": selected_tools,
             "runEnvironment": run_environment,
+            "inputFiles": input_files,
         },
     )
     store.add_event(
@@ -833,7 +855,13 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         mode=task.mode,
         selected_tools=selected_tools,
         run_environment=run_environment,
-        messages=[AgentMessage(role=RoleType.USER.value, content=task.input_text)],
+        messages=[
+            AgentMessage(
+                role=RoleType.USER.value,
+                content=task.input_text,
+                uploadFile=_deserialize_file_items(input_files),
+            )
+        ],
     )
     asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
     retry_task = store.get_task(retry_trace_id)
