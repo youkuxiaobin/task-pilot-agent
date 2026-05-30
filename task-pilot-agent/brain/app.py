@@ -17,10 +17,8 @@ from brain.core.context import AgentContext, FileItem
 from brain.core.eval_runner import build_eval_run
 from brain.core.printer import SSEPrinter
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
-from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool
-from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.collection import ToolCollection
-    
+from brain.core.tools.gateway import ToolGateway
 from brain.core.tools.mcp_tool import MCPToolFetcher
 from brain.core.handlers.factory import AgentHandlerFactory
 from brain.core.handlers.react import ReactHandler
@@ -143,47 +141,15 @@ def _normalize_run_environment(value: Optional[str]) -> str:
 
 
 async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
-    """build tool collection, including local tools and mcp market tools"""
-    tc = ToolCollection()
-    tc.agentContext = ctx
-    selected_tools = _normalize_tool_selection(getattr(ctx, "selected_tools", None))
-    approved_tools = _normalize_tool_selection(getattr(ctx, "approved_tools", None))
-    agent_config = agentRegistry.get(ctx.agent_id)
-    if agent_config:
-        tc.set_allowed_tool_patterns(selected_tools if selected_tools is not None else agent_config.tool_patterns())
-        tc.set_tool_timeout_patterns(
-            {
-                tool.name: tool.timeout_seconds
-                for tool in agent_config.tools
-                if tool.timeout_seconds
-            }
-        )
-        tc.set_tool_allowed_checker(
-            lambda tool_name: agent_config.allows_tool(tool_name, approved_tools=approved_tools)
-            and _matches_selected_tool(selected_tools, tool_name)
-        )
-        if agent_config.allows_tool("builtin:plan_tool", approved_tools=approved_tools):
-            tc.add_tool(BuiltinPlanTool(ctx))
-        if agent_config.allows_tool("builtin:handoff", approved_tools=approved_tools):
-            tc.add_tool(BuiltinHandoffTool(ctx, _start_handoff_task))
-    elif selected_tools is not None:
-        tc.set_allowed_tool_patterns(selected_tools)
-
-    try:
-        mcp_market_url = getattr(agentSettings, 'mcp_market_url', 'http://127.0.0.1:9010/aggre_mcp_market')
-        mcp_fetcher = MCPToolFetcher(ctx, mcp_market_url)
-        mcp_tools = await mcp_fetcher.fetch_tools()
-        
-        for mcp_tool in mcp_tools:
-            tc.add_tool(mcp_tool)
-            logger.debug(f"add mcp tools: {mcp_tool.name} - {mcp_tool.description}")
-        
-        logger.debug(f"load {len(mcp_tools)} mcp tools")         
-    except Exception as e:
-        logger.error(f"load mcp tools error: {e}")
-    if not tc.tool_map:
-        logger.warning("No MCP tools loaded; executor will have no available tools for this request.")
-    return tc
+    """Build task-scoped tools through the shared gateway."""
+    mcp_market_url = getattr(agentSettings, "mcp_market_url", "http://127.0.0.1:9010/aggre_mcp_market")
+    gateway = ToolGateway(
+        agentRegistry,
+        mcp_market_url=mcp_market_url,
+        handoff_starter=_start_handoff_task,
+        mcp_fetcher_cls=MCPToolFetcher,
+    )
+    return await gateway.build_collection(ctx)
 
 
 agentFactory = AgentHandlerFactory(
