@@ -42,12 +42,13 @@ class MCPTool(BaseTool):
 
     async def execute(self, input_obj: Dict[str, Any]) -> str | None:
         call_url = f"{self.mcp_market_url}/call_tool"
-        payload = {"tool_name": self.full_name, "arguments": input_obj}
+        arguments = self._with_runtime_arguments(input_obj)
+        payload = {"tool_name": self.full_name, "arguments": arguments}
         headers = {"Accept": "text/event-stream, application/json"}
         logger.debug(
             "execute mcp tool %s with argument keys=%s",
             self.full_name,
-            sorted(input_obj.keys()),
+            sorted(arguments.keys()),
         )
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
         try:
@@ -64,6 +65,21 @@ class MCPTool(BaseTool):
         except Exception as exc:  # pragma: no cover - network/runtime edge
             logger.exception("call tools error")
             return f"call tools error: {exc}"
+
+    def _with_runtime_arguments(self, input_obj: Dict[str, Any]) -> Dict[str, Any]:
+        arguments = dict(input_obj or {})
+        schema = self.input_schema if isinstance(self.input_schema, dict) else {}
+        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        defaults = {
+            "request_id": getattr(self.context, "requestId", None),
+            "trace_id": getattr(self.context, "requestId", None),
+            "task_id": getattr(self.context, "task_id", None),
+            "work_dir": getattr(self.context, "work_dir", None),
+        }
+        for key, value in defaults.items():
+            if key in properties and key not in arguments and value:
+                arguments[key] = value
+        return arguments
 
     async def _handle_direct_response(self, response: aiohttp.ClientResponse) -> str | None:
         try:
