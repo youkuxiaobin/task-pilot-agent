@@ -87,20 +87,25 @@ class AgentConfig:
         return [tool.name for tool in self.tools if tool.name]
 
     def allows_tool(self, tool_name: str) -> bool:
+        return not self.tool_block_reason(tool_name)
+
+    def tool_block_reason(self, tool_name: str) -> str:
         if any(_matches_tool_pattern(pattern, tool_name) for pattern in self.denied_tools):
-            return False
-        if _tool_blocked_by_permissions(self.permissions, tool_name):
-            return False
+            return "denied_tools"
+        permission_reason = _tool_permission_block_reason(self.permissions, tool_name)
+        if permission_reason:
+            return permission_reason
         patterns = self.tool_patterns()
         if not patterns:
-            return True
+            return ""
         matched = [tool for tool in self.tools if _matches_tool_pattern(tool.name, tool_name)]
         if not matched:
-            return False
+            return "not_in_allowed_tools"
         for tool in matched:
-            if _tool_policy_blocks(tool.policy):
-                return False
-        return True
+            policy_reason = _tool_policy_block_reason(tool.policy)
+            if policy_reason:
+                return policy_reason
+        return ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -119,6 +124,7 @@ class AgentConfig:
                     "name": tool.name,
                     "description": tool.description,
                     "allowed": self.allows_tool(tool.name),
+                    "blockReason": self.tool_block_reason(tool.name),
                     "alias": tool.alias,
                     "purpose": tool.purpose,
                     "whenToUse": tool.when_to_use,
@@ -157,36 +163,36 @@ def _matches_tool_pattern(pattern: str, tool_name: str) -> bool:
     return fnmatch.fnmatch(tool_name, pattern)
 
 
-def _tool_policy_blocks(policy: Dict[str, Any]) -> bool:
+def _tool_policy_block_reason(policy: Dict[str, Any]) -> str:
     if not policy:
-        return False
+        return ""
     if policy.get("enabled") is False:
-        return True
+        return "tool_disabled"
     risk = str(policy.get("risk") or "").lower()
     if risk in {"high", "critical"} and not _high_risk_tools_enabled():
-        return True
-    return False
+        return "high_risk_requires_enable"
+    return ""
 
 
-def _tool_blocked_by_permissions(permissions: Dict[str, Any], tool_name: str) -> bool:
+def _tool_permission_block_reason(permissions: Dict[str, Any], tool_name: str) -> str:
     if not permissions:
-        return False
+        return ""
     if permissions.get("can_run_shell") is False and _matches_any_tool_pattern(
         tool_name,
         ["*shell*", "*terminal*", "*command*"],
     ):
-        return True
+        return "permission_can_run_shell"
     if permissions.get("can_access_network") is False and _matches_any_tool_pattern(
         tool_name,
         ["*search*", "*browser*", "*web*", "*http*", "*weather*"],
     ):
-        return True
+        return "permission_can_access_network"
     if permissions.get("can_write_files") is False and _matches_any_tool_pattern(
         tool_name,
         ["*file_write*", "*write_file*", "*artifact_write*", "*report*"],
     ):
-        return True
-    return False
+        return "permission_can_write_files"
+    return ""
 
 
 def _matches_any_tool_pattern(tool_name: str, patterns: List[str]) -> bool:

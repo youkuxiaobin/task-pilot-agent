@@ -797,6 +797,21 @@
     return `<small>${escapeHTML(label)}：${fields.map(item => escapeHTML(item)).join(', ')}</small>`;
   }
 
+  function toolBlockReasonText(reason) {
+    const map = {
+      denied_tools: '已在拒绝列表中',
+      high_risk_requires_enable: '高风险工具需要显式开启',
+      tool_disabled: '工具已关闭',
+      permission_can_run_shell: '当前 Agent 不允许执行命令',
+      permission_can_access_network: '当前 Agent 不允许访问网络',
+      permission_can_write_files: '当前 Agent 不允许写文件',
+      not_in_allowed_tools: '不在允许工具列表中',
+      not_selected: '本次任务未选择',
+      blocked_by_policy: '被策略拦截',
+    };
+    return map[reason] || '';
+  }
+
   function renderAgentSummary() {
     const agent = getSelectedAgentConfig();
     if(!agent) {
@@ -843,11 +858,13 @@
       if(!allowed) badges.push('不可用');
       const riskHTML = badges.map(item => `<span class="tool-risk">${escapeHTML(item)}</span>`).join('');
       const schemaHTML = `${renderToolSchemaLine('输入', tool.inputSchema)}${renderToolSchemaLine('输出', tool.outputSchema)}`;
+      const blockReason = !allowed ? toolBlockReasonText(tool.blockReason) : '';
       label.innerHTML = `
         <input type="checkbox" value="${escapeHTML(name)}" ${allowed ? 'checked' : 'disabled'}>
         <span>
           <strong>${escapeHTML(name)}</strong>${riskHTML}
           ${tool.description ? `<small>${escapeHTML(tool.description)}</small>` : ''}
+          ${blockReason ? `<small>原因：${escapeHTML(blockReason)}</small>` : ''}
           ${schemaHTML}
         </span>`;
       dom.toolOptions.appendChild(label);

@@ -62,6 +62,23 @@ def _matches_selected_tool(selected_patterns: Optional[List[str]], tool_name: st
     return False
 
 
+def _blocked_tool_reasons(
+    blocked_tools: List[str],
+    agent_config: Optional[AgentConfig],
+    selected_tools: Optional[List[str]],
+) -> Dict[str, str]:
+    reasons: Dict[str, str] = {}
+    for tool_name in blocked_tools:
+        if selected_tools is not None and not _matches_selected_tool(selected_tools, tool_name):
+            reasons[tool_name] = "not_selected"
+            continue
+        if agent_config:
+            reasons[tool_name] = agent_config.tool_block_reason(tool_name) or "blocked_by_policy"
+        else:
+            reasons[tool_name] = "blocked_by_policy"
+    return reasons
+
+
 def _normalize_run_environment(value: Optional[str]) -> str:
     normalized = (value or "").strip().lower()
     if normalized in {"local", "sandbox"}:
@@ -569,6 +586,11 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "selectedTools": selected_tools,
                     "availableTools": sorted(tc.tool_map.keys()),
                     "blockedTools": sorted(set(tc.blocked_tools)),
+                    "blockedToolReasons": _blocked_tool_reasons(
+                        sorted(set(tc.blocked_tools)),
+                        agent_config,
+                        selected_tools,
+                    ),
                     "runEnvironment": request.run_environment,
                 },
                 trace_id=trace_id,

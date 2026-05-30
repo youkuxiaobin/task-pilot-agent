@@ -209,6 +209,29 @@ def test_list_tasks_api_filters_by_user(app_modules):
     assert [item["taskId"] for item in payload["items"]] == ["user-task-a"]
 
 
+def test_blocked_tool_reasons_include_policy_and_selection(app_modules, monkeypatch):
+    app, _tasks = app_modules
+    from brain.core.agent_registry import AgentToolSpec
+
+    monkeypatch.delenv("APP_ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.delenv("ALLOW_HIGH_RISK_TOOLS", raising=False)
+    agent = app.AgentConfig(
+        id="policy-agent",
+        name="Policy Agent",
+        tools=[
+            AgentToolSpec(name="mcp_local:code_interpreter", policy={"risk": "high"}),
+            AgentToolSpec(name="mcp_local:*"),
+        ],
+    )
+
+    assert app._blocked_tool_reasons(["mcp_local:code_interpreter"], agent, None) == {
+        "mcp_local:code_interpreter": "high_risk_requires_enable"
+    }
+    assert app._blocked_tool_reasons(["mcp_local:deepsearch"], agent, ["mcp_local:weather"]) == {
+        "mcp_local:deepsearch": "not_selected"
+    }
+
+
 def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
     app, tasks = app_modules
     store = tasks.TaskStore()
