@@ -19,6 +19,10 @@ SECRET_VALUE_PATTERNS = (
     re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
     re.compile(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{12,}"),
 )
+SENSITIVE_QUERY_PARAM_PATTERN = re.compile(
+    r"([?&][^=&#\s]*(?:api_key|apikey|authorization|cookie|password|secret|token)[^=&#\s]*=)([^&#\s]+)",
+    re.IGNORECASE,
+)
 
 
 def sanitize_payload(value: Any) -> Any:
@@ -41,7 +45,7 @@ def sanitize_payload(value: Any) -> Any:
 
 
 def sanitize_text(value: str) -> str:
-    sanitized = value
+    sanitized = SENSITIVE_QUERY_PARAM_PATTERN.sub(lambda match: match.group(1) + REDACTED, value)
     for pattern in SECRET_VALUE_PATTERNS:
         sanitized = pattern.sub(_replace_secret_match, sanitized)
     return sanitized

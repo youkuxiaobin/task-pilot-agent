@@ -18,6 +18,7 @@ def test_sanitize_payload_redacts_sensitive_keys_and_secret_like_values():
             {"cookie": "session=secret"},
             "Bearer another-secret-token-value",
         ],
+        "downloadUrl": "https://files.example.test/report.csv?token=raw-secret&file=report&api_key=raw-key#view",
     }
 
     sanitized = sanitize_payload(payload)
@@ -27,6 +28,7 @@ def test_sanitize_payload_redacts_sensitive_keys_and_secret_like_values():
     assert sanitized["nested"]["visible"] == "contains *** inside text"
     assert sanitized["items"][0]["cookie"] == "***"
     assert sanitized["items"][1] == "Bearer ***"
+    assert sanitized["downloadUrl"] == "https://files.example.test/report.csv?token=***&file=report&api_key=***#view"
 
 
 def test_sse_printer_redacts_sensitive_values_before_page_and_event_sink():
