@@ -3,6 +3,7 @@ import fnmatch
 import json
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Callable, Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
@@ -81,12 +82,14 @@ class ToolCollection:
     @observe(name="tool_execute")
     async def execute(self, name: str, input_obj: Dict[str, Any]) -> Optional[str]:
         started_at = time.perf_counter()
+        started_at_wall = time.time()
         if not self.is_tool_allowed(name):
             message = f"tool `{name}` is not allowed for this agent"
             logger.warning(message)
             self.last_execution = self._execution_metadata(
                 name,
                 started_at,
+                started_at_wall,
                 failed=True,
                 error=message,
             )
@@ -98,6 +101,7 @@ class ToolCollection:
             self.last_execution = self._execution_metadata(
                 name,
                 started_at,
+                started_at_wall,
                 failed=True,
                 error="tool not found",
             )
@@ -106,12 +110,13 @@ class ToolCollection:
         self._emit_tool_call(name, input_obj)
         try:
             result = await tool.execute(input_obj)
-            self.last_execution = self._execution_metadata(name, started_at, result=result)
+            self.last_execution = self._execution_metadata(name, started_at, started_at_wall, result=result)
             return result
         except Exception as exc:
             self.last_execution = self._execution_metadata(
                 name,
                 started_at,
+                started_at_wall,
                 failed=True,
                 error=str(exc),
             )
@@ -121,6 +126,7 @@ class ToolCollection:
         self,
         name: str,
         started_at: float,
+        started_at_wall: float,
         *,
         result: Any = None,
         failed: bool = False,
@@ -130,12 +136,34 @@ class ToolCollection:
             "tool": name,
             "durationMs": max(0, int((time.perf_counter() - started_at) * 1000)),
             "failed": failed,
+            "startedAt": self._iso_time(started_at_wall),
+            "completedAt": self._iso_time(time.time()),
         }
+        payload.update(self._audit_context())
         if error:
             payload["error"] = error
         if result is not None:
             payload["resultSummary"] = self._summarize_value(result)
         return payload
+
+    @staticmethod
+    def _iso_time(value: float) -> str:
+        return datetime.fromtimestamp(value, timezone.utc).isoformat()
+
+    def _audit_context(self) -> Dict[str, str]:
+        context = self.agentContext
+        if context is None:
+            return {}
+        printer = getattr(context, "printer", None)
+        values = {
+            "userId": getattr(context, "user_id", None),
+            "agentId": getattr(context, "agent_id", None),
+            "taskId": getattr(context, "task_id", None) or getattr(printer, "task_id", None),
+            "requestId": getattr(context, "requestId", None),
+            "runId": getattr(context, "run_id", None),
+            "sessionId": getattr(context, "sessionId", None),
+        }
+        return {key: str(value) for key, value in values.items() if value}
 
     @staticmethod
     def _summarize_value(value: Any, limit: int = 500) -> str:
@@ -163,6 +191,7 @@ class ToolCollection:
             {
                 "tool": name,
                 "arguments": input_obj,
+                **self._audit_context(),
             },
             self.getDigitalEmployee(name),
             False,
@@ -179,6 +208,7 @@ class ToolCollection:
                 "process_message": message,
                 "tool": name,
                 "arguments": input_obj,
+                **self._audit_context(),
             },
             None,
             False,

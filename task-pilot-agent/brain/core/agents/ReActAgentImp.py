@@ -302,7 +302,21 @@ class ReActAgentImp(ReActAgent):
         return {
             key: value
             for key, value in meta.items()
-            if key in {"durationMs", "failed", "resultSummary", "error"}
+            if key
+            in {
+                "durationMs",
+                "failed",
+                "resultSummary",
+                "error",
+                "startedAt",
+                "completedAt",
+                "userId",
+                "agentId",
+                "taskId",
+                "requestId",
+                "runId",
+                "sessionId",
+            }
         }
 
     @staticmethod

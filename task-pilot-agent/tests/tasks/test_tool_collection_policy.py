@@ -150,3 +150,37 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
     assert collection.last_execution["failed"] is True
     assert collection.last_execution["durationMs"] >= 0
     assert collection.last_execution["error"] == "boom"
+
+
+def test_tool_collection_records_audit_context_in_events_and_metadata():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["mcp_local:deepsearch"])
+    allowed_tool = DummyTool("mcp_local:deepsearch")
+    collection.add_tool(allowed_tool)
+    printer = FakePrinter()
+    collection.agentContext = SimpleNamespace(
+        printer=printer,
+        user_id="user-1",
+        agent_id="agent-1",
+        task_id="task-1",
+        requestId="request-1",
+        run_id="run-1",
+        sessionId="session-1",
+    )
+
+    result = asyncio.run(collection.execute("mcp_local:deepsearch", {"value": "query"}))
+
+    assert result == "ok:mcp_local:deepsearch:query"
+    assert collection.last_execution is not None
+    for key, expected in {
+        "userId": "user-1",
+        "agentId": "agent-1",
+        "taskId": "task-1",
+        "requestId": "request-1",
+        "runId": "run-1",
+        "sessionId": "session-1",
+    }.items():
+        assert collection.last_execution[key] == expected
+        assert printer.events[-1]["message"][key] == expected
+    assert collection.last_execution["startedAt"]
+    assert collection.last_execution["completedAt"]
