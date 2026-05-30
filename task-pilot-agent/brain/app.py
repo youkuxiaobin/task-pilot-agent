@@ -14,6 +14,7 @@ from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext, FileItem
 from brain.core.printer import SSEPrinter
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_event, serialize_task
+from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.collection import ToolCollection
     
 from brain.core.tools.mcp_tool import MCPToolFetcher
@@ -42,6 +43,8 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     agent_config = agentRegistry.get(ctx.agent_id)
     if agent_config:
         tc.set_allowed_tool_patterns(agent_config.tool_patterns())
+        if agent_config.allows_tool("builtin:plan_tool"):
+            tc.add_tool(BuiltinPlanTool(ctx))
 
     try:
         mcp_market_url = getattr(agentSettings, 'mcp_market_url', 'http://127.0.0.1:9010/aggre_mcp_market')
@@ -473,5 +476,4 @@ async def autoagent_ws(websocket: WebSocket) -> None:
 @agent_router.get("/web/health")
 async def health() -> PlainTextResponse:
     return PlainTextResponse("ok")
-
 

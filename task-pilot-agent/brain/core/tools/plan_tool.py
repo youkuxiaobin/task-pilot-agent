@@ -4,7 +4,6 @@ from shlex import join
 from typing import Any, Dict, List, Optional
 
 from .plan_state import PlanState
-from llm.manager import store as prompt_store
 
 
 class PlanFunctionTool:
@@ -110,7 +109,12 @@ class PlanFunctionTool:
         }
     def to_str(self) -> str:
         steps = ";".join(self._plan.steps) if self._plan else ""
-        return prompt_store.get_prompt("plan_to_str").format(
+        try:
+            from llm.manager import store as prompt_store
+            template = prompt_store.get_prompt("plan_to_str")
+        except Exception:
+            template = "command={command}\nsteps={steps}"
+        return template.format(
             command=self.current_command,
             steps=steps,
         )
