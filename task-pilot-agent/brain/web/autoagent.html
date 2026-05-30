@@ -548,6 +548,8 @@
     running: false,
     tasks: [],
     agents: [],
+    agentDiagnostics: null,
+    agentListError: '',
     toolCatalog: {},
     defaultAgentId: '',
     activeTaskId: null,
@@ -773,21 +775,39 @@
   }
 
   async function refreshAgentList() {
+    await refreshAgentDiagnostics();
     try {
       const resp = await fetch('/agent/agents');
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       state.agents = Array.isArray(data.items) ? data.items : [];
       state.defaultAgentId = data.defaultAgentId || '';
+      state.agentListError = '';
       renderAgentOptions();
       renderTaskAgentFilter();
       renderTaskAgentTypeFilter();
     } catch(err) {
       state.agents = [];
       state.defaultAgentId = '';
+      state.agentListError = err.message;
       renderAgentOptions();
       renderTaskAgentFilter();
       renderTaskAgentTypeFilter();
+    }
+  }
+
+  async function refreshAgentDiagnostics() {
+    try {
+      const resp = await fetch('/agent/agents/diagnostics');
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      state.agentDiagnostics = await resp.json();
+    } catch(err) {
+      state.agentDiagnostics = {
+        status: 'invalid',
+        validCount: 0,
+        invalidCount: 1,
+        items: [{ agentId: 'agent_config', status: 'invalid', error: `配置诊断加载失败：${err.message}` }],
+      };
     }
   }
 
@@ -909,9 +929,15 @@
 
   function renderAgentSummary() {
     const agent = getSelectedAgentConfig();
-    if(!agent) {
+    const diagnosticsHTML = renderAgentDiagnosticsHTML(agent?.id || state.defaultAgentId || '');
+    if(!agent && !diagnosticsHTML) {
       dom.agentSummary.hidden = true;
       dom.agentSummary.innerHTML = '';
+      return;
+    }
+    if(!agent) {
+      dom.agentSummary.hidden = false;
+      dom.agentSummary.innerHTML = diagnosticsHTML;
       return;
     }
     const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : [];
@@ -929,7 +955,28 @@
         ${renderPillLine('能力', capabilities)}
         ${renderPillLine('工具', tools)}
         ${renderPillLine('交接', handoffs)}
+        ${diagnosticsHTML}
       </div>`;
+  }
+
+  function renderAgentDiagnosticsHTML(agentId='') {
+    const diag = state.agentDiagnostics;
+    if(!diag || typeof diag !== 'object') return '';
+    const items = Array.isArray(diag.items) ? diag.items : [];
+    const invalidItems = items.filter(item => item?.status === 'invalid');
+    const selected = agentId ? items.find(item => item?.agentId === agentId) : null;
+    const selectedError = selected?.status === 'invalid' ? selected.error : '';
+    const summary = diag.status === 'ok'
+      ? `配置检查通过：${diag.validCount || 0} 个 Agent`
+      : `配置检查异常：${diag.invalidCount || invalidItems.length || 0} 个问题`;
+    const details = selectedError || invalidItems.slice(0, 3).map(item => `${item.agentId || 'unknown'}：${item.error || ''}`).join('\n');
+    const listError = state.agentListError ? `Agent 列表加载失败：${state.agentListError}` : '';
+    return `
+      <div class="agent-summary-line">
+        <span class="agent-pill agent-pill-label">配置</span>
+        <span class="agent-pill" title="${escapeHTML(details || listError || summary)}">${escapeHTML(summary)}</span>
+      </div>
+      ${details || listError ? `<small style="display:block;color:${diag.status === 'ok' ? 'var(--text-muted)' : 'var(--color-error)'};white-space:pre-wrap">${escapeHTML(details || listError)}</small>` : ''}`;
   }
 
   function renderToolOptions() {
