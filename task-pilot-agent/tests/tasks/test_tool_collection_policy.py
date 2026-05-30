@@ -65,6 +65,17 @@ def test_tool_collection_blocks_tools_outside_allowed_patterns():
     assert openai_tool_names == ["mcp_local:deepsearch", "mcp_world:browser"]
 
 
+def test_tool_collection_checker_overrides_patterns_and_blocks_add():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["*"])
+    collection.set_tool_allowed_checker(lambda name: name != "mcp_local:code_interpreter")
+
+    assert collection.add_tool(DummyTool("mcp_local:deepsearch")) is True
+    assert collection.add_tool(DummyTool("mcp_local:code_interpreter")) is False
+    assert sorted(collection.tool_map) == ["mcp_local:deepsearch"]
+    assert collection.blocked_tools == ["mcp_local:code_interpreter"]
+
+
 def test_tool_collection_refuses_manual_bypass_at_execution_time():
     collection = ToolCollection()
     collection.set_allowed_tool_patterns(["mcp_local:deepsearch"])

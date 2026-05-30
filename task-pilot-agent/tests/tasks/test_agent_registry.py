@@ -66,6 +66,38 @@ def test_agent_registry_loads_yaml_prompt_and_filters_tools(tmp_path):
     ) == ["mcp_local:deepsearch", "mcp_world:browser"]
 
 
+def test_agent_registry_blocks_high_risk_tools_until_enabled(tmp_path, monkeypatch):
+    agent_dir = tmp_path / "agents" / "safe_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: safe_agent
+            name: Safe Agent
+            tools:
+              - name: mcp_local:code_interpreter
+                policy:
+                  risk: high
+                  requires_explicit_enable: true
+              - name: mcp_local:*
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("APP_ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.delenv("ALLOW_HIGH_RISK_TOOLS", raising=False)
+
+    agent = AgentRegistry(tmp_path / "agents").get("safe_agent")
+
+    assert agent is not None
+    assert not agent.allows_tool("mcp_local:code_interpreter")
+    assert agent.allows_tool("mcp_local:deepsearch")
+
+    monkeypatch.setenv("ALLOW_HIGH_RISK_TOOLS", "true")
+
+    assert agent.allows_tool("mcp_local:code_interpreter")
+
+
 def test_agent_registry_falls_back_to_all_tools_for_unknown_agent(tmp_path):
     registry = AgentRegistry(tmp_path / "missing")
 

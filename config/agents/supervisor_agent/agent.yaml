@@ -8,6 +8,11 @@ system_prompt_file: system_prompt.md
 tools:
   - name: builtin:plan_tool
     description: 用于维护计划、步骤状态和下一步动作。
+  - name: mcp_local:code_interpreter
+    description: 执行代码，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
   - name: mcp_local:*
     description: 本地内置工具。
   - name: mcp_world:*

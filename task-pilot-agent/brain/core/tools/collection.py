@@ -1,7 +1,7 @@
 from __future__ import annotations
 import fnmatch
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Callable, Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
 try:
@@ -35,12 +35,18 @@ class ToolCollection:
     currentTask: Optional[str] = None
     digitalEmployees: Optional[Dict[str, str]] = None
     allowed_tool_patterns: Optional[List[str]] = None
+    tool_allowed_checker: Optional[Callable[[str], bool]] = None
     blocked_tools: List[str] = field(default_factory=list)
 
     def set_allowed_tool_patterns(self, patterns: Optional[List[str]]) -> None:
         self.allowed_tool_patterns = [pattern for pattern in (patterns or []) if pattern]
 
+    def set_tool_allowed_checker(self, checker: Optional[Callable[[str], bool]]) -> None:
+        self.tool_allowed_checker = checker
+
     def is_tool_allowed(self, name: str) -> bool:
+        if self.tool_allowed_checker is not None:
+            return self.tool_allowed_checker(name)
         patterns = self.allowed_tool_patterns
         if not patterns:
             return True

@@ -6,6 +6,11 @@ enabled: true
 mode: plans_executor
 system_prompt_file: system_prompt.md
 tools:
+  - name: mcp_local:code_interpreter
+    description: 执行代码，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
   - name: "mcp_*:*"
     description: 允许使用当前工具市场中可用的 MCP 工具。
 metadata:

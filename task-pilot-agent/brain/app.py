@@ -44,6 +44,7 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     agent_config = agentRegistry.get(ctx.agent_id)
     if agent_config:
         tc.set_allowed_tool_patterns(agent_config.tool_patterns())
+        tc.set_tool_allowed_checker(agent_config.allows_tool)
         if agent_config.allows_tool("builtin:plan_tool"):
             tc.add_tool(BuiltinPlanTool(ctx))
 

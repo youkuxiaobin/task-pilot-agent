@@ -48,12 +48,13 @@ class AgentConfig:
         patterns = self.tool_patterns()
         if not patterns:
             return True
-        for pattern in patterns:
-            if pattern in {"*", "all"}:
-                return True
-            if fnmatch.fnmatch(tool_name, pattern):
-                return True
-        return False
+        matched = [tool for tool in self.tools if _matches_tool_pattern(tool.name, tool_name)]
+        if not matched:
+            return False
+        for tool in matched:
+            if _tool_policy_blocks(tool.policy):
+                return False
+        return True
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -87,6 +88,28 @@ class AgentConfig:
             "metadata": self.metadata,
             "directory": str(self.directory) if self.directory else None,
         }
+
+
+def _matches_tool_pattern(pattern: str, tool_name: str) -> bool:
+    if pattern in {"*", "all"}:
+        return True
+    return fnmatch.fnmatch(tool_name, pattern)
+
+
+def _tool_policy_blocks(policy: Dict[str, Any]) -> bool:
+    if not policy:
+        return False
+    if policy.get("enabled") is False:
+        return True
+    risk = str(policy.get("risk") or "").lower()
+    if risk in {"high", "critical"} and not _high_risk_tools_enabled():
+        return True
+    return False
+
+
+def _high_risk_tools_enabled() -> bool:
+    value = os.getenv("APP_ALLOW_HIGH_RISK_TOOLS") or os.getenv("ALLOW_HIGH_RISK_TOOLS") or ""
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def default_agents_dir() -> Path:
