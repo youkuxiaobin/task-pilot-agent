@@ -543,6 +543,7 @@
 
   function mapTaskEventType(eventType) {
     if(eventType === 'task_failed') return 'notifications';
+    if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
     if(eventType === 'task_created' || eventType === 'task_running' || eventType === 'task_completed') return 'task';
     return null;
   }
@@ -552,6 +553,8 @@
     if(eventType === 'task_running') return '任务运行中';
     if(eventType === 'task_completed') return '任务已完成';
     if(eventType === 'task_failed') return `任务失败：${payload.error || ''}`;
+    if(eventType === 'task_cancel_requested') return '任务取消请求已发送';
+    if(eventType === 'task_cancelled') return '任务已取消';
     return eventType || '';
   }
 
@@ -971,7 +974,22 @@
     finally { setUIStatus('就绪', false); state.stream = null; controller = null; refreshTaskList(); renderMessages(true); }
   }
 
-  function onStop() { if(controller) controller.abort(); setUIStatus('就绪', false); renderMessages(true); }
+  async function onStop() {
+    const session = getActiveSession();
+    if(session?.taskId) {
+      try {
+        await fetch(`/agent/tasks/${encodeURIComponent(session.taskId)}/cancel`, { method: 'POST' });
+        session.taskStatus = 'cancelled';
+        updateTaskMeta(session);
+        refreshTaskList();
+      } catch(err) {
+        upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">取消任务失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
+      }
+    }
+    if(controller) controller.abort();
+    setUIStatus('就绪', false);
+    renderMessages(true);
+  }
   function setUIStatus(text, running) {
     state.running = running; dom.statusText.textContent = text; dom.statusDot.className = running ? 'status-dot active' : 'status-dot';
     dom.send.disabled = running; dom.stop.disabled = !running;

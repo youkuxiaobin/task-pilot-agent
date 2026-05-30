@@ -22,6 +22,8 @@ def test_autoagent_page_contains_task_replay_controls():
         "loadTask",
         "renderTaskToSession",
         "/agent/tasks",
+        "/cancel",
+        "任务取消请求已发送",
     ]:
         assert marker in html
 

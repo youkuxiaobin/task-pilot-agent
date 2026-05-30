@@ -35,6 +35,7 @@ WEB_ROOT = Path(__file__).resolve().parent / "web"
 
 agentFactory = AgentHandlerFactory([PlanSolveHandler(), ReactHandler()])
 agentRegistry = AgentRegistry()
+runningAgentTasks: Dict[str, asyncio.Task] = {}
 
 async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
     """build tool collection, including local tools and mcp market tools"""
@@ -203,8 +204,11 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
         last_result: Dict[str, Optional[str]] = {"output": None}
         printer = SSEPrinter(enqueue, trace_id, task_id=task_id)
         task_store: Optional[TaskStore] = None
+        worker_task = asyncio.current_task()
 
         try:
+            if worker_task:
+                runningAgentTasks[task_id] = worker_task
             task_store = TaskStore()
             latest_input = (messages[-1].content or "").strip()
             task_store.create_task(
@@ -323,6 +327,18 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     trace_id=trace_id,
                     source="autoagent",
                 )
+        except asyncio.CancelledError:
+            logger.info("autoagent task cancelled for request %s", trace_id)
+            printer.send(None, "result", "task cancelled", None, True)
+            if task_store is not None:
+                task_store.update_status(task_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
+                task_store.add_event(
+                    task_id,
+                    "task_cancelled",
+                    {"status": AgentTaskStatus.CANCELLED},
+                    trace_id=trace_id,
+                    source="autoagent",
+                )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.exception("autoagent pipeline failed for request %s", trace_id)
             printer.send(None, "result", f"autoagent error: {exc}", None, True)
@@ -336,6 +352,8 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     source="autoagent",
                 )
         finally:
+            if runningAgentTasks.get(task_id) is worker_task:
+                runningAgentTasks.pop(task_id, None)
             printer.close()
     finally:
         clear_log_context()
@@ -395,6 +413,78 @@ async def list_agent_task_events(
         raise HTTPException(status_code=404, detail="task not found")
     events = store.list_events(task_id, limit=limit, offset=offset)
     return {"items": [serialize_event(event) for event in events], "limit": limit, "offset": offset}
+
+
+@agent_router.post("/tasks/{task_id}/cancel")
+async def cancel_agent_task(task_id: str) -> Dict[str, Any]:
+    store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    if task.status in {
+        AgentTaskStatus.COMPLETED,
+        AgentTaskStatus.FAILED,
+        AgentTaskStatus.CANCELLED,
+    }:
+        return serialize_task(task)
+
+    worker = runningAgentTasks.get(task_id)
+    if worker and not worker.done():
+        worker.cancel()
+
+    store.update_status(task_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
+    store.add_event(
+        task_id,
+        "task_cancel_requested",
+        {"status": AgentTaskStatus.CANCELLED},
+        trace_id=task.trace_id,
+        source="api",
+    )
+    updated = store.get_task(task_id)
+    return serialize_task(updated or task)
+
+
+@agent_router.post("/tasks/{task_id}/retry")
+async def retry_agent_task(task_id: str) -> Dict[str, Any]:
+    store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    if not task.input_text:
+        raise HTTPException(status_code=400, detail="task has no input to retry")
+
+    retry_trace_id = str(uuid.uuid4())
+    store.create_task(
+        task_id=retry_trace_id,
+        trace_id=retry_trace_id,
+        conversation_id=task.conversation_id,
+        user_id=task.user_id,
+        agent_id=task.agent_id,
+        mode=task.mode,
+        output_style=task.output_style,
+        input_text=task.input_text,
+        metadata={"source": "retry", "parentTaskId": task.task_id},
+    )
+    store.add_event(
+        task.task_id,
+        "task_retry_requested",
+        {"retryTaskId": retry_trace_id},
+        trace_id=task.trace_id,
+        source="api",
+    )
+
+    retry_req = GptQueryReq(
+        trace_id=retry_trace_id,
+        user_id=task.user_id,
+        agent_id=task.agent_id,
+        conversation_id=task.conversation_id,
+        outputStyle=task.output_style,
+        mode=task.mode,
+        messages=[AgentMessage(role=RoleType.USER.value, content=task.input_text)],
+    )
+    asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
+    retry_task = store.get_task(retry_trace_id)
+    return serialize_task(retry_task) if retry_task else {"taskId": retry_trace_id}
 
 
 @agent_router.get("/web/autoagent", response_class=HTMLResponse)
@@ -476,4 +566,3 @@ async def autoagent_ws(websocket: WebSocket) -> None:
 @agent_router.get("/web/health")
 async def health() -> PlainTextResponse:
     return PlainTextResponse("ok")
-
