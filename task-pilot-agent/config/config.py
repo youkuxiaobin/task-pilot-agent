@@ -264,6 +264,7 @@ class AuthProviderSettings(BaseModel):
 class AuthSettings(BaseModel):
     required: bool = Field(False)
     dev_user_id: str = Field("dev-user")
+    admin_user_ids: List[str] = Field(default_factory=list)
     session_cookie_name: str = Field("tpa_session")
     session_ttl_seconds: int = Field(60 * 60 * 24 * 30, ge=60)
     cookie_secure: bool = Field(True)

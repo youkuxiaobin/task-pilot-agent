@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ def auth_service(tmp_path, monkeypatch):
     import file.db_engine as db_engine
 
     db_engine.get_engine.cache_clear()
+    db_engine = importlib.reload(db_engine)
 
     import auth.models as models
     import auth.service as service
@@ -43,6 +45,20 @@ def google_profile(subject: str = "google-sub-1", email: str = "user@example.com
         avatar_url="https://example.com/avatar.png",
         locale="en",
         raw_profile={"sub": subject, "email": email, "token": "should-redact"},
+    )
+
+
+def microsoft_profile(subject: str = "tenant-1:oid-1", email: str = "ms@example.com") -> ExternalIdentityProfile:
+    return ExternalIdentityProfile(
+        provider="microsoft",
+        provider_subject=subject,
+        provider_subject_type="tenant_oid",
+        provider_app_id="microsoft-client",
+        provider_tenant_id="tenant-1",
+        email=email,
+        email_verified=True,
+        display_name="Microsoft User",
+        raw_profile={"oid": "oid-1", "tid": "tenant-1"},
     )
 
 
@@ -117,3 +133,92 @@ def test_disabled_user_cannot_login_again(auth_service):
     with pytest.raises(service_module.AuthDisabledError):
         service.create_or_update_external_user(google_profile())
 
+
+def test_user_crud_list_and_soft_delete(auth_service):
+    service, service_module = auth_service
+    user = service.create_user(
+        user_id="manual-user-1",
+        primary_email="manual@example.com",
+        display_name="Manual User",
+        source="manual",
+        metadata={"token": "secret-value", "department": "ops"},
+    )
+
+    assert user.user_id == "manual-user-1"
+    assert service.list_users(source="manual", keyword="manual@example.com")[0].user_id == user.user_id
+    assert "secret-value" not in service.serialize_user(user)["metadata"].values()
+
+    updated = service.update_user(user.user_id, {"display_name": "Renamed", "locale": "zh-CN"})
+    assert updated.display_name == "Renamed"
+    assert updated.locale == "zh-CN"
+
+    created_session = service.create_session(user.user_id)
+    assert service.get_user_by_session_token(created_session.session_token) is not None
+
+    assert service.soft_delete_user(user.user_id) is True
+    deleted = service.get_user(user.user_id)
+    assert deleted is not None
+    assert deleted.status == service_module.UserStatus.DELETED
+    assert service.get_user_by_session_token(created_session.session_token) is None
+
+
+def test_identity_unbind_requires_another_active_identity(auth_service):
+    service, service_module = auth_service
+    user = service.create_or_update_external_user(google_profile())
+    microsoft_identity = service.bind_identity(user.user_id, microsoft_profile())
+
+    identities = service.list_identities(user.user_id)
+    assert {item.provider for item in identities} == {"google", "microsoft"}
+
+    unbound = service.unbind_identity(user.user_id, microsoft_identity.identity_id)
+    assert unbound.status == service_module.IdentityStatus.UNLINKED
+
+    google_identity = service.get_identity("google", "google-sub-1")
+    assert google_identity is not None
+    with pytest.raises(service_module.AuthConflictError):
+        service.unbind_identity(user.user_id, google_identity.identity_id)
+
+
+def test_legacy_user_mapping_moves_existing_tasks_and_files(auth_service, tmp_path, monkeypatch):
+    service, service_module = auth_service
+    monkeypatch.setenv("TASK_WORKSPACE_ROOT", str(tmp_path / "task-workspaces"))
+    monkeypatch.setenv("APP_CORE__UPLOAD_DIR", str(tmp_path / "uploads"))
+
+    import file.db_engine as db_engine
+    import brain.core.tasks as tasks
+    import file.file_table_op as file_table_op
+
+    db_engine.get_engine.cache_clear()
+    db_engine = importlib.reload(db_engine)
+    tasks = importlib.reload(tasks)
+    file_table_op = importlib.reload(file_table_op)
+
+    target_user = service.create_user(user_id="target-user", primary_email="target@example.com")
+    service.ensure_legacy_user("legacy-user", primary_email="legacy@example.com")
+    tasks.TaskStore().create_task(task_id="legacy-task", trace_id="legacy-task", user_id="legacy-user")
+    asyncio.run(
+        file_table_op.FileInfoOp.add_by_content(
+            filename="legacy.txt",
+            content="legacy content",
+            file_id="legacy-file",
+            request_id="legacy-request",
+            user_id="legacy-user",
+        )
+    )
+
+    with pytest.raises(service_module.AuthConflictError):
+        service.map_legacy_user_records(
+            legacy_user_id="legacy-user",
+            target_user_id=target_user.user_id,
+            trusted=False,
+        )
+
+    result = service.map_legacy_user_records(
+        legacy_user_id="legacy-user",
+        target_user_id=target_user.user_id,
+        trusted=True,
+    )
+
+    assert result == {"tasks": 1, "files": 1}
+    assert tasks.TaskStore().get_task("legacy-task").user_id == target_user.user_id
+    assert asyncio.run(file_table_op.FileInfoOp.get_by_file_id("legacy-file")).user_id == target_user.user_id

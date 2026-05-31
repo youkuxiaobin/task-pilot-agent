@@ -35,6 +35,17 @@ async def require_current_user(
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
 
 
+async def require_admin_user(
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> TaskPilotUser:
+    admin_ids = set(agentSettings.auth.admin_user_ids or [])
+    if not admin_ids and not agentSettings.auth.required and current_user.user_id == agentSettings.auth.dev_user_id:
+        return current_user
+    if current_user.user_id in admin_ids:
+        return current_user
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin access required")
+
+
 async def require_current_websocket_user(
     websocket: WebSocket,
     service: Optional[AuthService] = None,

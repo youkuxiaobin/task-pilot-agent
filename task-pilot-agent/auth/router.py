@@ -4,18 +4,44 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
-from auth.dependencies import auth_service, get_optional_current_user, require_current_user
+from auth.dependencies import auth_service, get_optional_current_user, require_admin_user, require_current_user
 from auth.models import OAuthStatePurpose, TaskPilotUser
 from auth.providers.base import IdentityProviderError
 from auth.providers.registry import ProviderRegistry
 from auth.security import hash_token
-from auth.service import AuthError, AuthService
+from auth.service import AuthConflictError, AuthDisabledError, AuthError, AuthNotFoundError, AuthService
 from config.config import agentSettings
 
 
 auth_router = APIRouter()
 provider_registry = ProviderRegistry()
+
+
+class UpdateUserReq(BaseModel):
+    primary_email: Optional[str] = Field(default=None)
+    display_name: Optional[str] = Field(default=None)
+    avatar_url: Optional[str] = Field(default=None)
+    locale: Optional[str] = Field(default=None)
+    metadata: Optional[dict] = Field(default=None)
+
+
+class CreateUserReq(UpdateUserReq):
+    user_id: Optional[str] = Field(default=None)
+    source: str = Field(default="manual")
+
+
+class CreateLegacyUserReq(BaseModel):
+    legacy_user_id: str
+    primary_email: Optional[str] = None
+    display_name: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class MapLegacyUserReq(BaseModel):
+    target_user_id: str
+    trusted: bool = False
 
 
 @auth_router.get("/providers")
@@ -55,6 +81,154 @@ async def logout(request: Request) -> JSONResponse:
     response = JSONResponse({"loggedOut": True})
     response.delete_cookie(agentSettings.auth.session_cookie_name, path="/")
     return response
+
+
+@auth_router.get("/users/me")
+async def get_current_user_profile(
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> dict:
+    return {
+        "user": service.serialize_user(current_user),
+        "identities": [service.serialize_identity(item) for item in service.list_identities(current_user.user_id)],
+    }
+
+
+@auth_router.patch("/users/me")
+async def update_current_user_profile(
+    req: UpdateUserReq,
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> dict:
+    try:
+        user = service.update_user(current_user.user_id, _user_updates(req))
+    except AuthError as exc:
+        raise _auth_http_error(exc) from exc
+    return {"user": service.serialize_user(user)}
+
+
+@auth_router.get("/users/me/identities")
+async def list_current_user_identities(
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> dict:
+    return {"items": [service.serialize_identity(item) for item in service.list_identities(current_user.user_id)]}
+
+
+@auth_router.delete("/users/me/identities/{identity_id}")
+async def unbind_current_user_identity(
+    identity_id: str,
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> dict:
+    try:
+        identity = service.unbind_identity(current_user.user_id, identity_id)
+    except AuthError as exc:
+        raise _auth_http_error(exc) from exc
+    return {"identity": service.serialize_identity(identity)}
+
+
+@auth_router.get("/admin/users")
+async def list_users_admin(
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    source: Optional[str] = Query(default=None),
+    keyword: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    users = service.list_users(status=status_filter, source=source, keyword=keyword, limit=limit, offset=offset)
+    return {"items": [service.serialize_user(user) for user in users]}
+
+
+@auth_router.post("/admin/users")
+async def create_user_admin(
+    req: CreateUserReq,
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    try:
+        user = service.create_user(
+            user_id=req.user_id,
+            primary_email=req.primary_email,
+            display_name=req.display_name,
+            avatar_url=req.avatar_url,
+            locale=req.locale,
+            source=req.source,
+            metadata=req.metadata,
+        )
+    except AuthError as exc:
+        raise _auth_http_error(exc) from exc
+    return {"user": service.serialize_user(user)}
+
+
+@auth_router.patch("/admin/users/{user_id}")
+async def update_user_admin(
+    user_id: str,
+    req: UpdateUserReq,
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    try:
+        user = service.update_user(user_id, _user_updates(req))
+    except AuthError as exc:
+        raise _auth_http_error(exc) from exc
+    return {"user": service.serialize_user(user)}
+
+
+@auth_router.post("/admin/users/{user_id}/disable")
+async def disable_user_admin(
+    user_id: str,
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    return {"disabled": service.disable_user(user_id)}
+
+
+@auth_router.delete("/admin/users/{user_id}")
+async def delete_user_admin(
+    user_id: str,
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    return {"deleted": service.soft_delete_user(user_id)}
+
+
+@auth_router.post("/admin/legacy-users")
+async def create_legacy_user_admin(
+    req: CreateLegacyUserReq,
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    try:
+        user = service.ensure_legacy_user(
+            req.legacy_user_id,
+            primary_email=req.primary_email,
+            display_name=req.display_name,
+            metadata=req.metadata,
+        )
+    except (AuthError, ValueError) as exc:
+        raise _auth_http_error(exc) from exc
+    return {"user": service.serialize_user(user)}
+
+
+@auth_router.post("/admin/legacy-users/{legacy_user_id}/map")
+async def map_legacy_user_admin(
+    legacy_user_id: str,
+    req: MapLegacyUserReq,
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    try:
+        result = service.map_legacy_user_records(
+            legacy_user_id=legacy_user_id,
+            target_user_id=req.target_user_id,
+            trusted=req.trusted,
+        )
+    except (AuthError, ValueError) as exc:
+        raise _auth_http_error(exc) from exc
+    return {"mapped": result}
 
 
 @auth_router.get("/{provider}/login", name="provider_login")
@@ -184,3 +358,27 @@ def _set_cookie(
         samesite="lax",
         path="/",
     )
+
+
+def _user_updates(req: UpdateUserReq) -> dict:
+    data = req.model_dump(exclude_unset=True)
+    key_map = {
+        "primary_email": "primary_email",
+        "display_name": "display_name",
+        "avatar_url": "avatar_url",
+        "locale": "locale",
+        "metadata": "metadata",
+    }
+    return {key_map[key]: value for key, value in data.items() if key in key_map}
+
+
+def _auth_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, AuthNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, AuthConflictError):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, AuthDisabledError):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
