@@ -13,6 +13,7 @@ Current capabilities include:
 - MCP tool aggregation, including local MCP tools and remote MCP services.
 - SSE streaming output, so the web UI can show plans, reasoning, tool calls, tool results, and final answers in real time.
 - Basic file, message, memory, RAG, and report generation capabilities.
+- User identity, external login, session, task ownership, file ownership, audit, and frontend account entry for Google login.
 
 ## Product Direction
 
@@ -21,7 +22,9 @@ TaskPilotAgent should not be limited to coding tasks. It should become a general
 Future architecture should follow this main product path:
 
 ```text
-User Entry
+External User / Identity Provider
+  -> Identity / Auth Layer
+  -> User Entry
   -> Task System
   -> Agent Core
   -> Skill / Tool System
@@ -33,9 +36,133 @@ User Entry
 
 Do not hard-code assumptions that the general layer only serves code tasks. Only modules that are explicitly code-specific should use code-task-specific design.
 
+## User Identity And Auth Architecture
+
+Implementation status as of 2026-05-31:
+
+- Google login is the enabled provider for the current release.
+- The provider layer is generic. Microsoft and WeChat adapters exist but stay disabled by config until product work enables them.
+- TaskPilot owns the internal user ID. External providers only prove identity and bind to a TaskPilot user.
+- Protected web, API, task, and file operations must resolve the current TaskPilot user before doing work.
+- Agent prompts, task events, tool arguments, logs, and frontend responses must not expose provider tokens, session cookies, OAuth codes, OAuth state values, or OAuth client secrets.
+
+Core relationship:
+
+```mermaid
+flowchart LR
+    Browser["User Browser"] --> Cookie["TaskPilot Session Cookie"]
+    Cookie --> Session["task_pilot_user_session"]
+    Session --> User["task_pilot_user"]
+
+    Google["Google OIDC"] --> Adapter["Provider Adapter"]
+    Adapter --> Identity["task_pilot_user_identity"]
+    Identity --> User
+    Adapter --> State["task_pilot_oauth_state"]
+
+    User --> Tasks["Task Records"]
+    User --> Files["Uploaded Files"]
+    User --> Memory["Messages And Memory"]
+    User --> Audit["task_pilot_auth_audit_event"]
+
+    Adapter -.-> Connection["task_pilot_external_connection"]
+```
+
+Google login sequence:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant Web as TaskPilot Web
+    participant API as TaskPilot Auth API
+    participant DB as TaskPilot DB
+    participant G as Google
+
+    U->>Web: Open TaskPilot
+    Web->>API: GET /auth/me
+    API-->>Web: 401 when no valid session
+    Web->>API: GET /auth/google/login?redirect_after=/agent/web/autoagent
+    API->>DB: Store one-time state hash and nonce
+    API-->>Web: Redirect to Google authorization URL
+    Web->>G: User grants Google login
+    G-->>API: GET /auth/google/callback with code and state
+    API->>DB: Verify and consume OAuth state
+    API->>G: Exchange code and verify Google ID token
+    API->>DB: Create or update TaskPilot user and Google identity binding
+    API->>DB: Create TaskPilot session
+    API-->>Web: Set HttpOnly session cookie and redirect back
+    Web->>API: GET /auth/me
+    API-->>Web: Return current TaskPilot user profile
+```
+
+Provider identity mapping:
+
+```mermaid
+flowchart TD
+    A["Provider callback verified"] --> B["Normalize provider profile"]
+    B --> C{"Identity already exists?"}
+    C -->|yes| D["Load bound task_pilot_user"]
+    D --> E{"User active?"}
+    E -->|yes| F["Create session"]
+    E -->|no| G["Reject login"]
+
+    C -->|no| H{"Current TaskPilot session exists?"}
+    H -->|yes| I{"Provider identity bound elsewhere?"}
+    I -->|yes| J["Reject account conflict"]
+    I -->|no| K["Bind identity to current user"]
+    K --> F
+
+    H -->|no| L["Create new task_pilot_user"]
+    L --> M["Create task_pilot_user_identity"]
+    M --> F
+```
+
+Authenticated task request sequence:
+
+```mermaid
+sequenceDiagram
+    participant Web as TaskPilot Web
+    participant API as Task API
+    participant Auth as Auth Dependency
+    participant Store as Database
+    participant Task as Task Service
+    participant Agent as Agent Runtime
+
+    Web->>API: Submit task with session cookie
+    API->>Auth: Resolve current user
+    Auth->>Store: Read session and active user
+    Store-->>Auth: Return user_id
+    API->>Task: Create task owned by user_id
+    Task->>Agent: Start AgentContext with user_id
+    Agent->>Store: Persist task events, files, and memory under user_id
+    API-->>Web: Stream task events and final result
+```
+
+Ownership and isolation rules:
+
+- Task create, list, detail, events, cancel, retry, delete, artifact access, and follow-up input must use the authenticated `user_id`.
+- File upload, preview, download, and metadata lookup must use the authenticated `user_id`.
+- Normal frontend requests must not send or trust a user-provided `user_id`.
+- If auth is required, missing or invalid sessions must return 401 before task or file work starts.
+- Local development may use the dev fallback only when auth is explicitly disabled.
+- Legacy user mapping must be deliberate. Do not auto-attach old anonymous tasks to a new provider account by email.
+- Future provider API access, such as Google Drive or Gmail, must use `task_pilot_external_connection` and must stay separate from login identity.
+
 ## Implementation Order
 
 Implement framework work in the order below. Avoid starting from the middle of the stack, because that creates rework.
+
+### Phase 0: User Identity And Auth
+
+This phase is implemented for Google login and must remain the entry guard for protected user work.
+
+Completion criteria:
+
+- External provider login maps to exactly one internal TaskPilot user.
+- Sessions are persisted, revocable, and verified before protected work starts.
+- Tasks, files, messages, memory, and artifacts are scoped by authenticated user.
+- Login state is one-time, persisted, and verified before token exchange.
+- Auth audit records can answer who logged in, logged out, bound identities, unbound identities, disabled users, or deleted users.
+- Production startup fails clearly when auth is required but required provider config is missing.
 
 ### Phase 1: Task System
 
@@ -290,6 +417,7 @@ Web change rules:
 
 Before editing files, identify which layers the change affects:
 
+- Identity / Auth
 - User Entry
 - Task System
 - Agent Core
@@ -304,6 +432,7 @@ After each file change, test the changed layer and directly connected layers. Sm
 
 Minimum verification:
 
+- Auth or ownership change: run the focused auth tests and verify logged-out, logged-in, and cross-user denial behavior.
 - Backend Python change: run the pytest file or directory for the changed module.
 - Agent flow change: test affected ReAct/Supervisor, `builtin:plan_tool`, or compatibility `plans_executor` entry, and confirm SSE/event structure.
 - Tool change: test success, failure, and schema exposure.
@@ -320,17 +449,19 @@ If full testing is too expensive, run the smallest meaningful test and report wh
 Before reporting completion, check the items relevant to the current change:
 
 1. The user can still submit tasks.
-2. Task status moves correctly from start to finish.
-3. Plan and step progress remain visible.
-4. Tool call information still appears on the page.
-5. Tool result information still appears on the page.
-6. Final answers render correctly.
-7. Error information is clear.
-8. Files and artifacts remain accessible when involved.
-9. Logs and task events remain visible after completion.
-10. Unauthorized or unavailable tools are not exposed to the model.
-11. Secrets do not appear in logs, events, or pages.
-12. Existing tests for changed areas pass.
+2. Logged-out users cannot access protected task or file actions when auth is required.
+3. One logged-in user cannot access another user's tasks, files, artifacts, messages, or memory.
+4. Task status moves correctly from start to finish.
+5. Plan and step progress remain visible.
+6. Tool call information still appears on the page.
+7. Tool result information still appears on the page.
+8. Final answers render correctly.
+9. Error information is clear.
+10. Files and artifacts remain accessible when involved.
+11. Logs and task events remain visible after completion.
+12. Unauthorized or unavailable tools are not exposed to the model.
+13. Secrets do not appear in logs, events, or pages.
+14. Existing tests for changed areas pass.
 
 ## Design Constraints
 
@@ -654,6 +785,33 @@ uv lock --upgrade
 
 ## Current Architecture Overview
 
+### Auth And User Ownership
+
+Auth entry points live under `/auth`. Google is the first enabled provider, but provider-specific logic belongs inside provider adapters. Business routes should depend on the current TaskPilot user instead of handling provider identities directly.
+
+Main components:
+
+- `auth/models.py`: users, external identities, sessions, OAuth state, provider API connections, and audit events.
+- `auth/service.py`: user CRUD, identity binding, sessions, OAuth state, legacy mapping, audit, and cleanup.
+- `auth/router.py`: login, callback, logout, account, provider, admin, and legacy mapping APIs.
+- `auth/dependencies.py`: current-user resolution for protected routes.
+- `auth/providers/`: Google, generic OIDC, Microsoft, and WeChat provider adapters.
+- `auth/hardening.py`: production startup checks for auth and provider configuration.
+- `config/config.py`: auth config, provider config, and env-style config aliases.
+
+Request boundary:
+
+```text
+Browser request
+  -> Auth dependency resolves task_pilot_user
+  -> Protected route uses authenticated user_id
+  -> Task, file, message, memory, and artifact operations filter by user_id
+  -> AgentContext receives user_id
+  -> Events and audit records persist user-scoped activity
+```
+
+Public routes should be limited to health checks, frontend assets, auth provider discovery, login, and callback. New task, file, memory, or Agent routes should require the current user unless there is an explicit internal-only reason.
+
 ### Compatibility Flow: Plan-Solve-Summarize
 
 The system still keeps the `plans_executor` compatibility entry. It handles requests in three stages:
@@ -842,6 +1000,17 @@ From highest to lowest:
 
 - `APP_CONFIG_FILE`: config file path.
 - Database passwords and API keys should live in environment variables or `.env`.
+- Auth and Google login can be configured with environment variables or matching config-file aliases:
+  - `AUTH_REQUIRED`
+  - `AUTH_COOKIE_SECURE`
+  - `AUTH_SESSION_COOKIE_NAME`
+  - `AUTH_SESSION_TTL_SECONDS`
+  - `AUTH_DEV_USER_ID`
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  - `GOOGLE_REDIRECT_URI`
+
+Local development can set `AUTH_COOKIE_SECURE=false` for plain HTTP. Production must require auth, use secure cookies, and provide valid enabled-provider credentials.
 
 ### Prompt Templates
 
