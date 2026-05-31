@@ -670,4 +670,3 @@ uv run pytest tests/tasks/test_tool_gateway.py -q
 - Chinese README: [README.zh-CN.md](README.zh-CN.md)
 - Server-side source guide: [task-pilot-agent/README.md](task-pilot-agent/README.md)
 - Config template: [config/config.yaml.example](config/config.yaml.example)
-- Architecture alignment notes: [docs/harness_agent_alignment_review.md](docs/harness_agent_alignment_review.md)
