@@ -80,7 +80,7 @@ graph TD
   Summary --> Client
 ```
 
-- `plans_executor`（默认）：`brain/core/handlers/plan_solve.py:PlanSolveHandler`
+- `plans_executor`（兼容旧链路）：`brain/core/handlers/plan_solve.py:PlanSolveHandler`
   - `PlanningAgent` 先产出/更新计划：通过内部 `brain/core/tools/plan_tool.py:PlanFunctionTool` 执行 `create/continue/update/finish`，得到结构化 plan（title/steps/status/notes）
   - 然后逐步执行：每个 step 新建 `ExecutorAgent`，让模型在 `ask_tool_async()` 中选择工具并执行
   - 重规划：按 `core.planner_replan_each_step / core.planner_replan_on_failure / core.planner_max_replans` 控制
@@ -111,6 +111,8 @@ graph TD
   - 内部用 `brain/core/agents/ReActAgentImp.py:ReActAgentImp` 做多轮“思考-调用工具-观察”循环
   - 到达 `core.react_max_steps` 或模型选择 finish 时停止
   - 最终仍交给 `SummaryAgent` 输出（避免把中间过程直接当最终答案）
+
+当前默认 `core.agent_id` 指向 `task-pilot-agent`，该 Agent 的目录配置使用 `mode: react`。因此不显式传 `mode` 时，主线会优先跟随 Agent 配置走 ReAct；只有请求明确指定或旧配置没有 Agent mode 时，才会进入兼容的 `plans_executor`。
 
 ```mermaid
 graph TD
