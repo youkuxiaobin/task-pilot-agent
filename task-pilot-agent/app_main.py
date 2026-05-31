@@ -14,6 +14,7 @@ from tools.aggre_mcp_market.app import aggre_mcp_market_router, init_mcp_market_
 
 from brain.app import agent_router  # noqa: E402
 from file.file_op import file_router  # noqa: E402
+from auth.router import auth_router  # noqa: E402
 from utils.logger import get_logger  # noqa: E402
 from langfuse import Langfuse  # noqa: E402
 from mcp_process import _set_proctitle  # noqa: E402
@@ -65,6 +66,7 @@ async def lifespan(app: FastAPI):
 # 创建 FastAPI 应用
 app = FastAPI(lifespan=lifespan)
 app.include_router(aggre_mcp_market_router, prefix="/aggre_mcp_market")
+app.include_router(auth_router, prefix="/auth")
 app.include_router(agent_router, prefix="/agent")
 app.include_router(file_router, prefix="/file/v1")
 

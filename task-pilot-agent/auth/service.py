@@ -345,6 +345,42 @@ class AuthService:
         finally:
             session.close()
 
+    def ensure_dev_user(self, user_id: Optional[str] = None) -> TaskPilotUser:
+        resolved_user_id = user_id or agentSettings.auth.dev_user_id
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            user = session.query(TaskPilotUser).filter(TaskPilotUser.user_id == resolved_user_id).one_or_none()
+            if user:
+                if user.status != UserStatus.ACTIVE:
+                    user.status = UserStatus.ACTIVE
+                    user.updated_at = timestamp
+                    session.commit()
+                    session.refresh(user)
+                session.expunge(user)
+                return user
+            user = TaskPilotUser(
+                user_id=resolved_user_id,
+                primary_email=f"{resolved_user_id}@local.taskpilot",
+                display_name="TaskPilot Dev User",
+                status=UserStatus.ACTIVE,
+                source="dev",
+                metadata_json=json_dumps({"devFallback": True}),
+                created_at=timestamp,
+                updated_at=timestamp,
+                last_login_at=timestamp,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            session.expunge(user)
+            return user
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def get_identity(self, provider: str, provider_subject: str) -> Optional[TaskPilotUserIdentity]:
         session = self._session_maker()
         try:
@@ -473,4 +509,3 @@ def _safe_redirect_after(value: Optional[str]) -> str:
     if not text.startswith("/") or text.startswith("//"):
         return "/agent/web/autoagent"
     return text
-
