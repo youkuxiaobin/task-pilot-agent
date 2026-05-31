@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/agent': 'http://127.0.0.1:9010',
+      '/auth': 'http://127.0.0.1:9010',
       '/file': 'http://127.0.0.1:9010',
       '/aggre_mcp_market': 'http://127.0.0.1:9010',
     },

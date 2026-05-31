@@ -33,6 +33,11 @@ const messages = {
     'common.submit': '提交',
     'common.language': '语言',
     'common.upload': '上传文件',
+    'auth.loginGoogle': '使用 Google 登录',
+    'auth.logout': '退出',
+    'auth.requiredTitle': '登录后使用 TaskPilot',
+    'auth.requiredDesc': '任务、文件和历史记录会绑定到当前账号。',
+    'auth.currentUser': '当前用户',
     'task.current': '当前任务',
     'sidebar.recent': '最近任务',
     'home.title': '我能为你做什么？',
@@ -60,7 +65,6 @@ const messages = {
     'tasks.desc': '查看任务状态、结果、失败原因和历史过程。',
     'tasks.empty': '暂无任务记录。',
     'filter.search': '搜索任务',
-    'filter.user': '用户 ID',
     'filter.allStatus': '全部状态',
     'filter.allAgents': '全部 Agent',
     'filter.allTypes': '全部类型',
@@ -136,6 +140,11 @@ const messages = {
     'common.submit': 'Submit',
     'common.language': 'Language',
     'common.upload': 'Upload files',
+    'auth.loginGoogle': 'Continue with Google',
+    'auth.logout': 'Log out',
+    'auth.requiredTitle': 'Sign in to use TaskPilot',
+    'auth.requiredDesc': 'Tasks, files, and history are tied to the current account.',
+    'auth.currentUser': 'Current user',
     'task.current': 'Current task',
     'sidebar.recent': 'Recent Tasks',
     'home.title': 'What can I do for you?',
@@ -163,7 +172,6 @@ const messages = {
     'tasks.desc': 'Review task status, results, failures, and process history.',
     'tasks.empty': 'No task records.',
     'filter.search': 'Search tasks',
-    'filter.user': 'User ID',
     'filter.allStatus': 'All statuses',
     'filter.allAgents': 'All Agents',
     'filter.allTypes': 'All types',
@@ -224,6 +232,11 @@ const messages = {
 const activeView = ref('home')
 const savedLanguage = localStorage.getItem('taskpilot-language')
 const language = ref(savedLanguage === 'en' ? 'en' : 'zh')
+const authLoading = ref(true)
+const authRequired = ref(false)
+const authenticated = ref(false)
+const currentUser = ref(null)
+const authProviders = ref([])
 const sidebarOpen = ref(false)
 const statusText = ref('Ready')
 const running = ref(false)
@@ -255,7 +268,6 @@ const tasks = ref([])
 const notifications = ref([])
 const taskFilters = reactive({
   keyword: '',
-  userId: '',
   status: '',
   agentId: '',
   agentType: '',
@@ -310,6 +322,15 @@ const taskMeta = computed(() => {
   ]
   return parts.filter(Boolean).join(' · ')
 })
+
+const needsLogin = computed(() => authRequired.value && !authenticated.value)
+const googleProvider = computed(() => authProviders.value.find((provider) => provider.provider === 'google') || null)
+const displayUserName = computed(() => (
+  currentUser.value?.displayName
+  || currentUser.value?.primaryEmail
+  || currentUser.value?.userId
+  || ''
+))
 
 const mergedTimeline = computed(() => {
   const replay = currentEvents.value.map((event) => normalizeTimelineEvent(event))
@@ -572,9 +593,12 @@ async function sendTaskInput() {
 }
 
 async function refreshTasks() {
+  if (needsLogin.value) {
+    tasks.value = []
+    return
+  }
   const params = new URLSearchParams({ limit: '50' })
   if (taskFilters.keyword) params.set('keyword', taskFilters.keyword)
-  if (taskFilters.userId) params.set('user_id', taskFilters.userId)
   if (taskFilters.status) params.set('status', taskFilters.status)
   if (taskFilters.agentId) params.set('agent_id', taskFilters.agentId)
   if (taskFilters.agentType) params.set('agent_type', taskFilters.agentType)
@@ -590,6 +614,61 @@ async function refreshTasks() {
   } catch (error) {
       addNotification(withDetail('任务列表加载失败', 'Task list failed to load', error.message), 'failed')
   }
+}
+
+
+function applyAuthPayload(payload = {}) {
+  authRequired.value = Boolean(payload.authRequired)
+  authenticated.value = Boolean(payload.authenticated)
+  currentUser.value = payload.user || null
+  authProviders.value = Array.isArray(payload.providers) ? payload.providers : authProviders.value
+}
+
+async function loadAuthProviders() {
+  try {
+    const response = await fetch('/auth/providers')
+    if (!response.ok) return
+    const data = await response.json()
+    authProviders.value = Array.isArray(data.items) ? data.items : []
+  } catch {
+    authProviders.value = []
+  }
+}
+
+async function refreshAuth() {
+  authLoading.value = true
+  try {
+    const response = await fetch('/auth/me')
+    if (response.ok) {
+      applyAuthPayload(await response.json())
+      return
+    }
+    authRequired.value = response.status === 401
+    authenticated.value = false
+    currentUser.value = null
+    await loadAuthProviders()
+  } catch {
+    authRequired.value = false
+    authenticated.value = false
+    currentUser.value = null
+    await loadAuthProviders()
+  } finally {
+    authLoading.value = false
+  }
+}
+
+function startProviderLogin(provider) {
+  const nextPath = `${window.location.pathname}${window.location.search || ''}` || '/agent/web/autoagent'
+  window.location.href = `/auth/${encodeURIComponent(provider)}/login?redirect_after=${encodeURIComponent(nextPath)}`
+}
+
+async function logout() {
+  await fetch('/auth/logout', { method: 'POST' })
+  authenticated.value = false
+  currentUser.value = null
+  newTask()
+  await refreshAuth()
+  await refreshTasks()
 }
 
 async function loadTask(taskId, options = {}) {
@@ -880,6 +959,8 @@ function artifactHref(item) {
 }
 
 onMounted(async () => {
+  await refreshAuth()
+  if (needsLogin.value) return
   await refreshAgents()
   await refreshTasks()
   await refreshToolCatalog()
@@ -941,6 +1022,15 @@ onMounted(async () => {
           </button>
         </div>
         <div class="topbar-right">
+          <div v-if="!authLoading" class="auth-area">
+            <div v-if="currentUser" class="user-chip" :title="`${t('auth.currentUser')}：${currentUser.userId}`">
+              <img v-if="currentUser.avatarUrl" class="user-avatar" :src="currentUser.avatarUrl" alt="" />
+              <span v-else class="user-avatar user-avatar-fallback">{{ displayUserName.slice(0, 1).toUpperCase() }}</span>
+              <span>{{ displayUserName }}</span>
+            </div>
+            <button v-if="authenticated" type="button" class="ghost-button small" @click="logout">{{ t('auth.logout') }}</button>
+            <button v-else-if="googleProvider" type="button" class="ghost-button small" @click="startProviderLogin('google')">{{ t('auth.loginGoogle') }}</button>
+          </div>
           <select v-model="language" class="language-select" :title="t('common.language')">
             <option value="zh">中文</option>
             <option value="en">English</option>
@@ -964,7 +1054,24 @@ onMounted(async () => {
         </button>
       </div>
 
-      <section v-if="activeView === 'home'" class="view home-view">
+      <section v-if="needsLogin" class="view auth-view">
+        <div class="auth-panel">
+          <h1>{{ t('auth.requiredTitle') }}</h1>
+          <p>{{ t('auth.requiredDesc') }}</p>
+          <div class="auth-provider-list">
+            <button
+              v-if="googleProvider"
+              type="button"
+              class="primary-button"
+              @click="startProviderLogin('google')"
+            >
+              {{ t('auth.loginGoogle') }}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeView === 'home'" class="view home-view">
         <div class="hero-block">
           <h1>{{ t('home.title') }}</h1>
           <form class="composer-card" @submit.prevent="submitTask">
@@ -1141,7 +1248,6 @@ onMounted(async () => {
         </div>
         <div class="filter-bar">
           <input v-model="taskFilters.keyword" type="search" :placeholder="t('filter.search')" @input="refreshTasks" />
-          <input v-model="taskFilters.userId" type="search" :placeholder="t('filter.user')" @input="refreshTasks" />
           <select v-model="taskFilters.status" @change="refreshTasks">
             <option value="">{{ t('filter.allStatus') }}</option>
             <option value="queued">{{ t('status.queued') }}</option>
