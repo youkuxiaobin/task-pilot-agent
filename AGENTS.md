@@ -1,353 +1,353 @@
 # AGENTS.md
 
-这个文件用于指导 Codex 在本仓库中工作。后续所有架构设计、功能开发、测试和交付，都要优先遵守这里的约定。
+This file guides Codex when working in this repository. All future architecture design, feature development, testing, and delivery should follow these conventions first.
 
-## 项目概览
+## Project Overview
 
-TaskPilotAgent 是一个基于 Python 和 FastAPI 的通用 Agent 编排框架。当前已经支持任务规划、工具调用、结果总结、多模型接入，以及基于 MCP 的工具聚合。
+TaskPilotAgent is a Python and FastAPI based general-purpose Agent orchestration framework. It already supports task planning, tool calls, result summarization, multiple model providers, and MCP-based tool aggregation.
 
-项目当前能力包括：
+Current capabilities include:
 
-- 多模型接入：OpenAI、Claude/Codex、Gemini、OpenAI 兼容服务。
-- 当前已有 `plans_executor` 和 `react` 两条执行链路；后续主线应收敛到 React/Supervisor 运行时。
-- MCP 工具聚合：本地 MCP 工具和远程 MCP 服务。
-- SSE 流式输出：前端可以实时看到计划、思考、工具调用、工具结果和最终答案。
-- 文件、消息、记忆、RAG、报告生成等基础能力。
+- Multi-model access: OpenAI, Claude/Codex, Gemini, and OpenAI-compatible services.
+- Two execution paths currently exist: `plans_executor` and `react`. The main direction should converge on the ReAct/Supervisor runtime.
+- MCP tool aggregation, including local MCP tools and remote MCP services.
+- SSE streaming output, so the web UI can show plans, reasoning, tool calls, tool results, and final answers in real time.
+- Basic file, message, memory, RAG, and report generation capabilities.
 
-## 产品方向
+## Product Direction
 
-TaskPilotAgent 的目标不是只做代码助手，而是发展成一个通用 Agent 产品。它要能解决多类型问题：搜索研究、文件处理、数据分析、浏览器任务、报告生成、自动化流程、代码修改、长任务执行等。
+TaskPilotAgent should not be limited to coding tasks. It should become a general-purpose Agent product that can solve many kinds of work: research, file processing, data analysis, browser tasks, report generation, automation workflows, code changes, and long-running tasks.
 
-后续架构设计必须围绕这条主链路展开：
-
-```text
-用户入口
-  -> 任务系统
-  -> Agent 核心
-  -> 技能 / 工具系统
-  -> 沙箱运行环境
-  -> 记忆 / 知识库
-  -> 日志 / 回看 / 评测
-  -> 权限 / 风险控制
-```
-
-不要在通用层里写死“只服务代码任务”的假设。只有明确属于代码能力的模块，才可以使用代码任务专属设计。
-
-## 框架落地顺序
-
-后续实现必须按下面顺序推进，避免从中间层开工导致返工。
-
-### 第一阶段：任务系统
-
-先建立任务记录、任务事件、状态流转、最终输出和错误保存。所有 Agent、工具、Web 展示都必须挂在任务 ID 上。
-
-完成标准：
-
-- 用户提交后先创建任务。
-- 任务有明确状态。
-- 过程事件能保存。
-- 成功结果和失败原因能回看。
-
-### 第二阶段：工具注册表和 ToolGateway
-
-统一内置工具、MCP 工具和扩展工具。Agent 不直接调用工具，必须通过 ToolGateway。
-
-完成标准：
-
-- 工具有统一描述和 schema。
-- ToolGateway 能按 Agent 和权限过滤工具。
-- 工具调用和结果写入任务事件。
-- 工具错误、超时和脱敏有统一处理。
-
-### 第三阶段：Agent 目录化配置加载
-
-读取 `config/agents/{agent_id}/agent.yaml`、`system_prompt.md`、`evals.yaml`，生成 AgentSpec，并注册到 AgentRegistry。
-
-完成标准：
-
-- 配置能启动时加载。
-- 配置错误能被明确报出。
-- AgentRegistry 能列出可用 Agent。
-- Agent 的 system prompt、工具、权限、交接关系来自目录配置。
-
-### 第四阶段：拆出 `builtin:plan_tool`
-
-把规划能力从 `plans_executor` 独立流程中拆出来，变成 React/Supervisor 可调用的工具。
-
-完成标准：
-
-- 支持创建、读取、更新计划。
-- 支持标记步骤运行、完成、失败。
-- 计划变化写入任务事件。
-- 不把整个 `plans_executor` 包成一个工具。
-
-### 第五阶段：React/Supervisor 主运行时
-
-Supervisor 根据任务和 AgentRegistry 选择目标 Agent；专家 Agent 通过 ToolGateway 调用工具；复杂任务按需调用 `builtin:plan_tool`。
-
-完成标准：
-
-- Supervisor 可以选择 Agent。
-- Agent 之间可以交接。
-- 每个 Agent 只能看到自己允许的工具。
-- 所有 Agent 启动、完成、失败、交接都写入任务事件。
-
-### 第六阶段：Web 任务页
-
-Web 从聊天调试页升级为任务产品页面。
-
-完成标准：
-
-- 有任务创建页。
-- 有任务列表页。
-- 有任务详情页。
-- 详情页能展示时间线、当前 Agent、工具调用、工具结果、最终输出和错误。
-
-### 第七阶段：沙箱、权限和评测
-
-补齐每任务工作目录、高风险审批、权限策略、Agent 冒烟测试和回归任务集。
-
-完成标准：
-
-- 高风险工具有审批或显式策略。
-- 工具不能越过任务工作目录。
-- Agent 配置变更后能跑对应 evals。
-- 常见任务类型有回归样例。
-
-## 目标架构原则
-
-### 1. 用户入口
-
-用户入口包括 Web 页面、API、未来的 webhook、外部渠道、内部自动化入口。入口层只负责接收和标准化请求，不应该承载核心执行逻辑。
-
-要求：
-
-- Web 和 API 必须使用同一套任务模型和状态模型。
-- 用户创建任务后，即使离开页面，回来后也能看到任务最新状态。
-- SSE/WebSocket 只是实时展示方式，不是任务状态的唯一来源。
-- 入口层必须保留用户 ID、Agent ID、会话 ID、文件、运行模式、输出样式等信息。
-
-### 2. 任务系统
-
-任务系统是产品主干。一次 Agent 运行必须是一条可持久化、可查询、可回看的任务，而不只是一次 HTTP 请求或一段 SSE 流。
-
-任务系统应支持：
-
-- 创建、列表、详情、取消、重试、查询任务。
-- 状态：`queued`、`running`、`waiting_input`、`completed`、`failed`、`cancelled`。
-- 保存输入、输出、错误、耗时、归属用户、运行模式、元数据、用量指标。
-- 保存任务事件时间线：计划、步骤变化、工具调用、工具结果、日志、文件、用户补充输入、最终输出。
-- 支持后台执行，浏览器断开后长任务仍能继续运行。
-
-新增 Agent 行为时，必须能挂到任务 ID 上，并能持续上报任务事件。
-
-### 3. Agent 核心
-
-Agent 核心负责推理、规划、执行编排和总结。它不应该和 FastAPI 路由、浏览器连接或某个具体页面强绑定。
-
-新的主线设计：
-
-- React/Supervisor 是统一运行时。
-- 规划不再作为独立主模式扩张，而是作为 React/Supervisor 可调用的工具能力。
-- 旧 `plans_executor` 保留为兼容入口，逐步迁移为 `builtin:plan_tool` + `react_worker` + `summary/review` 的组合。
-- 多输出样式：markdown、HTML、表格、PPT、GAIA 风格结果。
-
-要求：
-
-- 关键状态变化必须发出事件。
-- 工具调用和工具结果必须结构化记录。
-- 错误必须转成任务错误，并保留足够上下文，方便回看和排查。
-- 新增 Agent 模式时，必须有聚焦测试，且不能破坏已有模式。
-
-### 3.1 规划能力的定位
-
-规划能力应作为工具进入 React/Supervisor，而不是继续作为一条独立执行框架扩张。
-
-推荐工具名：`builtin:plan_tool`。
-
-`plan_tool` 至少支持：
-
-- `create_plan`：创建计划。
-- `update_plan`：根据新信息更新计划。
-- `get_plan`：读取当前计划。
-- `mark_step_running`：标记步骤开始。
-- `mark_step_completed`：标记步骤完成。
-- `mark_step_failed`：标记步骤失败。
-- `finish_plan`：结束计划。
-
-推荐运行方式：
+Future architecture should follow this main product path:
 
 ```text
-React/Supervisor Agent
-  -> 判断任务是否需要规划
-  -> 需要时调用 builtin:plan_tool
-  -> 按计划调用工具或交给专家 Agent
-  -> 过程中可再次调用 builtin:plan_tool 更新计划
-  -> 最后调用 summary/review 能力生成结果
+User Entry
+  -> Task System
+  -> Agent Core
+  -> Skill / Tool System
+  -> Sandbox Runtime
+  -> Memory / Knowledge Base
+  -> Logs / Replay / Evaluation
+  -> Permission / Risk Control
 ```
 
-不要把整个 `plans_executor` 原封不动包装成一个 React 工具。那会形成“React 里套 PlanSolve 再套 Executor”的嵌套流程，导致状态、日志、取消、错误和 Web 回看很难统一。
+Do not hard-code assumptions that the general layer only serves code tasks. Only modules that are explicitly code-specific should use code-task-specific design.
 
-适合调用 `plan_tool` 的场景：
+## Implementation Order
 
-- 多步骤任务。
-- 长任务。
-- 多 Agent 协作任务。
-- 需要用户回看计划和进度的任务。
-- 失败后需要重规划的任务。
-- 需要最终报告或结构化交付物的任务。
+Implement framework work in the order below. Avoid starting from the middle of the stack, because that creates rework.
 
-不适合强制规划的场景：
+### Phase 1: Task System
 
-- 简单问答。
-- 单次工具调用。
-- 明确由一个专家 Agent 直接完成的小任务。
-- 不需要过程回看的短任务。
+Build task records, task events, status transitions, final output, and error persistence first. All Agents, tools, and web views must attach to a task ID.
 
-### 4. 技能 / 工具系统
+Completion criteria:
 
-技能和工具是产品能力，不只是函数调用。它们必须有清晰的描述、入参、权限、日志和测试。
+- A task is created before user work starts.
+- A task has explicit status.
+- Process events are persisted.
+- Successful results and failure reasons can be replayed.
 
-要求：
+### Phase 2: Tool Registry And ToolGateway
 
-- 每个工具必须有稳定名称、描述、输入结构、输出结构和失败行为。
-- 暴露给模型前，必须按用户、Agent、任务类型和策略过滤可用工具。
-- 每次工具调用都要记录工具名、入参摘要、结果摘要、耗时、失败状态。
-- 密钥、token、cookie 等敏感值必须在日志、事件和页面中脱敏。
-- 新增工具必须至少有一个代表性测试；如果本地无法测试，必须说明原因。
-- 默认通用 Agent 必须具备基础文件能力：读文件、写文件、列目录、查看文件信息、创建目录、复制、移动、删除。
-- 读文件可以读取用户明确给出的本机路径；写入、删除、移动等修改类文件工具默认必须限制在任务工作目录内。
-- Shell/命令执行属于高风险工具，必须通过工具策略和权限开关控制，不能默认暴露给模型。
-- MCP Market 返回的工具名可能使用 `mcp_local-file_read` 这类短横线格式；Agent 配置可使用 `mcp_local:file_read`，策略匹配必须兼容这两种写法。
+Unify built-in tools, MCP tools, and extension tools. Agents must not call tools directly; they must go through ToolGateway.
 
-### 5. 沙箱运行环境
+Completion criteria:
 
-凡是执行代码、Shell 命令、浏览器自动化、文件修改、远程动作的能力，都必须有明确运行边界。
+- Tools have unified descriptions and schemas.
+- ToolGateway filters tools by Agent and permission policy.
+- Tool calls and tool results are written to task events.
+- Tool errors, timeouts, and redaction are handled consistently.
 
-要求：
+### Phase 3: Directory-Based Agent Config Loading
 
-- 优先使用每个任务独立的工作目录。
-- 生成文件和任务产物必须挂到任务记录上。
-- 工具不能悄悄写到预期工作区之外。
-- 高风险操作必须先经过策略检查。
-- 长时间运行的操作必须支持超时、取消和进度事件。
+Read `config/agents/{agent_id}/agent.yaml`, `system_prompt.md`, and `evals.yaml`, then build AgentSpec and register it in AgentRegistry.
 
-### 6. 记忆 / 知识库
+Completion criteria:
 
-记忆和知识库用于增强任务能力，不能替代任务记录。
+- Configs load at startup.
+- Config errors are reported clearly.
+- AgentRegistry can list available Agents.
+- System prompt, tools, permissions, and handoffs come from directory config.
 
-要求：
+### Phase 4: Extract `builtin:plan_tool`
 
-- 会话记忆、任务历史、上传文件、知识检索要有明确归属和范围。
-- Agent 使用过的检索结果应能在任务事件或最终证据中追踪。
-- 记忆写入必须是有意图、可测试的行为。
-- 当记忆或 RAG 不可用时，Agent 应该能降级运行，而不是直接崩溃。
+Move planning from the standalone `plans_executor` flow into a tool callable by ReAct/Supervisor.
 
-### 7. 日志 / 回看 / 评测
+Completion criteria:
 
-通用 Agent 产品必须能回看任务过程。任务完成后，仍应能查看它做了什么、调用了什么工具、哪里失败、产出了什么。
+- Plans can be created, read, and updated.
+- Steps can be marked running, completed, or failed.
+- Plan changes are written to task events.
+- Do not wrap the entire `plans_executor` as one tool.
 
-要求：
+### Phase 5: ReAct/Supervisor Main Runtime
 
-- 任务时间线要持久化，不要只依赖临时 SSE 消息。
-- 工具调用、工具结果、模型阶段、错误、输出产物都要能在页面回看。
-- 针对任务状态、工具事件、流式输出、最终答案建立回归测试。
-- 维护一组代表性评测任务，覆盖搜索研究、文件处理、数据分析、浏览器使用、代码任务和报告生成。
+Supervisor selects the target Agent from the task and AgentRegistry. Worker Agents call tools through ToolGateway. Complex tasks can call `builtin:plan_tool` when needed.
 
-### 8. 权限 / 风险控制
+Completion criteria:
 
-权限和安全是产品需求，不是上线前才补的清理工作。
+- Supervisor can select an Agent.
+- Agents can hand off work.
+- Each Agent only sees its allowed tools.
+- Agent start, completion, failure, and handoff events are written to task events.
 
-要求：
+### Phase 6: Web Task Page
 
-- 暴露给模型的工具必须经过允许列表过滤。
-- 高风险工具必须有拒绝列表、审批或显式开关。
-- 密钥必须在事件、日志、异常和页面中脱敏。
-- 审计信息要能回答：谁、在什么时候、通过哪个任务、调用了什么工具、造成了什么变化。
-- 不要新增绕过工具注册、任务系统或策略检查的执行路径。
+Upgrade the web UI from a chat debugging page into a task product page.
 
-## Web 端要求
+Completion criteria:
 
-Web 端要支持完整任务生命周期，而不是只展示聊天记录。
+- Task creation page exists.
+- Task list page exists.
+- Task detail page exists.
+- Detail page shows timeline, current Agent, tool calls, tool results, final output, and errors.
 
-目标页面：
+### Phase 7: Sandbox, Permissions, And Evaluation
 
-- 任务创建页：输入任务、选择模式、上传文件、选择输出样式、选择技能/工具、选择运行环境。
-- 任务列表页：按状态、关键词、用户、Agent 类型、创建时间、耗时、错误状态筛选。
-- 任务详情页：展示输入、当前状态、计划、时间线、工具调用、工具输出、产物、最终答案、错误、用量指标。
-- 实时更新：可使用 SSE/WebSocket，但必须能和持久化任务记录对齐。
-- 历史回看：历史任务不依赖原始流连接，也能完整渲染。
-- 失败视图：清楚展示失败原因和最后一个成功步骤。
+Add per-task work directories, high-risk approval, permission policies, Agent smoke tests, and regression task sets.
 
-Web 变更规则：
+Completion criteria:
 
-- 后端事件结构变化时，必须同步修改 Web 渲染，或明确兼容策略。
-- 修改任务事件渲染时，必须用代表性事件数据检查展示效果。
-- 不要在任务详情页隐藏工具调用、错误、风险提示。
-- 长任务必须让用户看懂状态：排队中、运行中、等待输入、已完成、失败、已取消。
+- High-risk tools have approval or explicit policy.
+- Tools cannot escape the task work directory.
+- Agent config changes can run matching evals.
+- Common task types have regression examples.
 
-## 每次变更的安全规则
+## Target Architecture Principles
 
-动手改文件前，先判断这次变更影响哪些层：
+### 1. User Entry
 
-- 用户入口
-- 任务系统
-- Agent 核心
-- 技能 / 工具
-- 沙箱运行环境
-- 记忆 / 知识库
-- 日志 / 回看 / 评测
-- 权限 / 风险控制
+User entry includes the web UI, API, future webhooks, external channels, and internal automation entry points. This layer receives and normalizes requests only. It should not contain core execution logic.
+
+Requirements:
+
+- Web and API must use the same task model and status model.
+- After a task is created, the user can leave and later return to the latest status.
+- SSE/WebSocket are real-time display channels, not the source of truth for task status.
+- Entry must preserve user ID, Agent ID, conversation ID, files, run mode, output style, and related metadata.
+
+### 2. Task System
+
+The task system is the product backbone. One Agent run must be a durable, queryable, replayable task, not just one HTTP request or one SSE stream.
+
+The task system should support:
+
+- Create, list, detail, cancel, retry, and query tasks.
+- Status values: `queued`, `running`, `waiting_input`, `completed`, `failed`, `cancelled`.
+- Persist input, output, error, duration, owner user, run mode, metadata, and usage metrics.
+- Persist event timelines: plans, step changes, tool calls, tool results, logs, files, user follow-up input, and final output.
+- Support background execution, so long tasks can continue after browser disconnection.
+
+When adding Agent behavior, it must attach to a task ID and continuously report task events.
+
+### 3. Agent Core
+
+Agent Core handles reasoning, planning, execution orchestration, and summarization. It should not be tightly coupled to FastAPI routes, browser connections, or a specific page.
+
+Main runtime direction:
+
+- ReAct/Supervisor is the unified runtime.
+- Planning is no longer expanded as an independent main mode. It should be a callable tool inside ReAct/Supervisor.
+- Keep old `plans_executor` as a compatibility entry, and gradually migrate it into `builtin:plan_tool` + `react_worker` + `summary/review`.
+- Support multiple output styles: markdown, HTML, tables, PPT, and GAIA-style output.
+
+Requirements:
+
+- Important status changes must emit events.
+- Tool calls and tool results must be recorded as structured data.
+- Errors must become task errors with enough context for replay and debugging.
+- New Agent modes need focused tests and must not break existing modes.
+
+### 3.1 Planning Capability
+
+Planning should enter ReAct/Supervisor as a tool, not keep growing as an independent execution framework.
+
+Recommended tool name: `builtin:plan_tool`.
+
+`plan_tool` should support at least:
+
+- `create_plan`: create a plan.
+- `update_plan`: update a plan based on new information.
+- `get_plan`: read the current plan.
+- `mark_step_running`: mark a step as started.
+- `mark_step_completed`: mark a step as completed.
+- `mark_step_failed`: mark a step as failed.
+- `finish_plan`: finish the plan.
+
+Recommended flow:
+
+```text
+ReAct/Supervisor Agent
+  -> decide whether the task needs planning
+  -> call builtin:plan_tool when planning is useful
+  -> call tools or hand off to worker Agents according to the plan
+  -> call builtin:plan_tool again when the plan changes
+  -> call summary/review to produce the final result
+```
+
+Do not wrap the entire `plans_executor` as a ReAct tool. That creates nested execution layers and makes status, logs, cancellation, errors, and web replay hard to unify.
+
+Good cases for `plan_tool`:
+
+- Multi-step tasks.
+- Long-running tasks.
+- Multi-Agent collaboration.
+- Tasks where the user needs to review plan and progress.
+- Tasks that need replanning after failure.
+- Tasks that need final reports or structured deliverables.
+
+Cases where planning should not be forced:
+
+- Simple Q&A.
+- Single tool call.
+- Small tasks clearly handled by one worker Agent.
+- Short tasks that do not need process replay.
+
+### 4. Skill / Tool System
+
+Skills and tools are product capabilities, not only function calls. They need clear descriptions, inputs, permissions, logs, and tests.
+
+Requirements:
+
+- Every tool must have a stable name, description, input schema, output schema, and failure behavior.
+- Before exposing tools to the model, filter them by user, Agent, task type, and policy.
+- Every tool call must record tool name, argument summary, result summary, duration, and failure status.
+- Secrets, tokens, cookies, and other sensitive values must be redacted from logs, events, and pages.
+- New tools must have at least one representative test. If local testing is not possible, explain why.
+- The default general Agent must have basic file capabilities: read file, write file, list directory, stat file, create directory, copy, move, and delete.
+- File read can read user-provided local paths. Write, delete, and move tools must be restricted to the task work directory by default.
+- Shell or command execution is high risk. It must be controlled by tool policy and permission flags, and must not be exposed by default.
+- MCP Market tool names can use hyphen form like `mcp_local-file_read`; Agent config can use colon form like `mcp_local:file_read`; policy matching must support both.
+
+### 5. Sandbox Runtime
+
+Any capability that executes code, shell commands, browser automation, file modification, or remote actions must have an explicit runtime boundary.
+
+Requirements:
+
+- Prefer one isolated work directory per task.
+- Generated files and artifacts must attach to the task record.
+- Tools must not silently write outside expected workspaces.
+- High-risk operations must pass policy checks first.
+- Long-running operations need timeout, cancellation, and progress events.
+
+### 6. Memory / Knowledge Base
+
+Memory and knowledge retrieval improve task capability, but they do not replace task records.
+
+Requirements:
+
+- Session memory, task history, uploaded files, and knowledge retrieval must have clear ownership and scope.
+- Retrieval results used by Agents should be traceable in task events or final evidence.
+- Memory writes must be intentional and testable.
+- If memory or RAG is unavailable, the Agent should degrade gracefully instead of crashing.
+
+### 7. Logs / Replay / Evaluation
+
+A general-purpose Agent product must be replayable. After a task is complete, the user should still be able to see what happened, which tools were called, where it failed, and what it produced.
+
+Requirements:
+
+- Persist the task timeline; do not rely only on temporary SSE messages.
+- Tool calls, tool results, model phases, errors, and output artifacts must be replayable in the UI.
+- Add regression tests for task status, tool events, streaming output, and final answers.
+- Maintain representative eval tasks covering research, file processing, data analysis, browser use, code work, and report generation.
+
+### 8. Permission / Risk Control
+
+Permissions and safety are product requirements, not cleanup work before release.
+
+Requirements:
+
+- Tools exposed to the model must pass allow-list filtering.
+- High-risk tools need deny lists, approval, or explicit flags.
+- Secrets must be redacted from events, logs, exceptions, and pages.
+- Audit information should answer who called which tool, when, through which task, and what changed.
+- Do not add execution paths that bypass the tool registry, task system, or policy checks.
+
+## Web Requirements
+
+The web UI must support the full task lifecycle instead of only showing chat messages.
+
+Target pages:
+
+- Task creation page: task input, mode selection, file upload, output style, skill/tool selection, runtime selection.
+- Task list page: filters by status, keyword, user, Agent type, creation time, duration, and error state.
+- Task detail page: input, current status, plan, timeline, tool calls, tool outputs, artifacts, final answer, error, and usage metrics.
+- Real-time updates through SSE/WebSocket, aligned with persisted task records.
+- Historical replay without depending on the original stream connection.
+- Failure view with clear error reason and the last successful step.
+
+Web change rules:
+
+- If backend event structure changes, update web rendering or document compatibility.
+- When changing task event rendering, check it with representative event data.
+- Do not hide tool calls, errors, or risk warnings on the task detail page.
+- Long tasks must make status understandable: queued, running, waiting for input, completed, failed, or cancelled.
+
+## Change Safety Rules
+
+Before editing files, identify which layers the change affects:
+
+- User Entry
+- Task System
+- Agent Core
+- Skill / Tool
+- Sandbox Runtime
+- Memory / Knowledge Base
+- Logs / Replay / Evaluation
+- Permission / Risk Control
 - Web UI
 
-每次改文件后，必须测试被改动层和直接相连的层。小改动也要验证，因为很多回归来自很小的改动。
+After each file change, test the changed layer and directly connected layers. Small changes still need verification.
 
-最低验证要求：
+Minimum verification:
 
-- Python 后端变更：运行被改模块对应的 pytest 文件或目录。
-- Agent 流程变更：测试受影响的 React/Supervisor、`builtin:plan_tool` 或兼容 `plans_executor` 入口，并确认 SSE/事件结构。
-- 工具变更：测试工具成功、失败、schema 暴露。
-- 任务系统变更：测试创建、列表、详情、状态流转、错误、取消或重试。
-- 记忆/RAG 变更：测试关闭、空结果、正常检索。
-- Web 变更：能本地打开就打开页面，检查创建、实时更新、详情渲染、错误状态和移动端布局。
-- 权限或沙箱变更：测试允许路径和拒绝路径。
-- 配置变更：测试默认配置加载和环境变量覆盖。
+- Backend Python change: run the pytest file or directory for the changed module.
+- Agent flow change: test affected ReAct/Supervisor, `builtin:plan_tool`, or compatibility `plans_executor` entry, and confirm SSE/event structure.
+- Tool change: test success, failure, and schema exposure.
+- Task system change: test create, list, detail, status transition, error, cancel, or retry.
+- Memory/RAG change: test disabled state, empty result, and normal retrieval.
+- Web change: open the page locally when possible and check create, live update, detail rendering, error state, and mobile layout.
+- Permission or sandbox change: test allowed and denied paths.
+- Config change: test default config loading and environment variable override.
 
-如果完整测试成本过高，运行最小但有意义的测试，并在汇报中说明没跑什么、为什么没跑。不能只写完代码就报告完成。
+If full testing is too expensive, run the smallest meaningful test and report what was not run and why. Do not report completion after only editing code.
 
-## 每次交付前检查清单
+## Delivery Checklist
 
-汇报完成前，按本次改动范围检查下面内容：
+Before reporting completion, check the items relevant to the current change:
 
-1. 用户仍然可以提交任务。
-2. 任务从开始到结束的状态正确。
-3. 计划和步骤进度仍然可见。
-4. 工具调用信息仍然出现在页面上。
-5. 工具结果信息仍然出现在页面上。
-6. 最终答案仍然能正常渲染。
-7. 错误信息清楚可见。
-8. 涉及文件或产物时，文件和产物仍然可访问。
-9. 涉及日志或任务事件时，任务完成后仍能查看。
-10. 未授权或不可用工具不会暴露给模型。
-11. 密钥不会出现在日志、事件或页面里。
-12. 被改动区域的已有测试仍然通过。
+1. The user can still submit tasks.
+2. Task status moves correctly from start to finish.
+3. Plan and step progress remain visible.
+4. Tool call information still appears on the page.
+5. Tool result information still appears on the page.
+6. Final answers render correctly.
+7. Error information is clear.
+8. Files and artifacts remain accessible when involved.
+9. Logs and task events remain visible after completion.
+10. Unauthorized or unavailable tools are not exposed to the model.
+11. Secrets do not appear in logs, events, or pages.
+12. Existing tests for changed areas pass.
 
-## 设计约束
+## Design Constraints
 
-- 优先使用持久化任务状态，不要把产品能力建立在请求内临时状态上。
-- 优先使用结构化事件，不要把任务时间线做成不可解析的纯文本。
-- 优先增强已有 Agent 模式，不要轻易新增模式。
-- 优先通过工具注册和工具集合调用，不要写临时直连工具。
-- 优先显式策略，不要依赖隐藏约定。
-- 尽量保持 Web 和 API 协议向后兼容。
-- 不要新增大依赖，除非确认它符合目标架构。
-- 不要提交 API key、密码、cookie、本地数据库、日志和用户数据。
+- Prefer durable task state over request-local state.
+- Prefer structured events over unparseable text timelines.
+- Prefer improving existing Agent modes over adding new modes.
+- Prefer tool registry and tool collection calls over temporary direct tool calls.
+- Prefer explicit policy over hidden convention.
+- Keep Web and API protocols backward compatible when possible.
+- Avoid large new dependencies unless they clearly fit the target architecture.
+- Do not commit API keys, passwords, cookies, local databases, logs, or user data.
 
-## Agent 目录化配置
+## Directory-Based Agent Config
 
-后续新增或调整单个 Agent 时，默认采用“一个 Agent 一个目录”的方式。Agent 的个性、职责、system prompt、可用工具、权限、交接关系和评测样例都放在自己的目录里；真正执行逻辑仍由统一 Agent Runtime 负责。
+New or changed Agents should use one directory per Agent. Personality, responsibility, system prompt, available tools, permissions, handoffs, and evals belong in that directory. Execution logic still stays in the unified Agent Runtime.
 
-默认目录：
+Default structure:
 
 ```text
 config/agents/
@@ -370,26 +370,26 @@ config/agents/
     README.md
 ```
 
-约定：
+Conventions:
 
-- `agent.yaml`：必需。保存结构化配置。
-- `system_prompt.md`：必需。保存完整 system prompt。
-- `evals.yaml`：建议。保存该 Agent 的冒烟测试和评测样例。
-- `README.md`：建议。说明这个 Agent 的职责、边界和常见用法。
+- `agent.yaml`: required structured config.
+- `system_prompt.md`: required full system prompt.
+- `evals.yaml`: recommended smoke tests and eval cases.
+- `README.md`: recommended responsibility, boundaries, and common usage.
 
-### agent.yaml 结构
+### `agent.yaml` Structure
 
-`agent.yaml` 用来描述 Agent 的产品配置，不直接写任意 Python 类路径。
+`agent.yaml` describes product configuration. It must not point to arbitrary Python class paths.
 
-Supervisor Agent 推荐结构：
+Supervisor Agent example:
 
 ```yaml
 id: supervisor_agent
-name: 调度 Agent
+name: Supervisor Agent
 type: supervisor
 enabled: true
 
-description: 负责理解用户任务、选择合适 Agent、决定是否需要规划、管理任务交接。
+description: Understands user tasks, selects a worker Agent, decides when planning is needed, and manages handoffs.
 system_prompt_file: system_prompt.md
 
 model:
@@ -406,9 +406,9 @@ capabilities:
 tools:
   allowed:
     - id: builtin:plan_tool
-      alias: 规划工具
-      purpose: 创建、更新、推进和完成任务计划。
-      when_to_use: 多步骤、长任务、多 Agent 协作或需要过程回看时使用。
+      alias: Plan Tool
+      purpose: Create, update, advance, and finish task plans.
+      when_to_use: Use for multi-step, long-running, multi-Agent, or replayable tasks.
       risk_level: low
       timeout_seconds: 30
 
@@ -440,20 +440,20 @@ permissions:
 output:
   format: markdown
   required_sections:
-    - 当前判断
-    - 选用 Agent
-    - 下一步动作
+    - Current Judgment
+    - Selected Agent
+    - Next Action
 ```
 
-普通专家 Agent 示例：
+Worker Agent example:
 
 ```yaml
 id: search_agent
-name: 搜索 Agent
+name: Search Agent
 type: react_worker
 enabled: true
 
-description: 负责搜索资料、读取网页、整理来源和结论。
+description: Searches sources, reads pages, and organizes evidence and conclusions.
 system_prompt_file: system_prompt.md
 
 model:
@@ -469,16 +469,16 @@ capabilities:
 tools:
   allowed:
     - id: mcp_local:deepsearch
-      alias: 深度搜索
-      purpose: 搜索公开网页和资料。
-      when_to_use: 需要最新信息、外部来源或事实验证时使用。
+      alias: Deep Search
+      purpose: Search public web pages and sources.
+      when_to_use: Use when the task needs recent information, external sources, or factual verification.
       risk_level: low
       timeout_seconds: 120
 
     - id: mcp_local:web_reader
-      alias: 网页读取
-      purpose: 读取指定网页正文。
-      when_to_use: 已有 URL，需要提取页面内容时使用。
+      alias: Web Reader
+      purpose: Read page body from a given URL.
+      when_to_use: Use when a URL is already known and content extraction is needed.
       risk_level: low
       timeout_seconds: 60
 
@@ -507,304 +507,303 @@ permissions:
 output:
   format: markdown
   required_sections:
-    - 结论
-    - 关键证据
-    - 来源
-    - 不确定点
+    - Conclusion
+    - Key Evidence
+    - Sources
+    - Uncertainty
 ```
 
-字段规则：
+Field rules:
 
-- `id` 必须和目录名一致。
-- `type` 只能使用代码里明确支持的安全类型，例如 `supervisor`、`react_worker`、`summary_worker`、`review_worker`。不要允许 YAML 填任意 Python 类路径。`plan_solve_worker` 只作为旧 `plans_executor` 兼容方向，不作为新增 Agent 的默认类型。
-- `system_prompt_file` 必须指向当前 Agent 目录下的文件。
-- `tools.allowed` 只声明这个 Agent 能使用哪些工具，以及这些工具对它的用途说明。工具真实 schema 仍以 Tool Registry 或 MCP 返回为准。
-- `tools.denied` 优先级高于 `tools.allowed`。
-- `handoffs.allowed` 中的 Agent 必须存在于 Agent Registry。
-- `permissions` 决定工具过滤、审批和沙箱策略。
-- `output` 用于约束该 Agent 的默认输出格式，不替代最终 Summary。
-- 复杂任务 Agent 可以通过 `tools.allowed` 显式允许 `builtin:plan_tool`；简单任务 Agent 不要默认强制规划。
+- `id` must match the directory name.
+- `type` can only use supported safe types, such as `supervisor`, `react_worker`, `summary_worker`, and `review_worker`. Do not allow YAML to reference arbitrary Python classes.
+- `plan_solve_worker` is only for legacy `plans_executor` compatibility and should not be the default for new Agents.
+- `system_prompt_file` must point to a file inside the Agent directory.
+- `tools.allowed` declares which tools the Agent may use and why. Real schemas still come from Tool Registry or MCP.
+- `tools.denied` has priority over `tools.allowed`.
+- Agents listed in `handoffs.allowed` must exist in Agent Registry.
+- `permissions` controls tool filtering, approval, and sandbox policy.
+- `output` controls the Agent's default output shape and does not replace the final Summary.
+- Complex task Agents can explicitly allow `builtin:plan_tool`; simple task Agents should not force planning by default.
 
-### system_prompt.md 结构
+### `system_prompt.md` Structure
 
-`system_prompt.md` 保存完整 system prompt，避免把长提示词塞进 YAML。
+`system_prompt.md` stores the full system prompt so long prompts do not live inside YAML.
 
-推荐写法：
+Example:
 
 ```md
-你是搜索 Agent。
+You are a Search Agent.
 
-你的职责是帮助用户查找信息、验证来源、整理事实。
+Your job is to help the user find information, verify sources, and organize facts.
 
-规则：
-- 需要最新信息时，必须使用搜索工具。
-- 不要编造来源。
-- 如果来源冲突，要指出冲突。
-- 输出必须包含结论、证据、来源和不确定点。
+Rules:
+- Use search tools when recent information is needed.
+- Do not invent sources.
+- If sources conflict, explain the conflict.
+- Output must include conclusion, evidence, sources, and uncertainty.
 ```
 
-### evals.yaml 结构
+### `evals.yaml` Structure
 
-每个 Agent 至少应有冒烟测试样例。Agent 配置变更后，应优先运行这个 Agent 对应的评测。
+Each Agent should have smoke cases. After Agent config changes, run that Agent's evals first.
 
-示例：
+Example:
 
 ```yaml
 smoke_cases:
-  - name: 搜索开源 Agent 项目趋势
-    input: 帮我查一下最近通用 Agent 开源项目趋势
+  - name: Search open-source Agent project trends
+    input: Search recent trends in general-purpose open-source Agent projects
     expected_behavior:
-      - 必须调用搜索工具
-      - 必须返回来源
-      - 不能只靠模型记忆回答
+      - Must call a search tool
+      - Must return sources
+      - Must not rely only on model memory
 
 regression_cases:
-  - name: 不允许写文件
-    input: 把搜索结果写入本地文件
+  - name: File write is not allowed
+    input: Write the search result to a local file
     expected_behavior:
-      - 不得调用文件写入工具
-      - 应说明当前 Agent 没有写文件权限
+      - Must not call file write tools
+      - Should explain that this Agent has no file write permission
 ```
 
-### 加载和校验
+### Loading And Validation
 
-启动时由 Agent 配置加载器读取 `config/agents/*/agent.yaml`，生成 AgentSpec 并注册到 Agent Registry。
+At startup, the Agent config loader reads `config/agents/*/agent.yaml`, builds AgentSpec, and registers it in AgentRegistry.
 
-加载时必须校验：
+Validation requirements:
 
-- 目录名和 `id` 一致。
-- `system_prompt_file` 存在。
-- `type` 在允许列表中。
-- `allowed` 和 `denied` 中的工具能被 Tool Registry 识别，或有明确的延迟解析策略。
-- `handoffs.allowed` 中的目标 Agent 存在。
-- 高风险权限必须有审批或明确策略。
-- `evals.yaml` 如果存在，格式必须可解析。
+- Directory name and `id` match.
+- `system_prompt_file` exists.
+- `type` is in the allow list.
+- Tools in `allowed` and `denied` are recognized by Tool Registry, or have an explicit deferred-resolution strategy.
+- Targets in `handoffs.allowed` exist.
+- High-risk permissions have approval or explicit policy.
+- `evals.yaml`, when present, is parseable.
 
-运行时流程：
+Runtime flow:
 
 ```text
-AgentRegistry 读取 AgentSpec
-  -> Supervisor 选择目标 Agent
-  -> Agent Runtime 加载 system_prompt.md
-  -> ToolGateway 按 agent.yaml 过滤工具
-  -> Agent 执行
-  -> 任务系统记录 Agent 启动、工具调用、交接、完成或失败事件
+AgentRegistry reads AgentSpec
+  -> Supervisor selects target Agent
+  -> Agent Runtime loads system_prompt.md
+  -> ToolGateway filters tools by agent.yaml
+  -> Agent runs
+  -> Task system records Agent start, tool call, handoff, completion, or failure events
 ```
 
-### Web 展示要求
+### Web Display Requirements
 
-使用目录化 Agent 配置后，Web 端要能展示：
+After directory-based Agent config is enabled, the web UI should show:
 
-- 当前运行的是哪个 Agent。
-- Agent 名称、描述和能力标签。
-- 这个 Agent 可用的工具列表。
-- Agent 之间的交接记录。
-- Agent 失败时的错误原因和最后一个事件。
+- Current running Agent.
+- Agent name, description, and capability tags.
+- Tools available to the Agent.
+- Handoff records between Agents.
+- Failure reason and last event when an Agent fails.
 
-## 开发命令
+## Development Commands
 
-### 启动应用
+### Start The App
 
 ```bash
-# 推荐启动方式
+# Recommended startup
 cd task-pilot-agent && uv run main.py
 
-# 直接用 uvicorn 启动
+# Direct uvicorn startup
 cd task-pilot-agent && uv run uvicorn app_main:app --host 0.0.0.0 --port 9010
 ```
 
-应用启动后会有两个服务：
+The app starts two services:
 
-- MCP 服务：9009 端口，提供工具市场和本地工具。
-- Web/API 服务：9010 端口，提供 FastAPI 应用。
+- MCP service: port `9009`, local tools.
+- Web/API service: port `9010`, FastAPI app.
 
-### 运行测试
+### Run Tests
 
 ```bash
-# 运行全部测试
+# All tests
 cd task-pilot-agent && uv run pytest -v --tb=short tests/
 
-# 使用测试脚本
+# Test script
 cd task-pilot-agent && uv run python tests/run_tests.py
 
-# 运行指定目录
+# Specific directories
 cd task-pilot-agent && uv run pytest tests/memory/
 cd task-pilot-agent && uv run pytest tests/llm_test/
 cd task-pilot-agent && uv run pytest tests/gaia/
 
-# 运行单个测试文件
+# Single file
 cd task-pilot-agent && uv run pytest tests/memory/test_memory_mgr.py -v
 ```
 
-### 依赖管理
+### Dependency Management
 
-项目使用 UV 管理依赖：
+The project uses UV:
 
 ```bash
-# 安装依赖
+# Install dependencies
 uv sync
 
-# 新增依赖
+# Add dependency
 uv add <package-name>
 
-# 更新依赖锁
+# Update lock file
 uv lock --upgrade
 ```
 
-## 当前架构概览
+## Current Architecture Overview
 
-### 当前兼容流程：Plan-Solve-Summarize
+### Compatibility Flow: Plan-Solve-Summarize
 
-当前系统仍保留 `plans_executor` 兼容入口，它处理用户请求时主要分为三个阶段：
+The system still keeps the `plans_executor` compatibility entry. It handles requests in three stages:
 
-1. 规划阶段：`PlanningAgent`
-   - 接收用户问题和上下文。
-   - 生成结构化任务计划。
-   - 入口：`task-pilot-agent/brain/core/agents/planning_agent.py`。
+1. Planning stage: `PlanningAgent`
+   - Receives the user question and context.
+   - Generates a structured task plan.
+   - Entry: `task-pilot-agent/brain/core/agents/planning_agent.py`.
 
-2. 执行阶段：`ExecutorAgent`
-   - 逐步执行计划。
-   - 使用 ReAct 风格的思考和工具调用循环。
-   - 支持根据执行结果重新规划。
-   - 入口：`task-pilot-agent/brain/core/agents/executor_agent.py`。
+2. Execution stage: `ExecutorAgent`
+   - Executes the plan step by step.
+   - Uses ReAct-style thinking and tool-call loops.
+   - Supports replanning based on execution results.
+   - Entry: `task-pilot-agent/brain/core/agents/executor_agent.py`.
 
-3. 总结阶段：`SummaryAgent`
-   - 汇总执行结果。
-   - 输出用户可读的最终答案。
-   - 支持 markdown、HTML、PPT、表格等输出样式。
-   - 入口：`task-pilot-agent/brain/core/agents/summary_agent.py`。
+3. Summary stage: `SummaryAgent`
+   - Summarizes execution results.
+   - Produces the user-facing final answer.
+   - Supports markdown, HTML, PPT, tables, and other output styles.
+   - Entry: `task-pilot-agent/brain/core/agents/summary_agent.py`.
 
-迁移边界：
+Migration boundary:
 
-- 新功能不再接入 `PlanSolveHandler`。
-- 旧 `plans_executor` 只保留为兼容入口。
-- 与规划相关的新能力统一进入 `builtin:plan_tool`。
-- 与执行相关的新能力统一进入 React/Supervisor、专家 Agent 或 ToolGateway。
-- 与最终输出相关的新能力统一进入 summary/review 能力。
+- Do not attach new features to `PlanSolveHandler`.
+- Keep old `plans_executor` only as compatibility entry.
+- New planning capability should enter `builtin:plan_tool`.
+- New execution capability should enter ReAct/Supervisor, worker Agents, or ToolGateway.
+- New final-output capability should enter summary/review.
 
-后续不要继续把新能力绑定到这条独立主流程上。新能力优先进入 React/Supervisor 运行时，通过 `builtin:plan_tool` 获得规划能力。
-
-目标主流程：
+Target main flow:
 
 ```text
-HTTP 请求
+HTTP request
   -> FastAPI: brain/app.py:autoagent
-  -> TaskService 创建或读取任务记录
-  -> TaskEventStore 写入入口事件
-  -> AgentContext 初始化
-  -> AgentRegistry 选择 Supervisor 或目标 Agent
-  -> ToolGateway 暴露当前 Agent 允许的工具
-  -> React/Supervisor 按需调用 builtin:plan_tool
-  -> React/Supervisor 调用工具或交接专家 Agent
-  -> Summary/Review 生成最终结果
-  -> 任务事件和 SSE 同步输出给前端
+  -> TaskService creates or reads task record
+  -> TaskEventStore writes entry event
+  -> AgentContext initialized
+  -> AgentRegistry selects Supervisor or target Agent
+  -> ToolGateway exposes tools allowed for current Agent
+  -> ReAct/Supervisor calls builtin:plan_tool when needed
+  -> ReAct/Supervisor calls tools or hands off to worker Agents
+  -> Summary/Review produces final result
+  -> Task events and SSE stream update the web UI
 ```
 
-### 当前请求流
+### Current Request Flow
 
 ```text
-HTTP 请求
+HTTP request
   -> FastAPI: brain/app.py:autoagent
-  -> AgentContext 初始化
-  -> ToolCollection 构建
-  -> AgentHandlerFactory 选择处理器
-  -> PlanSolveHandler 或 ReactHandler 执行
-  -> SSE 实时返回给前端
+  -> AgentContext initialized
+  -> ToolCollection built
+  -> AgentHandlerFactory selects handler
+  -> PlanSolveHandler or ReactHandler runs
+  -> SSE streams output to the frontend
 ```
 
-### 工具系统
+### Tool System
 
-MCP 集成：
+MCP integration:
 
-- `tools/mcp_local/`：本地 MCP 服务和内置工具。
-- `tools/aggre_mcp_market/`：聚合多个 MCP 服务。
-- 工具会被动态拉取并注册进 `ToolCollection`。
-- 每个 MCP 工具会被包装成统一的 `MCPTool`。
+- `tools/mcp_local/`: local MCP service and built-in tools.
+- `tools/aggre_mcp_market/`: aggregates multiple MCP services.
+- Tools are fetched dynamically and registered into `ToolCollection`.
+- Each MCP tool is wrapped as a unified `MCPTool`.
 
-内置工具包括：
+Built-in local tools include:
 
-- `code_interpreter`：执行 Python 代码。
-- `file_read`：读取 Linux/macOS/Windows 本机文件。
-- `file_write`：在任务工作目录内写入文本文件。
-- `file_list`：列出目录内容。
-- `file_stat`：查看文件或目录基础信息。
-- `directory_create`：在任务工作目录内创建目录。
-- `file_copy`：复制文件到任务工作目录。
-- `file_move`：移动或重命名任务工作目录内的文件或目录。
-- `file_delete`：删除任务工作目录内的文件或目录。
-- `shell_exec`：执行本机命令，高风险，默认需要显式授权。
-- `deepsearch`：多源搜索。
-- `report`：生成 markdown、HTML、PPT 报告。
-- `weather`：天气查询。
-- `planing`：规划和任务管理工具。
+- `code_interpreter`: execute Python code.
+- `file_read`: read Linux/macOS/Windows local files.
+- `file_write`: write text files inside the task work directory.
+- `file_list`: list directory contents.
+- `file_stat`: inspect file or directory metadata.
+- `directory_create`: create directories inside the task work directory.
+- `file_copy`: copy files into the task work directory.
+- `file_move`: move or rename files/directories inside the task work directory.
+- `file_delete`: delete files/directories inside the task work directory.
+- `shell_exec`: execute local commands; high risk and must require explicit authorization by default.
+- `deepsearch`: multi-source search.
+- `report`: generate markdown, HTML, or PPT reports.
+- `weather`: weather query.
+- `planing`: planning and task management tool.
 
-工具调用链路：
+Tool call path:
 
 ```text
 ToolCollection.execute()
   -> MCPTool
-  -> HTTP 调用 MCP Market
-  -> MCP 服务
-  -> 实际工具实现
+  -> HTTP call to MCP Market
+  -> MCP service
+  -> actual tool implementation
 ```
 
-### LLM 提供方系统
+### LLM Provider System
 
-统一入口：`llm/manager.py:LLMManager`。
+Unified entry: `llm/manager.py:LLMManager`.
 
-支持的提供方：
+Supported providers:
 
-- OpenAI 和 OpenAI 兼容 API。
-- Codex / Claude。
-- Gemini。
+- OpenAI and OpenAI-compatible APIs.
+- Codex / Claude.
+- Gemini.
 
-每个提供方继承 `llm/providers/base.py:LLMProvider`，并实现：
+Each provider extends `llm/providers/base.py:LLMProvider` and implements:
 
-- `ask()`：基础问答。
-- `ask_tool()`：工具调用。
-- `generate()`：流式生成。
+- `ask()`: basic question answering.
+- `ask_tool()`: tool calling.
+- `generate()`: streaming generation.
 
-相关能力：
+Related capabilities:
 
-- 上下文接近限制时自动压缩：`llm/compressor.py`。
-- token 统计：`llm/tokenizer.py`。
-- Prompt 模板：`llm/prompt_template.py`。
+- Context compression when close to limits: `llm/compressor.py`.
+- Token counting: `llm/tokenizer.py`.
+- Prompt templates: `llm/prompt_template.py`.
 
-### 记忆系统
+### Memory System
 
-组件：
+Components:
 
-- `MemoryManager`：基于 mem0ai 的记忆管理。
-- `MessageManager`：使用 MySQL 保存对话历史。
-- `RAGRetriever`：检索历史上下文或知识库。
-- `PlanManager`：保存和读取计划状态。
+- `MemoryManager`: memory management based on mem0ai.
+- `MessageManager`: stores conversation history in MySQL.
+- `RAGRetriever`: retrieves historical context or knowledge base results.
+- `PlanManager`: saves and reads plan state.
 
-流程：
+Flow:
 
-1. 用户消息通过 `MessageManager` 写入 MySQL。
-2. 重要上下文通过 mem0ai 提取并向量化。
-3. 向量存入 Qdrant，配置上也支持 Milvus。
-4. Agent 执行前可以检索相关上下文。
-5. 检索结果进入 Agent 工作上下文。
+1. User messages are written to MySQL through `MessageManager`.
+2. Important context is extracted and vectorized through mem0ai.
+3. Vectors are stored in Qdrant; Milvus is also supported by config.
+4. Agent execution can retrieve relevant context before running.
+5. Retrieval results enter Agent working context.
 
-配置位置：`config/config.yaml` 中的 `memory` 和 `vector_store`。
+Config location: `config/config.yaml`, under `memory` and `vector_store`.
 
-### 文件管理
+### File Management
 
-文件相关逻辑位于 `file/file_op.py`：
+File logic lives in `file/file_op.py`:
 
-- 上传文件：`/file/v1/upload`。
-- 下载文件：`/file/v1/download/{file_id}`。
-- 数据库记录：`file/file_table_op.py`。
-- 文件类型定义：`file/file_type.py`。
+- Upload: `/file/v1/upload`.
+- Download: `/file/v1/download/{file_id}`.
+- Database record: `file/file_table_op.py`.
+- File type definitions: `file/file_type.py`.
 
-Agent 请求里的 `files` 会被自动加载到上下文中。
+Files inside Agent requests are automatically loaded into context.
 
-## 配置系统
+## Configuration System
 
-主配置文件：`config/config.yaml`。
+Main config file: `config/config.yaml`.
 
-关键配置示例：
+Key example:
 
 ```yaml
 core:
@@ -816,7 +815,7 @@ core:
 llm:
   provider: "openai"
   config:
-    api_key: "sk-xxx"
+    api_key: ${LLM_API_KEY}
     site_url: "https://api.siliconflow.cn/v1"
     model: "Pro/deepseek-ai/DeepSeek-V3.2-Exp"
     context_length: 160000
@@ -830,44 +829,44 @@ mcp:
         tool_prefix: "mcp_local"
 ```
 
-### 配置优先级
+### Config Priority
 
-从高到低：
+From highest to lowest:
 
-1. 环境变量。
-2. `.env` 文件。
-3. `config/config.yaml`。
-4. 代码默认值。
+1. Environment variables.
+2. `.env` file.
+3. `config/config.yaml`.
+4. Code defaults.
 
-### 环境变量
+### Environment Variables
 
-- `APP_CONFIG_FILE`：配置文件路径。
-- 数据库密码、API key 等敏感值应放在环境变量或 `.env` 中。
+- `APP_CONFIG_FILE`: config file path.
+- Database passwords and API keys should live in environment variables or `.env`.
 
-### Prompt 模板
+### Prompt Templates
 
-位置：
+Locations:
 
-- `config/prompt.yaml`：中文模板。
-- `config/prompt_en.yaml`：英文模板。
+- `config/prompt.yaml`: Chinese templates.
+- `config/prompt_en.yaml`: English templates.
 
-语言由 `config.yaml` 中的 `lang: ch` 或 `lang: en` 控制。
+Language is controlled by `lang: ch` or `lang: en` in `config.yaml`.
 
-## 关键实现细节
+## Key Implementation Details
 
-### Agent 状态管理
+### Agent State Management
 
-所有 Agent 继承 `BaseAgent`：
+All Agents extend `BaseAgent`:
 
-- 位置：`brain/core/agents/base_agent.py`。
-- 状态：`IDLE`、`RUNNING`、`FINISHED`、`ERROR`。
-- 每个 Agent 维护自己的消息历史。
-- `step()` 是核心执行单元。
-- `run()` 负责主循环和最大步数限制。
+- Location: `brain/core/agents/base_agent.py`.
+- States: `IDLE`, `RUNNING`, `FINISHED`, `ERROR`.
+- Each Agent keeps its own message history.
+- `step()` is the core execution unit.
+- `run()` controls the main loop and maximum step limit.
 
-### ReAct 实现
+### ReAct Implementation
 
-`ExecutorAgent` 和 `ReActAgent` 使用 ReAct 风格：
+`ExecutorAgent` and `ReActAgent` use ReAct style:
 
 ```python
 async def step(self):
@@ -877,13 +876,13 @@ async def step(self):
     return observation
 ```
 
-流程是：思考 -> 行动 -> 观察 -> 继续思考。
+The flow is: think -> act -> observe -> think again.
 
-### SSE 流式输出
+### SSE Streaming Output
 
-SSE 逻辑位于 `brain/app.py:sse_stream()`。
+SSE logic lives in `brain/app.py:sse_stream()`.
 
-常见事件：
+Common events:
 
 - `task`
 - `plan`
@@ -895,38 +894,38 @@ SSE 逻辑位于 `brain/app.py:sse_stream()`。
 - `stream`
 - `result`
 
-`SSEPrinter` 位于 `brain/core/printer.py`，负责统一封装输出。
+`SSEPrinter` lives in `brain/core/printer.py` and standardizes output payloads.
 
-### Handler 选择
+### Handler Selection
 
-`AgentHandlerFactory` 位于 `brain/core/handlers/factory.py`。
+`AgentHandlerFactory` lives in `brain/core/handlers/factory.py`.
 
-当前主要处理器：
+Current main handlers:
 
-- `ReactHandler`：后续主运行时基础，适合承载 Supervisor、专家 Agent、工具调用和规划工具。
-- `PlanSolveHandler`：兼容旧 `plans_executor` 入口，后续应逐步拆分为 `builtin:plan_tool`、普通 worker、summary/review 能力。
+- `ReactHandler`: the future main runtime base for Supervisor, worker Agents, tool calls, and planning tool use.
+- `PlanSolveHandler`: compatibility entry for old `plans_executor`; gradually split into `builtin:plan_tool`, normal worker, and summary/review capabilities.
 
-### 重规划机制
+### Replanning
 
-配置项：
+Config keys:
 
-- `planner_replan_each_step`：每步执行后是否重新规划。
-- `planner_replan_on_failure`：失败时是否重新规划。
-- `planner_max_replans`：最大重规划次数。
+- `planner_replan_each_step`: whether to replan after each step.
+- `planner_replan_on_failure`: whether to replan after failure.
+- `planner_max_replans`: maximum replan count.
 
-实现位置：`brain/core/handlers/plan_solve.py`。
+Implementation location: `brain/core/handlers/plan_solve.py`.
 
-## 新增组件规范
+## New Component Guidelines
 
-### 新增 Agent 类型
+### Add A New Agent Type
 
-1. 在 `brain/core/agents/` 创建 Agent 类。
-2. 继承 `BaseAgent` 或 `ReActAgent`。
-3. 实现 `step()`，必要时实现 `think()` 和 `act()`。
-4. 在对应 Handler 或 `AgentHandlerFactory` 中注册。
-5. 增加聚焦测试，覆盖成功、失败、最大步数、工具调用事件。
+1. Create an Agent class in `brain/core/agents/`.
+2. Extend `BaseAgent` or `ReActAgent`.
+3. Implement `step()`, and implement `think()` / `act()` when needed.
+4. Register it in the matching Handler or `AgentHandlerFactory`.
+5. Add focused tests for success, failure, max steps, and tool-call events.
 
-示例：
+Example:
 
 ```python
 from brain.core.agents.base_agent import BaseAgent
@@ -936,97 +935,95 @@ class MyCustomAgent(BaseAgent):
         pass
 ```
 
-### 新增工具
+### Add A New Tool
 
-1. 在 `tools/mcp_local/tool/` 添加工具实现。
-2. 在 `tools/mcp_local/mcp_server.py` 注册工具。
-3. 确保 MCP Market 能发现工具。
-4. 增加工具成功、失败、输入校验测试。
-5. 确保工具权限、日志、脱敏和任务事件记录符合要求。
-6. 文件或命令类工具必须测试允许路径和拒绝路径；跨平台路径逻辑要避免写死 Linux/macOS 专属假设。
-7. 修改 Agent 工具 allowlist 时，同时验证实际 MCP 工具名和 Agent 配置模式能匹配。
+1. Add implementation under `tools/mcp_local/tool/`.
+2. Register it in `tools/mcp_local/mcp_server.py`.
+3. Ensure MCP Market can discover it.
+4. Add tests for success, failure, and input validation.
+5. Ensure permission, logging, redaction, and task event recording comply with requirements.
+6. File and command tools must test allowed and denied paths; cross-platform path logic should not hard-code Linux/macOS-only assumptions.
+7. When changing Agent tool allow lists, verify both real MCP tool names and Agent config patterns match.
 
-示例：
+Example:
 
 ```python
 from tool.my_tool import my_tool_function
 
 @mcp.tool()
 async def my_tool(param: str) -> str:
-    """给模型看的工具说明"""
+    """Tool description exposed to the model."""
     return await my_tool_function(param)
 ```
 
-### 新增 LLM 提供方
+### Add A New LLM Provider
 
-1. 在 `llm/providers/` 创建提供方类。
-2. 继承 `LLMProvider`。
-3. 实现 `ask()`、`ask_tool()`、`generate()`。
-4. 在 `llm/manager.py` 注册。
-5. 增加普通回复、工具调用、流式输出、错误处理测试。
+1. Create a provider class in `llm/providers/`.
+2. Extend `LLMProvider`.
+3. Implement `ask()`, `ask_tool()`, and `generate()`.
+4. Register it in `llm/manager.py`.
+5. Add tests for normal replies, tool calls, streaming output, and error handling.
 
-### 新增 Handler
+### Add A New Handler
 
-1. 在 `brain/core/handlers/` 创建 Handler。
-2. 继承 `AgentHandlerService` 协议。
-3. 实现 `handle()`。
-4. 在 `AgentHandlerFactory` 中添加选择逻辑。
-5. 确保它能接入任务系统、事件系统、权限系统和 Web 回看。
+1. Create a Handler in `brain/core/handlers/`.
+2. Implement the `AgentHandlerService` protocol.
+3. Implement `handle()`.
+4. Add selection logic in `AgentHandlerFactory`.
+5. Ensure it integrates with task system, event system, permission system, and web replay.
 
-## 重要注意事项
+## Important Notes
 
-### API key 管理
+### API Key Management
 
-不要提交真实 API key。优先使用：
+Do not commit real API keys. Prefer:
 
-- 环境变量。
-- `.env` 文件。
-- 运行时配置覆盖。
+- Environment variables.
+- `.env` files.
+- Runtime config overrides.
 
-### 数据库
+### Database
 
-系统需要数据库保存文件和对话历史。
+The system needs a database for files and conversation history.
 
-- 数据库连接在 `config/config.yaml` 的 `db` 中配置。
-- 表通过 SQLModel 初始化。
-- 文件记录在 `file/file_table_op.py`。
+- Database connection lives under `db` in `config/config.yaml`.
+- Tables are initialized through SQLModel/SQLAlchemy setup.
+- File records live in `file/file_table_op.py`.
 
-### 向量数据库
+### Vector Database
 
-记忆系统默认使用 Qdrant，也可配置 Milvus。
+Memory defaults to Qdrant and can also be configured for Milvus.
 
-- 默认地址：`localhost:6333`。
-- collection 名称和 embedding 维度在配置中设置。
-- 本地启动示例：
+- Default address: `localhost:6333`.
+- Collection name and embedding dimension are configured in config.
+- Local start example:
 
 ```bash
 docker run -p 6333:6333 qdrant/qdrant
 ```
 
-### MCP 端口
+### MCP Ports
 
-默认会同时启动：
+Default services:
 
-- 9009：MCP 工具服务。
-- 9010：FastAPI Web/API 服务。
+- `9009`: MCP tool service.
+- `9010`: FastAPI Web/API service.
 
-启动前要确认端口可用。
+Check that ports are available before startup.
 
-## 代码导航
+## Code Navigation
 
-- 主入口：`task-pilot-agent/main.py`
-- FastAPI 应用：`task-pilot-agent/app_main.py`
-- 请求处理：`task-pilot-agent/brain/app.py`
-- Plan-Solve 主链路：`task-pilot-agent/brain/core/handlers/plan_solve.py`
-- React 主链路：`task-pilot-agent/brain/core/handlers/react.py`
-- Agent 基类：`task-pilot-agent/brain/core/agents/base_agent.py`
-- 执行 Agent：`task-pilot-agent/brain/core/agents/executor_agent.py`
-- 总结 Agent：`task-pilot-agent/brain/core/agents/summary_agent.py`
-- 工具集合：`task-pilot-agent/brain/core/tools/collection.py`
-- MCP 工具适配：`task-pilot-agent/brain/core/tools/mcp_tool.py`
-- SSE 输出：`task-pilot-agent/brain/core/printer.py`
-- LLM 管理：`task-pilot-agent/llm/manager.py`
-- 记忆管理：`task-pilot-agent/memory/memory_mgr.py`
-- 计划状态：`task-pilot-agent/brain/core/tools/plan_state.py`
-- MCP 服务：`task-pilot-agent/tools/mcp_local/mcp_server.py`
-- Web 调试页：`task-pilot-agent/brain/web/autoagent.html`
+- Main entry: `task-pilot-agent/main.py`
+- FastAPI app: `task-pilot-agent/app_main.py`
+- Request handling: `task-pilot-agent/brain/app.py`
+- Plan-Solve path: `task-pilot-agent/brain/core/handlers/plan_solve.py`
+- ReAct path: `task-pilot-agent/brain/core/handlers/react.py`
+- Agent base class: `task-pilot-agent/brain/core/agents/base_agent.py`
+- Executor Agent: `task-pilot-agent/brain/core/agents/executor_agent.py`
+- Summary Agent: `task-pilot-agent/brain/core/agents/summary_agent.py`
+- Tool collection: `task-pilot-agent/brain/core/tools/collection.py`
+- MCP tool adapter: `task-pilot-agent/brain/core/tools/mcp_tool.py`
+- SSE output: `task-pilot-agent/brain/core/printer.py`
+- LLM manager: `task-pilot-agent/llm/manager.py`
+- Memory manager: `task-pilot-agent/memory/memory_mgr.py`
+- Plan state: `task-pilot-agent/brain/core/tools/plan_state.py`
