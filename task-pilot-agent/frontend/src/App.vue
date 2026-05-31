@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 
@@ -7,14 +7,11 @@ marked.setOptions({ breaks: true, gfm: true })
 
 const navBase = [
   { id: 'home', labelKey: 'nav.newTask', icon: '✎' },
-  { id: 'tasks', labelKey: 'nav.allTasks', icon: '☷' },
   { id: 'agents', labelKey: 'nav.agents', icon: '◌' },
-  { id: 'tools', labelKey: 'nav.tools', icon: '◇' },
 ]
 
 const messages = {
   zh: {
-    'app.subtitle': 'Agent 工作台',
     'nav.newTask': '新建任务',
     'nav.agents': 'Agent',
     'nav.tools': '工具',
@@ -33,12 +30,20 @@ const messages = {
     'common.submit': '提交',
     'common.language': '语言',
     'common.upload': '上传文件',
+    'common.hideSidebar': '隐藏侧边栏',
+    'common.showSidebar': '显示侧边栏',
+    'common.resizeSidebar': '拖拽调整侧边栏宽度',
+    'common.moreOptions': '更多选项',
     'auth.loginGoogle': '使用 Google 登录',
     'auth.logout': '退出',
     'auth.requiredTitle': '登录后使用 TaskPilot',
     'auth.requiredDesc': '任务、文件和历史记录会绑定到当前账号。',
     'auth.currentUser': '当前用户',
     'task.current': '当前任务',
+    'task.delete': '删除',
+    'task.deleteConfirm': '确定删除这个会话吗？删除后无法在任务列表中查看。',
+    'task.deleted': '会话已删除',
+    'task.deleteFailed': '删除会话失败',
     'sidebar.recent': '最近任务',
     'home.title': '我能为你做什么？',
     'home.placeholder': '分配一个任务或提出任何问题',
@@ -51,15 +56,26 @@ const messages = {
     'advanced.tools': '本次工具',
     'advanced.noTools': '当前 Agent 暂无工具配置',
     'task.detail': '任务详情',
-    'task.final': '最终结果',
-    'task.finalEmpty': '任务完成后会显示最终结果。',
-    'task.timeline': '执行过程',
-    'task.timelineEmpty': '任务开始后会显示计划、工具调用和状态变化。',
     'task.artifacts': '任务产物',
     'task.noArtifacts': '暂无产物。',
     'task.needInput': '需要补充信息',
     'task.inputPlaceholder': '补充任务需要的信息',
     'task.submitInput': '提交补充',
+    'chat.title': '对话',
+    'chat.empty': '继续输入问题，Agent 会在这里连续回复。',
+    'chat.placeholder': '继续追问或补充任务要求',
+    'chat.user': '你',
+    'chat.assistant': 'Agent',
+    'chat.thinking': 'Agent 正在处理...',
+    'progress.current': '当前进度',
+    'progress.latest': '当前动作',
+    'progress.events': '过程',
+    'progress.tools': '工具调用',
+    'progress.none': '任务开始后会显示当前动作、工具调用和简短结果。',
+    'progress.started': '开始',
+    'progress.running': '进行中',
+    'progress.completed': '完成',
+    'progress.failed': '失败',
     'tasks.eyebrow': '所有任务',
     'tasks.title': '任务历史',
     'tasks.desc': '查看任务状态、结果、失败原因和历史过程。',
@@ -81,17 +97,6 @@ const messages = {
     'filter.allErrors': '全部错误状态',
     'filter.hasError': '有错误',
     'filter.noError': '无错误',
-    'event.all': '全部事件',
-    'event.tool': '工具调用',
-    'event.agentPhase': 'Agent 阶段',
-    'event.failed': '失败事件',
-    'event.artifact': '任务产物',
-    'event.eval': '评测结果',
-    'event.memory': '上下文检索',
-    'source.all': '全部来源',
-    'source.taskSystem': '任务系统',
-    'source.agent': 'Agent',
-    'source.tool': '工具',
     'agents.eyebrow': 'Agent',
     'agents.title': '选择适合的 Agent',
     'agents.desc': '每个 Agent 都有自己的能力、工具和边界。',
@@ -121,7 +126,6 @@ const messages = {
     'timeline.default': '任务事件',
   },
   en: {
-    'app.subtitle': 'Agent Workspace',
     'nav.newTask': 'New Task',
     'nav.agents': 'Agents',
     'nav.tools': 'Tools',
@@ -140,12 +144,20 @@ const messages = {
     'common.submit': 'Submit',
     'common.language': 'Language',
     'common.upload': 'Upload files',
+    'common.hideSidebar': 'Hide sidebar',
+    'common.showSidebar': 'Show sidebar',
+    'common.resizeSidebar': 'Drag to resize sidebar',
+    'common.moreOptions': 'More options',
     'auth.loginGoogle': 'Continue with Google',
     'auth.logout': 'Log out',
     'auth.requiredTitle': 'Sign in to use TaskPilot',
     'auth.requiredDesc': 'Tasks, files, and history are tied to the current account.',
     'auth.currentUser': 'Current user',
     'task.current': 'Current task',
+    'task.delete': 'Delete',
+    'task.deleteConfirm': 'Delete this conversation? It will be removed from the task list.',
+    'task.deleted': 'Conversation deleted',
+    'task.deleteFailed': 'Delete failed',
     'sidebar.recent': 'Recent Tasks',
     'home.title': 'What can I do for you?',
     'home.placeholder': 'Assign a task or ask anything',
@@ -158,15 +170,26 @@ const messages = {
     'advanced.tools': 'Tools for this task',
     'advanced.noTools': 'No tools configured for this Agent',
     'task.detail': 'Task Detail',
-    'task.final': 'Final Result',
-    'task.finalEmpty': 'The final result will appear after the task is complete.',
-    'task.timeline': 'Timeline',
-    'task.timelineEmpty': 'Plans, tool calls, and status updates will appear after the task starts.',
     'task.artifacts': 'Artifacts',
     'task.noArtifacts': 'No artifacts yet.',
     'task.needInput': 'More input needed',
     'task.inputPlaceholder': 'Add the information needed for this task',
     'task.submitInput': 'Submit input',
+    'chat.title': 'Conversation',
+    'chat.empty': 'Ask follow-up questions here and the Agent will keep replying in this thread.',
+    'chat.placeholder': 'Ask a follow-up or add more requirements',
+    'chat.user': 'You',
+    'chat.assistant': 'Agent',
+    'chat.thinking': 'Agent is working...',
+    'progress.current': 'Current progress',
+    'progress.latest': 'Current action',
+    'progress.events': 'Events',
+    'progress.tools': 'Tool calls',
+    'progress.none': 'Current actions, tool calls, and brief results will appear after the task starts.',
+    'progress.started': 'Started',
+    'progress.running': 'Running',
+    'progress.completed': 'Done',
+    'progress.failed': 'Failed',
     'tasks.eyebrow': 'All Tasks',
     'tasks.title': 'Task History',
     'tasks.desc': 'Review task status, results, failures, and process history.',
@@ -188,17 +211,6 @@ const messages = {
     'filter.allErrors': 'All error states',
     'filter.hasError': 'Has error',
     'filter.noError': 'No error',
-    'event.all': 'All events',
-    'event.tool': 'Tool calls',
-    'event.agentPhase': 'Agent phase',
-    'event.failed': 'Failures',
-    'event.artifact': 'Artifacts',
-    'event.eval': 'Eval results',
-    'event.memory': 'Context retrieval',
-    'source.all': 'All sources',
-    'source.taskSystem': 'Task system',
-    'source.agent': 'Agent',
-    'source.tool': 'Tool',
     'agents.eyebrow': 'Agents',
     'agents.title': 'Choose the right Agent',
     'agents.desc': 'Each Agent has its own responsibilities, tools, and boundaries.',
@@ -238,6 +250,17 @@ const authenticated = ref(false)
 const currentUser = ref(null)
 const authProviders = ref([])
 const sidebarOpen = ref(false)
+const sidebarDensityVersion = 'compact-1'
+const savedSidebarDensityVersion = localStorage.getItem('taskpilot-sidebar-density-version')
+const savedSidebarWidthValue = savedSidebarDensityVersion === sidebarDensityVersion
+  ? localStorage.getItem('taskpilot-sidebar-width')
+  : ''
+localStorage.setItem('taskpilot-sidebar-density-version', sidebarDensityVersion)
+const savedSidebarWidth = Number(savedSidebarWidthValue || 280)
+const sidebarWidth = ref(clampSidebarWidth(savedSidebarWidth))
+const sidebarCollapsed = ref(localStorage.getItem('taskpilot-sidebar-collapsed') === 'true')
+const sidebarResizing = ref(false)
+const openTaskMenuId = ref('')
 const statusText = ref('Ready')
 const running = ref(false)
 const streamController = ref(null)
@@ -250,6 +273,9 @@ const advancedOpen = ref(false)
 const selectedFiles = ref([])
 const fileInputRef = ref(null)
 const scrollRef = ref(null)
+const chatInput = ref('')
+const chatMessages = ref([])
+const activeAssistantMessageId = ref('')
 const currentSessionId = ref(`sess_${Date.now().toString(36)}`)
 const currentTaskId = ref('')
 const currentTask = ref(null)
@@ -266,6 +292,8 @@ const approvedToolNames = ref(new Set())
 const toolSelectionTouched = ref(false)
 const tasks = ref([])
 const notifications = ref([])
+const NOTIFICATION_TTL_MS = 2800
+const notificationTimers = new Map()
 const taskFilters = reactive({
   keyword: '',
   status: '',
@@ -274,10 +302,6 @@ const taskFilters = reactive({
   created: '',
   duration: '',
   hasError: '',
-})
-const eventFilters = reactive({
-  eventType: '',
-  source: '',
 })
 
 const t = (key) => messages[language.value]?.[key] || messages.zh[key] || key
@@ -291,11 +315,28 @@ const navItems = computed(() => navBase.map((item) => ({
   label: t(item.labelKey),
 })))
 
+const shellStyle = computed(() => ({
+  '--sidebar-width': `${sidebarWidth.value}px`,
+}))
+
+const topbarSidebarTitle = computed(() => {
+  if (sidebarCollapsed.value || !sidebarOpen.value) return t('common.showSidebar')
+  return t('common.hideSidebar')
+})
+
 watch(language, (next) => {
   localStorage.setItem('taskpilot-language', next)
   document.documentElement.lang = next === 'en' ? 'en' : 'zh-CN'
   if (!running.value) statusText.value = t('common.ready')
 }, { immediate: true })
+
+watch(sidebarWidth, (next) => {
+  localStorage.setItem('taskpilot-sidebar-width', String(next))
+})
+
+watch(sidebarCollapsed, (next) => {
+  localStorage.setItem('taskpilot-sidebar-collapsed', String(next))
+})
 
 const currentAgent = computed(() => {
   const wanted = selectedAgentId.value || defaultAgentId.value
@@ -337,6 +378,34 @@ const mergedTimeline = computed(() => {
   return [...replay, ...liveTimeline.value].filter(Boolean)
 })
 
+const progressItems = computed(() => mergedTimeline.value.filter(shouldShowProgressItem).map((item, index) => enrichProgressItem(item, index)))
+
+const progressStats = computed(() => {
+  const items = progressItems.value
+  return {
+    events: items.length,
+    tools: items.filter((item) => item.type === 'tool_call').length,
+  }
+})
+
+const currentProgressItem = computed(() => {
+  const items = progressItems.value
+  if (!running.value && currentTask.value?.status && currentTask.value.status !== 'running') {
+    const status = currentTask.value.status
+    const latest = items.length ? items[items.length - 1] : null
+    return {
+      title: statusLabel(status),
+      brief: status === 'failed'
+        ? compactSummary(currentTask.value.errorMessage || currentTask.value.error || latest?.title || '', 220)
+        : compactSummary(latest?.title || statusLabel(status), 220),
+      status: status === 'failed' ? 'failed' : status === 'completed' ? 'completed' : 'running',
+    }
+  }
+  if (!items.length) return null
+  const active = [...items].reverse().find((item) => item.status === 'running' || item.status === 'started')
+  return running.value && active ? active : items[items.length - 1]
+})
+
 watch(selectedAgentId, async () => {
   await refreshToolCatalog()
 })
@@ -344,11 +413,68 @@ watch(selectedAgentId, async () => {
 function switchView(view) {
   const allowedViews = new Set(['home', 'tasks', 'agents', 'tools', 'taskDetail'])
   if (!allowedViews.has(view)) view = 'home'
+  openTaskMenuId.value = ''
   activeView.value = view
   sidebarOpen.value = false
   if (view === 'tasks') refreshTasks()
   if (view === 'agents') refreshAgents()
   if (view === 'tools') refreshToolCatalog()
+}
+
+function closeTaskMenu() {
+  openTaskMenuId.value = ''
+}
+
+function toggleTaskMenu(taskId) {
+  openTaskMenuId.value = openTaskMenuId.value === taskId ? '' : taskId
+}
+
+function taskRecordId(task) {
+  return task?.taskId || task?.task_id || ''
+}
+
+function removeTaskFromLists(taskId) {
+  tasks.value = tasks.value.filter((item) => taskRecordId(item) !== taskId)
+}
+
+function clampSidebarWidth(value) {
+  const width = Number.isFinite(value) ? value : 280
+  return Math.min(360, Math.max(240, Math.round(width)))
+}
+
+function toggleSidebarCollapsed() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  if (sidebarCollapsed.value) sidebarOpen.value = false
+  if (!sidebarCollapsed.value) sidebarOpen.value = true
+}
+
+function toggleSidebarFromTopbar() {
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    sidebarOpen.value = !sidebarOpen.value
+    if (sidebarOpen.value) sidebarCollapsed.value = false
+    return
+  }
+  toggleSidebarCollapsed()
+}
+
+function startSidebarResize(event) {
+  if (sidebarCollapsed.value || window.matchMedia('(max-width: 900px)').matches) return
+  sidebarResizing.value = true
+  document.body.classList.add('resizing-sidebar')
+  window.addEventListener('pointermove', resizeSidebar)
+  window.addEventListener('pointerup', stopSidebarResize, { once: true })
+  event.preventDefault()
+}
+
+function resizeSidebar(event) {
+  if (!sidebarResizing.value) return
+  sidebarWidth.value = clampSidebarWidth(event.clientX)
+}
+
+function stopSidebarResize() {
+  sidebarResizing.value = false
+  document.body.classList.remove('resizing-sidebar')
+  window.removeEventListener('pointermove', resizeSidebar)
 }
 
 function newTask() {
@@ -360,6 +486,9 @@ function newTask() {
   finalAnswer.value = ''
   liveTimeline.value = []
   taskInputText.value = ''
+  chatInput.value = ''
+  chatMessages.value = []
+  activeAssistantMessageId.value = ''
   statusText.value = t('common.ready')
   switchView('home')
   nextTick(() => document.querySelector('#query')?.focus())
@@ -414,8 +543,86 @@ async function uploadSelectedFiles(requestId) {
 }
 
 async function submitTask() {
-  const text = query.value.trim()
+  await submitConversationMessage(query.value.trim(), 'home')
+}
+
+async function submitChatMessage() {
+  await submitConversationMessage(chatInput.value.trim(), 'chat')
+}
+
+function chatMessageId(role) {
+  return `${role}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function buildPriorConversationMessages() {
+  return chatMessages.value
+    .filter((message) => ['user', 'assistant'].includes(message.role) && String(message.content || '').trim())
+    .map((message) => ({ role: message.role, content: message.content }))
+}
+
+function updateActiveAssistant(updates) {
+  const index = chatMessages.value.findIndex((message) => message.id === activeAssistantMessageId.value)
+  if (index < 0) return
+  chatMessages.value[index] = {
+    ...chatMessages.value[index],
+    ...(typeof updates === 'function' ? updates(chatMessages.value[index]) : updates),
+  }
+}
+
+function appendAssistantContent(text) {
+  if (!text) return
+  updateActiveAssistant((message) => ({
+    content: `${message.content || ''}${text}`,
+    status: 'running',
+  }))
+}
+
+function seedChatFromTask(task, output) {
+  const input = String(task?.input || task?.taskId || '').trim()
+  const answer = String(output || '').trim()
+  const nextMessages = []
+  if (input) {
+    nextMessages.push({
+      id: chatMessageId('user'),
+      role: 'user',
+      content: input,
+      taskId: task?.taskId || '',
+      status: task?.status || '',
+    })
+  }
+  if (answer || task?.status === 'running' || task?.status === 'waiting_input') {
+    nextMessages.push({
+      id: chatMessageId('assistant'),
+      role: 'assistant',
+      content: answer,
+      taskId: task?.taskId || '',
+      status: task?.status || '',
+    })
+  }
+  chatMessages.value = nextMessages
+  activeAssistantMessageId.value = ''
+}
+
+async function submitConversationMessage(text, source) {
   if (!text || running.value) return
+
+  const priorMessages = buildPriorConversationMessages()
+  const userMessage = {
+    id: chatMessageId('user'),
+    role: 'user',
+    content: text,
+    status: 'submitted',
+    time: Date.now(),
+  }
+  const assistantMessage = {
+    id: chatMessageId('assistant'),
+    role: 'assistant',
+    content: '',
+    status: 'running',
+    time: Date.now(),
+  }
+  chatMessages.value.push(userMessage, assistantMessage)
+  activeAssistantMessageId.value = assistantMessage.id
 
   running.value = true
   statusText.value = t('common.running')
@@ -435,7 +642,7 @@ async function submitTask() {
   const traceId = `web-${Date.now().toString(36)}`
   const uploadedFiles = selectedFiles.value.length ? await uploadSelectedFiles(traceId) : []
   const payload = {
-    messages: [{ role: 'user', content: text, uploadFile: uploadedFiles }],
+    messages: [...priorMessages, { role: 'user', content: text, uploadFile: uploadedFiles }],
     conversation_id: currentSessionId.value,
     agent_id: selectedAgentId.value || undefined,
     language: language.value === 'en' ? 'en' : 'ch',
@@ -450,7 +657,8 @@ async function submitTask() {
     if (approved.length) payload.approved_tools = approved
   }
 
-  query.value = ''
+  if (source === 'chat') chatInput.value = ''
+  else query.value = ''
   selectedFiles.value = []
   if (fileInputRef.value) fileInputRef.value.value = ''
 
@@ -468,6 +676,7 @@ async function submitTask() {
     if (error.name !== 'AbortError') {
       addNotification(withDetail('任务执行失败', 'Task failed', error.message), 'failed')
       liveTimeline.value.push({ type: 'error', title: lt('任务执行失败', 'Task failed'), summary: error.message, time: Date.now(), open: true })
+      updateActiveAssistant({ content: error.message, status: 'failed' })
       if (currentTask.value) currentTask.value.status = 'failed'
     }
   } finally {
@@ -475,7 +684,7 @@ async function submitTask() {
     streamController.value = null
     statusText.value = t('common.ready')
     await refreshTasks()
-    if (currentTaskId.value) await loadTask(currentTaskId.value, { stayOnDetail: true })
+    if (currentTaskId.value) await loadTask(currentTaskId.value, { stayOnDetail: true, keepChat: true })
   }
 }
 
@@ -525,12 +734,18 @@ function handleStreamEvent(event) {
       agentId: payload.agentId || currentTask.value?.agentId,
       mode: payload.mode || currentTask.value?.mode,
     }
+    updateActiveAssistant({
+      taskId: payload.taskId,
+      status: payload.finish ? 'completed' : 'running',
+    })
   }
 
   if (event.type === 'result' || event.type === 'agent_stream') {
     finalAnswer.value += payload.result || ''
+    appendAssistantContent(payload.result || '')
   } else if (event.type === 'done') {
     if (currentTask.value) currentTask.value.status = 'completed'
+    updateActiveAssistant({ status: 'completed' })
   } else {
     const item = normalizeTimelineEvent({ eventType: event.type, payload, createdAt: event.time })
     if (item) liveTimeline.value.push(item)
@@ -552,6 +767,7 @@ async function stopTask() {
     }
   }
   if (streamController.value) streamController.value.abort()
+  updateActiveAssistant({ status: 'cancelled' })
   running.value = false
   statusText.value = t('common.ready')
 }
@@ -616,7 +832,6 @@ async function refreshTasks() {
   }
 }
 
-
 function applyAuthPayload(payload = {}) {
   authRequired.value = Boolean(payload.authRequired)
   authenticated.value = Boolean(payload.authenticated)
@@ -673,10 +888,9 @@ async function logout() {
 
 async function loadTask(taskId, options = {}) {
   if (!taskId) return
+  openTaskMenuId.value = ''
   try {
     const eventParams = new URLSearchParams({ limit: '2000' })
-    if (eventFilters.eventType) eventParams.set('event_type', eventFilters.eventType)
-    if (eventFilters.source) eventParams.set('source', eventFilters.source)
     const [taskResponse, eventsResponse, artifactsResponse] = await Promise.all([
       fetch(`/agent/tasks/${encodeURIComponent(taskId)}`),
       fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?${eventParams}`),
@@ -691,13 +905,38 @@ async function loadTask(taskId, options = {}) {
     currentEvents.value = Array.isArray(eventsData.items) ? eventsData.items : []
     currentArtifacts.value = Array.isArray(artifactsData.items) ? artifactsData.items : []
     finalAnswer.value = currentTask.value.output || ''
+    if (!options.keepChat) seedChatFromTask(currentTask.value, finalAnswer.value)
+    else if (finalAnswer.value) {
+      updateActiveAssistant((message) => ({
+        content: message.content || finalAnswer.value,
+        status: currentTask.value.status || message.status,
+      }))
+    }
     liveTimeline.value = []
     currentTaskId.value = taskId
     activeView.value = 'taskDetail'
     sidebarOpen.value = false
-    if (!options.stayOnDetail) await nextTick()
+    await nextTick()
+    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
   } catch (error) {
     addNotification(error.message, 'failed')
+  }
+}
+
+async function deleteTask(task) {
+  const taskId = taskRecordId(task)
+  if (!taskId) return
+  openTaskMenuId.value = ''
+  try {
+    const response = await fetch(`/agent/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
+    if (!response.ok && response.status !== 404) throw new Error(serviceError(response.status))
+    removeTaskFromLists(taskId)
+    const deletedCurrentTask = taskId === currentTaskId.value
+    if (deletedCurrentTask) newTask()
+    addNotification(t('task.deleted'), 'running')
+    await refreshTasks()
+  } catch (error) {
+    addNotification(`${t('task.deleteFailed')}${detailSep()}${error.message}`, 'failed')
   }
 }
 
@@ -772,7 +1011,7 @@ function normalizeTimelineEvent(event) {
   const failed = Boolean(payload.error || resultMap.error || resultMap.failed)
   return {
     type: eventType,
-    title: timelineTitle(eventType, resultMap, failed),
+    title: timelineTitle(eventType, resultMap, failed, payload),
     summary,
     raw: payload,
     time: event.createdAt || event.time || payload.messageTime || Date.now(),
@@ -780,16 +1019,18 @@ function normalizeTimelineEvent(event) {
   }
 }
 
-function timelineTitle(type, resultMap = {}, failed = false) {
+function timelineTitle(type, resultMap = {}, failed = false, payload = {}) {
   const toolName = resultMap.tool || resultMap.name ? compactToolName(resultMap.tool || resultMap.name) : ''
-  if (type === 'tool_call') return toolName ? `${t('timeline.toolCall')}${detailSep()}${toolName}` : t('timeline.toolCall')
+  if (type === 'tool_call') return toolActionTitle(toolName, toolInput(resultMap))
   if (type === 'tool_result') {
-    const title = failed ? t('timeline.toolFailed') : t('timeline.toolDone')
-    return toolName ? `${title}${detailSep()}${toolName}` : title
+    return toolResultTitle(toolName, toolInput(resultMap), failed)
   }
   if (type === 'plan') return t('timeline.plan')
+  if (type === 'tool_thought') return toolThoughtTitle(payload)
+  if (type === 'plan_thought') return lt('规划任务', 'Planning task')
   if (type === 'agent_selected') return t('timeline.agentSelected')
   if (type === 'task_handoff_requested') return t('timeline.handoff')
+  if (type === 'notifications') return compactSummary(notificationMessage(payload.task || payload.resultMap?.task || ''), 140) || eventTypeName(type)
   if (type.includes('failed')) return t('timeline.failed')
   return eventTypeName(type)
 }
@@ -798,6 +1039,8 @@ function eventSummary(type, payload = {}) {
   const data = payload.resultMap && Object.keys(payload.resultMap).length ? payload.resultMap : payload
   if (type === 'tool_call') return stringify(data.argumentsSummary || data.arguments || data.input || data.args || data.tool || data.name)
   if (type === 'tool_result') return stringify(data.resultSummary || data.result || data.output || data.error || data.chunk)
+  if (type === 'tool_thought') return toolThoughtSummary(payload)
+  if (type === 'plan_thought') return planThoughtSummary(payload)
   if (type === 'result' || type === 'agent_stream') return ''
   if (type === 'task_created') return withDetail('任务已创建', 'Task created', data.mode)
   if (type === 'task_queued') return withDetail('任务排队中', 'Task queued', data.mode)
@@ -822,9 +1065,224 @@ function eventSummary(type, payload = {}) {
   if (type === 'agent_failed') return `${withDetail('Agent 失败', 'Agent failed', data.agentName || data.agentId || '')}${data.error ? ` · ${data.error}` : ''}`
   if (type === 'agent_cancelled') return withDetail('Agent 已取消', 'Agent cancelled', data.agentName || data.agentId || '')
   if (type === 'task_handoff_requested') return withDetail('任务已交接', 'Task handed off', `${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`)
-  if (type === 'notifications') return data.task || data.error || ''
+  if (type === 'notifications') return notificationMessage(data.task || data.error || '')
   if (type === 'task') return data.task || ''
   return stringify(data.task || data.message || data.error || '')
+}
+
+function notificationMessage(value) {
+  const parsed = parseJsonValue(value)
+  if (parsed && typeof parsed === 'object') return parsed.process_message || parsed.message || parsed.task || stringify(parsed)
+  const text = String(value || '')
+  const match = text.match(/['"]process_message['"]\s*:\s*['"]([^'"]+)['"]/)
+  return match ? match[1] : text
+}
+
+function toolThoughtSummary(payload = {}) {
+  const thought = payload.toolThought || payload.resultMap || payload
+  const step = thought.current_step || thought.currentStep || thought.step || ''
+  const calls = Array.isArray(thought.tool_calls) ? thought.tool_calls : []
+  const names = calls
+    .map((call) => {
+      if (Array.isArray(call)) return compactToolName(call[0])
+      return compactToolName(call?.name || call?.tool)
+    })
+    .filter(Boolean)
+  return [
+    step ? withDetail('当前步骤', 'Current step', step) : '',
+    names.length ? withDetail('准备调用工具', 'Preparing tools', names.join(', ')) : '',
+  ].filter(Boolean).join(' · ')
+}
+
+function toolThoughtTitle(payload = {}) {
+  const thought = payload.toolThought || payload.resultMap || payload
+  const step = compactSummary(thought.current_step || thought.currentStep || thought.step || '', 140)
+  if (step) return step
+  const calls = Array.isArray(thought.tool_calls) ? thought.tool_calls : []
+  const first = calls[0]
+  if (Array.isArray(first)) return toolActionTitle(compactToolName(first[0]), first[1])
+  if (first) return toolActionTitle(compactToolName(first.name || first.tool), first.arguments || first.args || first.input)
+  return lt('准备调用工具', 'Preparing tool')
+}
+
+function toolInput(data = {}) {
+  return data.arguments || data.args || data.input || parseJsonValue(data.argumentsSummary || '') || ''
+}
+
+function toolOutput(data = {}) {
+  return data.resultSummary || data.result || data.output || data.error || data.chunk || ''
+}
+
+function toolActionTitle(toolName, input) {
+  const name = compactToolName(toolName)
+  const target = toolTarget(input)
+  if (/search/i.test(name)) return target ? lt(`搜索：${target}`, `Search: ${target}`) : lt('搜索信息', 'Search information')
+  if (/read/i.test(name)) return target ? lt(`读取：${target}`, `Read: ${target}`) : lt('读取文件', 'Read file')
+  if (/write/i.test(name)) return target ? lt(`写入：${target}`, `Write: ${target}`) : lt('写入文件', 'Write file')
+  if (/list/i.test(name)) return target ? lt(`列出：${target}`, `List: ${target}`) : lt('列出文件', 'List files')
+  if (/delete/i.test(name)) return target ? lt(`删除：${target}`, `Delete: ${target}`) : lt('删除文件', 'Delete file')
+  if (/shell|command|exec/i.test(name)) return target ? lt(`执行命令：${target}`, `Run command: ${target}`) : lt('执行命令', 'Run command')
+  return target ? `${name || t('timeline.toolCall')}${detailSep()}${target}` : (name ? lt(`调用工具：${name}`, `Use tool: ${name}`) : t('timeline.toolCall'))
+}
+
+function toolResultTitle(toolName, input, failed = false) {
+  const name = compactToolName(toolName)
+  const target = toolTarget(input)
+  const prefix = failed ? t('timeline.toolFailed') : t('timeline.toolDone')
+  if (/search/i.test(name)) return target ? lt(`搜索完成：${target}`, `Search complete: ${target}`) : lt('搜索完成', 'Search complete')
+  return target ? `${prefix}${detailSep()}${target}` : (name ? `${prefix}${detailSep()}${name}` : prefix)
+}
+
+function toolTarget(input) {
+  const parsed = parseJsonValue(input)
+  if (parsed && typeof parsed === 'object') {
+    return compactSummary(parsed.query || parsed.url || parsed.path || parsed.command || parsed.content || parsed.filename || parsed.fileName || parsed.request || parsed.prompt || parsed, 120)
+  }
+  return compactSummary(parsed, 120)
+}
+
+function planThoughtSummary(payload = {}) {
+  const thought = payload.planThought || payload.resultMap || payload
+  return stringify(thought.current_step || thought.step || thought.plan || thought.message || thought)
+}
+
+function enrichProgressItem(item, index) {
+  return {
+    ...item,
+    index,
+    brief: compactSummary(item.summary),
+    toolName: progressToolName(item),
+    status: progressStatus(item),
+  }
+}
+
+function shouldShowProgressItem(item) {
+  if (item.type === 'tool_thought') return currentTask.value?.status === 'running'
+  if (item.type === 'notifications') return !isNoisyProgressNotification(item.summary || item.title)
+  const visibleTypes = new Set([
+    'plan',
+    'plan_thought',
+    'tool_call',
+    'tool_result',
+    'waiting_input',
+    'user_input',
+    'task_artifact_added',
+    'task_completed',
+    'task_failed',
+    'task_cancelled',
+    'agent_failed',
+    'task_handoff_requested',
+  ])
+  if (visibleTypes.has(item.type)) return true
+  if (item.status === 'failed') return true
+  return false
+}
+
+function isNoisyProgressNotification(value) {
+  const text = String(value || '').trim().toLowerCase()
+  if (!text) return true
+  return [
+    'query processquery',
+    'query process queries',
+    'query extend',
+    'start search query',
+    'end search query',
+  ].some((prefix) => text.startsWith(prefix))
+}
+
+function progressToolName(item) {
+  const raw = item.raw || {}
+  const data = raw.resultMap && Object.keys(raw.resultMap).length ? raw.resultMap : raw
+  if (item.type === 'tool_thought') {
+    const calls = data.toolThought?.tool_calls || data.tool_calls || []
+    const first = Array.isArray(calls) ? calls[0] : null
+    if (Array.isArray(first)) return compactToolName(first[0])
+    if (first) return compactToolName(first.name || first.tool)
+  }
+  return compactToolName(data.tool || data.name || raw.tool || raw.name)
+}
+
+function progressStatus(item) {
+  const raw = item.raw || {}
+  const resultMap = raw.resultMap || {}
+  if (raw.error || resultMap.error || resultMap.failed || item.type.includes('failed')) return 'failed'
+  if (item.type === 'tool_call') return 'started'
+  if (item.type === 'tool_result' || item.type === 'task_completed' || item.type === 'agent_completed') return 'completed'
+  if (item.type === 'tool_thought' || item.type === 'plan_thought') return currentTask.value?.status === 'running' ? 'running' : 'completed'
+  if (item.type === 'task_running' || item.type === 'agent_started') return 'running'
+  return currentTask.value?.status === 'running' ? 'running' : 'completed'
+}
+
+function progressStatusLabel(status) {
+  return t(`progress.${status || 'running'}`)
+}
+
+function isProgressMessage(message, index) {
+  if (message.role !== 'assistant') return false
+  if (activeAssistantMessageId.value) return message.id === activeAssistantMessageId.value
+  for (let i = chatMessages.value.length - 1; i >= 0; i -= 1) {
+    if (chatMessages.value[i]?.role === 'assistant') return i === index
+  }
+  return false
+}
+
+function progressDetailRows(item) {
+  const raw = item.raw || {}
+  const data = raw.resultMap && Object.keys(raw.resultMap).length ? raw.resultMap : raw
+  const rows = []
+  const add = (label, value, limit = 900) => {
+    const text = compactSummary(value, limit)
+    if (text) rows.push({ label, value: text })
+  }
+  add(lt('动作', 'Action'), item.title, 220)
+  add(lt('工具', 'Tool'), item.toolName, 120)
+  add(lt('状态', 'Status'), progressStatusLabel(item.status), 80)
+  if (item.type === 'tool_call' || item.type === 'tool_result') {
+    add(lt('输入', 'Input'), toolInput(data), 700)
+  }
+  if (item.type === 'tool_result') {
+    add(lt('输出', 'Output'), toolOutput(data), 1000)
+    add(lt('耗时', 'Duration'), data.durationMs ? formatDuration(data.durationMs) : '', 80)
+  }
+  if (!['tool_call', 'tool_result'].includes(item.type)) {
+    add(lt('说明', 'Details'), item.summary, 700)
+  }
+  add(lt('时间', 'Time'), formatTime(item.time), 80)
+  return rows
+}
+
+function compactSummary(value, limit = 180) {
+  const parsed = parseJsonValue(value)
+  const text = typeof parsed === 'object' && parsed !== null ? summarizeObject(parsed) : String(parsed || '')
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return ''
+  return cleaned.length > limit ? `${cleaned.slice(0, limit)}...` : cleaned
+}
+
+function parseJsonValue(value) {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (!trimmed || !['{', '['].includes(trimmed[0])) return value
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return value
+  }
+}
+
+function summarizeObject(value) {
+  if (Array.isArray(value)) {
+    if (!value.length) return ''
+    if (value.length === 1) return summarizeObject(value[0])
+    return lt(`${value.length} 条结果`, `${value.length} results`)
+  }
+  const keys = ['query', 'content', 'prompt', 'path', 'fileName', 'filename', 'url', 'title', 'result', 'output', 'error', 'message']
+  const parts = keys
+    .filter((key) => value[key] !== undefined && value[key] !== null && value[key] !== '')
+    .slice(0, 3)
+    .map((key) => `${key}: ${compactSummary(value[key], 80)}`)
+  if (parts.length) return parts.join(' · ')
+  return JSON.stringify(value)
 }
 
 function eventTypeName(type) {
@@ -836,6 +1294,8 @@ function eventTypeName(type) {
     task_failed: 'Task failed',
     tool_call: 'Tool call',
     tool_result: 'Tool result',
+    tool_thought: 'Preparing tool',
+    plan_thought: 'Planning task',
     agent_phase: 'Agent phase',
     memory_context_loaded: 'Context retrieval',
     runtime_boundary_applied: 'Runtime boundary',
@@ -849,6 +1309,8 @@ function eventTypeName(type) {
     task_failed: '任务失败',
     tool_call: '工具调用',
     tool_result: '工具结果',
+    tool_thought: '准备调用工具',
+    plan_thought: '规划任务',
     agent_phase: 'Agent 阶段',
     memory_context_loaded: '上下文检索',
     runtime_boundary_applied: '运行边界',
@@ -862,9 +1324,30 @@ function compactToolName(name) {
   return String(name || '').replace(/^mcp_local[:-]/, '').replace(/^mcp_[^:-]+[:-]/, '')
 }
 
-function addNotification(text, status = 'info') {
-  notifications.value.unshift({ id: `${Date.now()}-${Math.random()}`, text, status, time: Date.now() })
-  notifications.value = notifications.value.slice(0, 8)
+function dismissNotification(id) {
+  if (!id) return
+  const timer = notificationTimers.get(id)
+  if (timer) clearTimeout(timer)
+  notificationTimers.delete(id)
+  notifications.value = notifications.value.filter((item) => item.id !== id)
+}
+
+function addNotification(text, status = 'info', ttl = NOTIFICATION_TTL_MS) {
+  const message = String(text || '').trim()
+  if (!message) return
+  notifications.value
+    .filter((item) => item.text === message && item.status === status)
+    .forEach((item) => dismissNotification(item.id))
+
+  const id = `${Date.now()}-${Math.random()}`
+  notifications.value.unshift({ id, text: message, status, time: Date.now() })
+  const overflow = notifications.value.slice(4)
+  notifications.value = notifications.value.slice(0, 4)
+  overflow.forEach((item) => dismissNotification(item.id))
+
+  if (ttl > 0) {
+    notificationTimers.set(id, setTimeout(() => dismissNotification(id), ttl))
+  }
 }
 
 function statusLabel(status) {
@@ -965,17 +1448,36 @@ onMounted(async () => {
   await refreshTasks()
   await refreshToolCatalog()
 })
+
+onBeforeUnmount(() => {
+  stopSidebarResize()
+  notificationTimers.forEach((timer) => clearTimeout(timer))
+  notificationTimers.clear()
+})
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed, 'sidebar-resizing': sidebarResizing }" :style="shellStyle" @click="closeTaskMenu">
     <aside class="sidebar" :class="{ open: sidebarOpen }">
       <div class="brand-row">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-label="TaskPilot">
+          <svg viewBox="0 0 32 32" focusable="false" aria-hidden="true">
+            <path class="brand-mark-route" d="M7 23c4-8 9-12 18-14" />
+            <path class="brand-mark-plane" d="M7 24 25 6l-5 18-5-7-8 7Z" />
+            <circle class="brand-mark-dot" cx="10" cy="22" r="2.2" />
+          </svg>
+        </div>
         <div>
           <div class="brand-title">TaskPilot</div>
-          <div class="brand-subtitle">{{ t('app.subtitle') }}</div>
         </div>
+        <button
+          type="button"
+          class="sidebar-collapse-button"
+          :title="t('common.hideSidebar')"
+          @click="toggleSidebarCollapsed"
+        >
+          <span class="panel-toggle-icon" aria-hidden="true"></span>
+        </button>
       </div>
 
       <nav class="main-nav" :aria-label="language === 'en' ? 'Main navigation' : '主导航'">
@@ -998,24 +1500,48 @@ onMounted(async () => {
           <button type="button" class="ghost-button small" @click="refreshTasks">{{ t('common.refresh') }}</button>
         </div>
         <div v-if="!recentTasks.length" class="empty-side">{{ t('tasks.empty') }}</div>
-        <button
+        <div
           v-for="task in recentTasks"
           :key="task.taskId"
-          type="button"
-          class="recent-task"
+          class="recent-task-row"
           :class="{ active: task.taskId === currentTaskId }"
-          @click="loadTask(task.taskId)"
         >
-          <span class="recent-title">{{ task.input || task.taskId }}</span>
-        </button>
+          <button type="button" class="recent-task" @click="loadTask(task.taskId)">
+            <span class="recent-title">{{ task.input || task.taskId }}</span>
+          </button>
+          <button
+            type="button"
+            class="task-menu-button"
+            :title="t('common.moreOptions')"
+            @click.stop.prevent="toggleTaskMenu(task.taskId)"
+          >
+            ⋯
+          </button>
+          <div v-if="openTaskMenuId === task.taskId" class="task-menu-popover" @click.stop>
+            <button type="button" class="task-menu-danger" @click.stop.prevent="deleteTask(task)">{{ t('task.delete') }}</button>
+          </div>
+        </div>
       </section>
 
+      <button
+        type="button"
+        class="sidebar-resize-handle"
+        :title="t('common.resizeSidebar')"
+        @pointerdown="startSidebarResize"
+      ></button>
     </aside>
 
     <main class="workspace">
       <header class="topbar">
         <div class="topbar-left">
-          <button type="button" class="sidebar-toggle" @click="sidebarOpen = !sidebarOpen">☰</button>
+          <button
+            type="button"
+            class="sidebar-toggle topbar-sidebar-toggle"
+            :title="topbarSidebarTitle"
+            @click="toggleSidebarFromTopbar"
+          >
+            <span class="panel-toggle-icon" aria-hidden="true"></span>
+          </button>
           <button type="button" class="model-select" @click="switchView('agents')">
             {{ currentAgent?.name || t('common.defaultAgent') }}
             <span>⌄</span>
@@ -1048,7 +1574,7 @@ onMounted(async () => {
           type="button"
           class="toast-item"
           :class="`toast-${item.status}`"
-          @click="notifications.splice(index, 1)"
+          @click="dismissNotification(item.id)"
         >
           {{ item.text }}
         </button>
@@ -1078,7 +1604,7 @@ onMounted(async () => {
             <textarea
               id="query"
               v-model="query"
-              rows="4"
+              rows="3"
               :placeholder="t('home.placeholder')"
               @keydown.enter.exact.prevent="submitTask"
             />
@@ -1153,87 +1679,102 @@ onMounted(async () => {
       <section v-else-if="activeView === 'taskDetail'" class="view detail-view">
         <div class="detail-header">
           <div>
-            <div class="eyebrow">{{ t('task.detail') }}</div>
             <h2>{{ currentTask?.input || t('task.current') }}</h2>
             <p>{{ taskMeta }}</p>
           </div>
-          <div class="detail-actions">
-            <select v-model="eventFilters.eventType" class="compact-select" @change="loadTask(currentTaskId, { stayOnDetail: true })">
-              <option value="">{{ t('event.all') }}</option>
-              <option value="tool_call,tool_result">{{ t('event.tool') }}</option>
-              <option value="agent_phase">{{ t('event.agentPhase') }}</option>
-              <option value="task_failed,agent_failed">{{ t('event.failed') }}</option>
-              <option value="task_artifact_added">{{ t('event.artifact') }}</option>
-              <option value="eval_result">{{ t('event.eval') }}</option>
-              <option value="memory_context_loaded">{{ t('event.memory') }}</option>
-            </select>
-            <select v-model="eventFilters.source" class="compact-select" @change="loadTask(currentTaskId, { stayOnDetail: true })">
-              <option value="">{{ t('source.all') }}</option>
-              <option value="sse">SSE</option>
-              <option value="autoagent">{{ t('source.taskSystem') }}</option>
-              <option value="agent">{{ t('source.agent') }}</option>
-              <option value="tool">{{ t('source.tool') }}</option>
-            </select>
-            <button v-if="taskCanRetry" type="button" class="ghost-button" @click="retryTask">{{ t('common.retry') }}</button>
-            <button v-if="running" type="button" class="danger-button" @click="stopTask">{{ t('common.stop') }}</button>
-          </div>
+          <button v-if="running" type="button" class="danger-button" @click="stopTask">{{ t('common.stop') }}</button>
         </div>
 
-        <div class="detail-layout">
-          <div class="timeline-panel" ref="scrollRef">
-            <article class="answer-card">
-              <div class="section-title">{{ t('task.final') }}</div>
-              <div v-if="finalAnswer" class="markdown-body" v-html="renderMarkdown(finalAnswer)"></div>
-              <div v-else class="muted-text">{{ t('task.finalEmpty') }}</div>
-            </article>
-
-            <article class="timeline-card">
-              <div class="section-title">{{ t('task.timeline') }}</div>
-              <div v-if="!mergedTimeline.length" class="muted-text">{{ t('task.timelineEmpty') }}</div>
-              <details v-for="(item, index) in mergedTimeline" :key="`${item.type}-${item.time}-${index}`" class="timeline-item" :open="item.open">
-                <summary>
-                  <span class="timeline-dot"></span>
-                  <span>{{ item.title }}</span>
-                  <time>{{ formatTime(item.time) }}</time>
-                </summary>
-                <pre>{{ item.summary }}</pre>
-              </details>
-            </article>
+        <div class="conversation-thread">
+          <div ref="scrollRef" class="conversation-stream">
+            <div v-if="!chatMessages.length" class="muted-text">{{ t('chat.empty') }}</div>
+            <div
+              v-for="(message, index) in chatMessages"
+              :key="message.id"
+              class="chat-message"
+              :class="`chat-${message.role}`"
+            >
+              <div class="chat-speaker">{{ message.role === 'user' ? t('chat.user') : t('chat.assistant') }}</div>
+              <div class="chat-bubble">
+                <template v-if="message.role === 'assistant'">
+                  <div
+                    v-if="isProgressMessage(message, index) && progressItems.length"
+                    class="conversation-progress"
+                  >
+                    <div class="progress-action-list">
+                      <details v-for="(item, itemIndex) in progressItems" :key="`${item.type}-${item.time}-${itemIndex}`" class="timeline-item progress-item" :open="item.open">
+                        <summary>
+                          <span class="timeline-dot" :class="`dot-${item.status}`"></span>
+                          <span class="progress-main">
+                            <strong>{{ item.title }}</strong>
+                            <small v-if="item.toolName">{{ item.toolName }}</small>
+                          </span>
+                          <span class="progress-state" :class="`state-${item.status}`">{{ progressStatusLabel(item.status) }}</span>
+                          <time>{{ formatTime(item.time) }}</time>
+                        </summary>
+                        <div class="progress-detail">
+                          <div v-for="row in progressDetailRows(item)" :key="row.label" class="progress-detail-row">
+                            <dt>{{ row.label }}</dt>
+                            <dd>{{ row.value }}</dd>
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  </div>
+                  <div
+                    v-if="message.content"
+                    class="markdown-body"
+                    v-html="renderMarkdown(message.content)"
+                  ></div>
+                  <div v-else class="muted-text">{{ t('chat.thinking') }}</div>
+                </template>
+                <div
+                  v-else-if="message.content"
+                  class="markdown-body"
+                  v-html="renderMarkdown(message.content)"
+                ></div>
+              </div>
+            </div>
           </div>
 
-          <aside class="inspector-panel">
-            <section class="panel-block">
-              <div class="section-title">{{ t('task.detail') }}</div>
-              <dl class="meta-list">
-                <div><dt>{{ t('common.status') }}</dt><dd><span class="status-pill" :class="statusClass(currentTask?.status)">{{ statusLabel(currentTask?.status) }}</span></dd></div>
-                <div><dt>{{ t('common.agent') }}</dt><dd>{{ agentName(currentTask?.agentId) || t('common.defaultAgent') }}</dd></div>
-                <div><dt>{{ t('common.createdAt') }}</dt><dd>{{ formatDate(currentTask?.createdAt) }}</dd></div>
-                <div><dt>{{ t('common.duration') }}</dt><dd>{{ formatDuration(currentTask?.durationMs) || '-' }}</dd></div>
-              </dl>
-            </section>
+          <div v-if="currentArtifacts.length" class="conversation-artifacts">
+            <a
+              v-for="artifact in currentArtifacts"
+              :key="artifact.artifactId"
+              class="artifact-link"
+              :href="artifactHref(artifact)"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span>{{ artifact.filename || artifact.artifactId }}</span>
+              <small>{{ artifact.mimeType || 'file' }}</small>
+            </a>
+          </div>
 
-            <section class="panel-block">
-              <div class="section-title">{{ t('task.artifacts') }}</div>
-              <div v-if="!currentArtifacts.length" class="muted-text">{{ t('task.noArtifacts') }}</div>
-              <a
-                v-for="artifact in currentArtifacts"
-                :key="artifact.artifactId"
-                class="artifact-link"
-                :href="artifactHref(artifact)"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span>{{ artifact.filename || artifact.artifactId }}</span>
-                <small>{{ artifact.mimeType || 'file' }}</small>
-              </a>
-            </section>
+          <section v-if="taskWaitingInput" class="conversation-waiting">
+            <textarea v-model="taskInputText" rows="4" :placeholder="t('task.inputPlaceholder')"></textarea>
+            <button type="button" class="send-wide" @click="sendTaskInput">{{ t('task.submitInput') }}</button>
+          </section>
 
-            <section v-if="taskWaitingInput" class="panel-block waiting-block">
-              <div class="section-title">{{ t('task.needInput') }}</div>
-              <textarea v-model="taskInputText" rows="4" :placeholder="t('task.inputPlaceholder')"></textarea>
-              <button type="button" class="send-wide" @click="sendTaskInput">{{ t('task.submitInput') }}</button>
-            </section>
-          </aside>
+          <form class="chat-composer" @submit.prevent="submitChatMessage">
+            <input ref="fileInputRef" class="sr-only" type="file" multiple @change="onFileChange" />
+            <textarea
+              v-model="chatInput"
+              rows="2"
+              :placeholder="t('chat.placeholder')"
+              @keydown.enter.exact.prevent="submitChatMessage"
+            />
+            <div class="chat-actions">
+              <button type="button" class="icon-button" :title="t('common.upload')" @click="fileInputRef?.click()">＋</button>
+              <button type="submit" class="send-button small-send" :disabled="running || !chatInput.trim()">↑</button>
+            </div>
+            <div v-if="selectedFiles.length" class="file-strip chat-files">
+              <span v-for="(file, index) in selectedFiles" :key="`${file.name}-${index}`" class="file-chip">
+                {{ file.name }}
+                <button type="button" @click="removeFile(index)">×</button>
+              </span>
+            </div>
+          </form>
         </div>
       </section>
 

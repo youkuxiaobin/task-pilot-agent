@@ -50,6 +50,32 @@ def test_cancel_task_marks_running_task_cancelled(app_modules):
     assert events[-1].event_type == "task_cancel_requested"
 
 
+def test_delete_task_removes_task_and_cancels_running_worker(app_modules):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(task_id="delete-api", trace_id="trace-delete-api", input_text="remove")
+    store.update_status("delete-api", tasks.AgentTaskStatus.RUNNING)
+
+    class RunningWorker:
+        cancelled = False
+
+        def done(self):
+            return False
+
+        def cancel(self):
+            self.cancelled = True
+
+    worker = RunningWorker()
+    app.runningAgentTasks["delete-api"] = worker
+
+    payload = asyncio.run(app.delete_agent_task("delete-api"))
+
+    assert payload == {"taskId": "delete-api", "deleted": True}
+    assert worker.cancelled is True
+    assert "delete-api" not in app.runningAgentTasks
+    assert store.get_task("delete-api") is None
+
+
 def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     app, tasks = app_modules
     store = tasks.TaskStore()

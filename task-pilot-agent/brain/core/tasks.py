@@ -4,6 +4,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -300,6 +301,40 @@ class TaskStore:
             return records
         finally:
             session.close()
+
+    def delete_task(self, task_id: str) -> bool:
+        session = self._session_maker()
+        work_dir: Optional[Path] = None
+        try:
+            record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
+            if not record:
+                return False
+
+            work_dir = _task_work_dir_from_record(record)
+            session.query(AgentTaskArtifactRecord).filter(AgentTaskArtifactRecord.task_id == task_id).delete(
+                synchronize_session=False
+            )
+            session.query(AgentTaskEventRecord).filter(AgentTaskEventRecord.task_id == task_id).delete(
+                synchronize_session=False
+            )
+            session.delete(record)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+        if work_dir:
+            root = task_workspace_root()
+            resolved_work_dir = work_dir.expanduser().resolve()
+            if resolved_work_dir.is_relative_to(root) and resolved_work_dir.is_dir():
+                shutil.rmtree(resolved_work_dir, ignore_errors=True)
+        return True
 
     def update_status(
         self,

@@ -1594,6 +1594,27 @@ async def cancel_agent_task(
     return serialize_task(updated or task)
 
 
+@agent_router.delete("/tasks/{task_id}")
+async def delete_agent_task(
+    task_id: str,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
+    store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
+
+    worker = runningAgentTasks.pop(task_id, None)
+    if worker and not worker.done():
+        worker.cancel()
+
+    deleted = store.delete_task(task_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="task not found")
+    return {"taskId": task_id, "deleted": True}
+
+
 @agent_router.post("/tasks/{task_id}/retry")
 async def retry_agent_task(
     task_id: str,

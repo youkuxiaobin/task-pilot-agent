@@ -20,6 +20,7 @@ VITE_CONFIG_PATH = FRONTEND_ROOT / "vite.config.js"
 
 def test_vue_frontend_has_product_navigation_and_core_views():
     source = APP_VUE_PATH.read_text(encoding="utf-8")
+    nav_block = source.split("const navBase = [", 1)[1].split("]", 1)[0]
 
     for marker in [
         "新建任务",
@@ -28,9 +29,6 @@ def test_vue_frontend_has_product_navigation_and_core_views():
         "所有任务",
         "我能为你做什么？",
         "任务详情",
-        "最终结果",
-        "执行过程",
-        "任务产物",
         "activeView === 'home'",
         "activeView === 'taskDetail'",
         "activeView === 'tasks'",
@@ -38,6 +36,11 @@ def test_vue_frontend_has_product_navigation_and_core_views():
         "activeView === 'tools'",
     ]:
         assert marker in source
+
+    assert "nav.newTask" in nav_block
+    assert "nav.agents" in nav_block
+    assert "nav.allTasks" not in nav_block
+    assert "nav.tools" not in nav_block
 
     for marker in [
         "定时任务",
@@ -77,16 +80,14 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         "/events",
         "/artifacts",
         "/cancel",
+        "method: 'DELETE'",
         "/retry",
         "/input",
         "/agent/agents",
         "/agent/agents/diagnostics",
         "/agent/tools",
         "/file/v1/upload_file_form",
-        "event_type",
-        "全部事件",
         "工具调用",
-        "全部来源",
         "waiting_input",
         "用户补充",
         "task_retry_requested",
@@ -121,6 +122,187 @@ def test_task_lists_are_compact_title_only():
     assert "display: flex;" in styles.split(".task-row", 1)[1].split("}", 1)[0]
 
 
+def test_task_detail_is_continuous_chat_window():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+    submit_block = source.split("async function submitConversationMessage", 1)[1].split("async function readSse", 1)[0]
+
+    for marker in [
+        "const chatMessages = ref([])",
+        "async function submitChatMessage",
+        "function appendAssistantContent",
+        "function seedChatFromTask",
+        "chatMessages.value.push(userMessage, assistantMessage)",
+        "v-for=\"(message, index) in chatMessages\"",
+        "class=\"chat-composer\"",
+        "@keydown.enter.exact.prevent=\"submitChatMessage\"",
+        "appendAssistantContent(payload.result || '')",
+        "const progressItems = computed",
+        "const currentProgressItem = computed",
+        "function toolThoughtSummary",
+        "function toolActionTitle",
+        "function progressDetailRows",
+        "function shouldShowProgressItem",
+        "function isNoisyProgressNotification",
+        "function isProgressMessage",
+        "conversation-thread",
+        "conversation-stream",
+        "conversation-progress",
+        "progress-action-list",
+        "progress-detail-row",
+        "progress-main",
+        "progress-state",
+    ]:
+        assert marker in source
+
+    assert "buildPriorConversationMessages()" in submit_block
+    assert "messages: [...priorMessages, { role: 'user', content: text, uploadFile: uploadedFiles }]" in submit_block
+    assert "keepChat: true" in source
+    detail_block = source.split('<section v-else-if="activeView === \'taskDetail\'"', 1)[1].split(
+        '<section v-else-if="activeView === \'tasks\'"', 1
+    )[0]
+    assert 'class="conversation-thread"' in detail_block
+    assert 'v-for="(message, index) in chatMessages"' in detail_block
+    assert "isProgressMessage(message, index) && progressItems.length" in detail_block
+    assert 'class="timeline-card"' not in detail_block
+    assert 'class="chat-card"' not in detail_block
+    assert "t('task.final')" not in detail_block
+    assert "eventFilters.eventType" not in detail_block
+    assert "eventFilters.source" not in detail_block
+    assert "retryTask" not in detail_block
+    assert ".conversation-thread" in styles
+    assert ".conversation-stream" in styles
+    assert ".conversation-progress" in styles
+    assert ".chat-bubble" in styles
+    assert ".progress-action-list" in styles
+    assert ".progress-detail-row" in styles
+    assert ".progress-main" in styles
+    assert ".progress-state" in styles
+    assert ':open="item.open || index === progressItems.length - 1"' not in detail_block
+    assert "<pre>{{ item.summary }}</pre>" not in detail_block
+
+
+def test_vue_sidebar_is_collapsible_resizable_and_detail_layout_is_responsive():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        "const sidebarDensityVersion = 'compact-1'",
+        "taskpilot-sidebar-density-version",
+        "const savedSidebarWidth = Number(savedSidebarWidthValue || 280)",
+        "const sidebarWidth = ref(clampSidebarWidth(savedSidebarWidth))",
+        "const sidebarCollapsed = ref(localStorage.getItem('taskpilot-sidebar-collapsed') === 'true')",
+        "function toggleSidebarCollapsed",
+        "function startSidebarResize",
+        "window.addEventListener('pointermove', resizeSidebar)",
+        "return Math.min(360, Math.max(240, Math.round(width)))",
+        "@pointerdown=\"startSidebarResize\"",
+        "sidebar-collapse-button",
+        "sidebar-resize-handle",
+        "topbar-sidebar-toggle",
+        "panel-toggle-icon",
+        ":style=\"shellStyle\"",
+    ]:
+        assert marker in source
+
+    for marker in [
+        "--sidebar-width: 280px",
+        ".app-shell.sidebar-collapsed .sidebar",
+        ".sidebar-resize-handle",
+        ".panel-toggle-icon",
+        "cursor: col-resize",
+        "min-height: calc(36px * 4 + 2px * 3)",
+        ".detail-view",
+        "container-type: inline-size",
+        "@container (max-width: 1180px)",
+        ".conversation-thread",
+        "width: min(980px, calc(100% - 76px))",
+        "width: min(900px, calc(100% - 48px))",
+        "overflow-wrap: anywhere",
+    ]:
+        assert marker in styles
+
+    assert "min-height: 36px" in styles.split(".nav-item", 1)[1].split("}", 1)[0]
+    assert "font-size: 14px" in styles.split(".nav-item", 1)[1].split("}", 1)[0]
+    assert "max-width: 360px" in styles.split(".sidebar", 1)[1].split("}", 1)[0]
+    assert "Agent 工作台" not in source
+    assert "Agent Workspace" not in source
+    assert '<div class="brand-mark">T</div>' not in source
+    assert "brand-mark-plane" in source
+
+
+def test_vue_home_composer_matches_manus_compact_scale():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+    composer_block = styles.split(".composer-card {", 1)[1].split("}", 1)[0]
+    textarea_block = styles.split(".composer-card textarea {", 1)[1].split("}", 1)[0]
+    hero_block = styles.split(".hero-block {", 1)[1].split("}", 1)[0]
+
+    assert 'rows="3"' in source
+    assert "width: min(980px, 100%)" in hero_block
+    assert "width: min(960px, 100%)" in composer_block
+    assert "padding: 14px 16px 12px" in composer_block
+    assert "min-height: 86px" in textarea_block
+    assert "font-size: 16px" in textarea_block
+
+
+def test_vue_recent_tasks_have_more_menu_and_delete_action():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        "const openTaskMenuId = ref('')",
+        "function toggleTaskMenu",
+        "function taskRecordId",
+        "function removeTaskFromLists",
+        "async function deleteTask",
+        "class=\"task-menu-button\"",
+        "class=\"task-menu-popover\"",
+        "t('task.delete')",
+        "response.status !== 404",
+        "removeTaskFromLists(taskId)",
+        "method: 'DELETE'",
+        "@click.stop.prevent=\"deleteTask(task)\"",
+    ]:
+        assert marker in source
+
+    for marker in [
+        ".recent-task-row",
+        ".task-menu-button",
+        ".task-menu-popover",
+        ".task-menu-danger",
+    ]:
+        assert marker in styles
+
+    popover_block = styles.split(".task-menu-popover {", 1)[1].split("}", 1)[0]
+    button_block = styles.split(".task-menu-popover button {", 1)[1].split("}", 1)[0]
+    assert "min-width: 76px" in popover_block
+    assert "min-height: 26px" in button_block
+    assert "font-size: 13px" in button_block
+
+
+def test_vue_notifications_auto_dismiss_and_dedupe():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+    toast_stack_block = styles.split(".toast-stack {", 1)[1].split("}", 1)[0]
+    toast_item_block = styles.split(".toast-item {", 1)[1].split("}", 1)[0]
+
+    for marker in [
+        "const NOTIFICATION_TTL_MS = 2800",
+        "const notificationTimers = new Map()",
+        "function dismissNotification",
+        "function addNotification(text, status = 'info', ttl = NOTIFICATION_TTL_MS)",
+        ".filter((item) => item.text === message && item.status === status)",
+        "setTimeout(() => dismissNotification(id), ttl)",
+        "notificationTimers.forEach((timer) => clearTimeout(timer))",
+        "@click=\"dismissNotification(item.id)\"",
+    ]:
+        assert marker in source
+
+    assert "width: min(320px, calc(100vw - 44px))" in toast_stack_block
+    assert "font-size: 13px" in toast_item_block
+
+
 def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     source = APP_VUE_PATH.read_text(encoding="utf-8")
     submit_block = source.split("async function submitTask", 1)[1].split("async function readSse", 1)[0]
@@ -147,8 +329,6 @@ def test_vue_frontend_supports_chinese_and_english_switching():
         "<option value=\"en\">English</option>",
         "'home.title': '我能为你做什么？'",
         "'home.title': 'What can I do for you?'",
-        "'task.final': '最终结果'",
-        "'task.final': 'Final Result'",
         "body: JSON.stringify({ content, language: language.value === 'en' ? 'en' : 'ch' })",
         "const lt = (zh, en)",
         "const serviceError = (status)",
@@ -187,9 +367,9 @@ def test_vue_styles_are_workspace_not_debug_console():
         ".main-nav",
         ".home-view",
         ".composer-card",
-        ".detail-layout",
-        ".timeline-panel",
-        ".inspector-panel",
+        ".conversation-thread",
+        ".conversation-stream",
+        ".conversation-progress",
         ".agent-grid",
         ".tool-grid",
         "@media (max-width: 900px)",

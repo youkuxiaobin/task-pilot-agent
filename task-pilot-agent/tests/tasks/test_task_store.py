@@ -118,6 +118,24 @@ def test_task_store_filters_events_by_type_and_source(task_modules):
     assert [event.event_type for event in combined] == ["tool_call"]
 
 
+def test_task_store_deletes_task_events_artifacts_and_workspace(task_modules):
+    store = task_modules.TaskStore()
+    created = store.create_task(task_id="delete-me", trace_id="trace-delete")
+    work_dir = Path(task_modules.serialize_task(created)["workDir"])
+    artifact_file = work_dir / "artifact.txt"
+    artifact_file.write_text("artifact", encoding="utf-8")
+    store.add_event("delete-me", "tool_call", {"tool": "demo"}, trace_id="trace-delete", source="sse")
+    store.add_artifact("delete-me", str(artifact_file), filename="artifact.txt")
+
+    assert store.delete_task("delete-me") is True
+
+    assert store.get_task("delete-me") is None
+    assert store.list_events("delete-me") == []
+    assert store.list_artifacts("delete-me") == []
+    assert not work_dir.exists()
+    assert store.delete_task("delete-me") is False
+
+
 def test_task_store_lists_tasks_by_owner_status_and_agent(task_modules):
     store = task_modules.TaskStore()
 
