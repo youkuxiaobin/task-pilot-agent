@@ -69,6 +69,7 @@ async def _initialize_mcp_session_once(url: str, transport: str) -> Optional[str
         async with streamablehttp_client(url) as (read, write, get_session_id):
             async with ClientSession(read, write) as session:
                 await session.initialize()
+                await session.list_tools()
                 return get_session_id()
 
     if transport == "sse":
@@ -84,6 +85,7 @@ async def _initialize_mcp_session_once(url: str, transport: str) -> Optional[str
         async with sse_client(url, on_session_created=_on_session_created) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
+                await session.list_tools()
                 return session_id 
 
     raise ValueError(f"Unsupported MCP transport: {transport}")

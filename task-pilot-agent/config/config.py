@@ -35,6 +35,13 @@ def reveal_secrets(value: Any) -> Any:
     return value
 
 
+def normalize_database_url(url: str) -> str:
+    """Use the pure-Python MySQL driver when the URL does not name a driver."""
+    if url.startswith("mysql://"):
+        return f"mysql+pymysql://{url.removeprefix('mysql://')}"
+    return url
+
+
 class DBSettings(BaseModel):
     host: str = Field("127.0.0.1")
     port: int = Field(5432, ge=1, le=65535)
@@ -56,9 +63,9 @@ class DBSettings(BaseModel):
     @property
     def dsn(self) -> str:
         if self.url:
-            return self.url
+            return normalize_database_url(self.url)
         pwd = self.password.get_secret_value() if self.password else ""
-        return f"mysql://{self.user}:{pwd}@{self.host}:{self.port}/{self.name}"
+        return normalize_database_url(f"mysql://{self.user}:{pwd}@{self.host}:{self.port}/{self.name}")
 
 class CoreSettings(BaseModel):
     agent_id: str = Field("task-pilot-agent")
