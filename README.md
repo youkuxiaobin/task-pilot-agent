@@ -1,66 +1,83 @@
 # TaskPilotAgent
 
-TaskPilotAgent 是一个基于 FastAPI 的任务规划与工具调度服务：支持多模型（OpenAI/Claude/Gemini/OpenAI-compatible），并通过 MCP（Model Context Protocol）聚合/调用工具（本地 MCP 工具 + MCP Market 聚合层）。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## Agent 架构梳理
+TaskPilotAgent is a FastAPI-based general-purpose Agent orchestration service. It turns user requests into durable tasks, runs configurable Agents, calls built-in and MCP tools through a policy-aware gateway, streams progress to the web UI, and keeps every task replayable after completion.
 
-TaskPilotAgent 当前已经从“单次聊天请求”转向“可回看的任务系统 + 可配置 Agent + 统一工具网关”。一次用户请求会先变成任务，再进入 Agent 运行时，运行时按 Agent 配置过滤工具、调用模型、调用工具，并把过程事件持续写入任务时间线。
+It supports multiple model providers, including OpenAI, Claude/Codex, Gemini, and OpenAI-compatible services. Tools are aggregated through MCP, with both local tools and external MCP servers supported.
 
-### 整体组成
+## Agent Architecture
+
+TaskPilotAgent is organized around this product path:
+
+```text
+User Entry
+  -> Task System
+  -> Agent Core
+  -> Skill / Tool System
+  -> Sandbox Runtime
+  -> Memory / Knowledge Base
+  -> Logs / Replay / Evaluation
+  -> Permission / Risk Control
+```
+
+### System Overview
 
 ```mermaid
 flowchart LR
-  User["用户入口<br/>Web / API / WebSocket"] --> API["FastAPI 路由<br/>brain/app.py"]
-  API --> Task["任务系统<br/>TaskStore"]
-  Task --> Event["任务事件<br/>task_created / tool_call / result"]
-  Task --> Artifact["任务产物<br/>artifact / work_dir"]
-  API --> Context["AgentContext<br/>请求上下文"]
+  User["User Entry<br/>Web / API / WebSocket"] --> API["FastAPI Routes<br/>brain/app.py"]
+  API --> Task["Task System<br/>TaskStore"]
+  Task --> Event["Task Events<br/>task_created / tool_call / result"]
+  Task --> Artifact["Task Artifacts<br/>artifact / work_dir"]
+  API --> Context["AgentContext<br/>request context"]
   Context --> Registry["AgentRegistry<br/>config/agents/*"]
-  Context --> Memory["记忆 / 知识库<br/>memory_manager / RAG"]
-  Context --> Gateway["ToolGateway<br/>权限过滤 + 工具集合"]
-  Registry --> Runtime["Agent 核心<br/>Supervisor / ReAct / PlanSolve"]
-  Gateway --> Builtin["内置工具<br/>plan / handoff / request_input"]
-  Gateway --> Market["MCP Market<br/>工具聚合层"]
-  Market --> LocalMCP["本地 MCP 服务<br/>filesystem / search / code / report"]
-  Market --> RemoteMCP["远程 MCP 服务<br/>mcp_world 等扩展"]
+  Context --> Memory["Memory / Knowledge<br/>memory_manager / RAG"]
+  Context --> Gateway["ToolGateway<br/>policy filtering + tool collection"]
+  Registry --> Runtime["Agent Core<br/>Supervisor / ReAct / PlanSolve"]
+  Gateway --> Builtin["Built-in Tools<br/>plan / handoff / request_input"]
+  Gateway --> Market["MCP Market<br/>tool aggregation layer"]
+  Market --> LocalMCP["Local MCP Server<br/>filesystem / search / code / report"]
+  Market --> RemoteMCP["Remote MCP Servers<br/>mcp_world and extensions"]
   Runtime --> LLM["LLMManager<br/>planner / executor / react / summary"]
-  Runtime --> Summary["SummaryAgent<br/>最终回答"]
-  Summary --> SSE["SSEPrinter<br/>实时输出"]
+  Runtime --> Summary["SummaryAgent<br/>final answer"]
+  Summary --> SSE["SSEPrinter<br/>live stream"]
   SSE --> Event
-  SSE --> Web["Web 任务页<br/>实时展示 + 历史回看"]
+  SSE --> Web["Web Task Page<br/>live view + replay"]
 ```
 
-核心代码位置：
+### Core Components
 
-| 组件 | 主要文件 | 作用 |
+| Component | Main Files | Responsibility |
 | --- | --- | --- |
-| 启动进程 | `task-pilot-agent/main.py`、`task-pilot-agent/app_main.py` | 启动 FastAPI worker 和本地 MCP 子进程 |
-| 用户入口 | `task-pilot-agent/brain/app.py` | 提供 `/agent/autoagent`、任务 API、Web 页面 |
-| 任务系统 | `task-pilot-agent/brain/core/tasks.py` | 保存任务、事件、产物、状态和工作目录 |
-| Agent 注册表 | `task-pilot-agent/brain/core/agent_registry.py` | 加载 `config/agents/*/agent.yaml`、system prompt 和 evals |
-| Agent 运行时 | `task-pilot-agent/brain/core/handlers/*.py` | 选择 Supervisor、ReAct 或兼容的 PlanSolve 执行链路 |
-| ReAct Agent | `task-pilot-agent/brain/core/agents/ReActAgentImp.py` | 决定是否调用工具，执行“思考 -> 工具 -> 观察”循环 |
-| 总结 Agent | `task-pilot-agent/brain/core/agents/summary_agent.py` | 把工具结果和过程证据汇总成最终答案 |
-| 工具网关 | `task-pilot-agent/brain/core/tools/gateway.py` | 按 Agent 配置、权限和用户授权过滤工具 |
-| 工具集合 | `task-pilot-agent/brain/core/tools/collection.py` | 暴露工具 schema、执行工具、记录工具事件 |
-| MCP 工具适配 | `task-pilot-agent/brain/core/tools/mcp_tool.py` | 把 Agent 工具调用转成 MCP Market 调用 |
-| 本地 MCP 工具 | `task-pilot-agent/tools/mcp_local/mcp_server.py` | 提供文件、搜索、代码、报告、天气等工具 |
-| Web 页面 | `task-pilot-agent/brain/web/autoagent.html` | 创建任务、查看任务列表、展示时间线和最终结果 |
+| Process startup | `task-pilot-agent/main.py`, `task-pilot-agent/app_main.py` | Start FastAPI workers and the local MCP subprocess |
+| User entry | `task-pilot-agent/brain/app.py` | Expose `/agent/autoagent`, task APIs, and the web page |
+| Task system | `task-pilot-agent/brain/core/tasks.py` | Persist tasks, events, artifacts, status, and work directories |
+| Agent registry | `task-pilot-agent/brain/core/agent_registry.py` | Load `config/agents/*/agent.yaml`, system prompts, and evals |
+| Agent runtime | `task-pilot-agent/brain/core/handlers/*.py` | Select Supervisor, ReAct, or compatibility PlanSolve flow |
+| ReAct Agent | `task-pilot-agent/brain/core/agents/ReActAgentImp.py` | Decide tool usage and run the think-act-observe loop |
+| Summary Agent | `task-pilot-agent/brain/core/agents/summary_agent.py` | Summarize evidence and tool results into the final answer |
+| Tool gateway | `task-pilot-agent/brain/core/tools/gateway.py` | Filter tools by Agent config, permission policy, and approvals |
+| Tool collection | `task-pilot-agent/brain/core/tools/collection.py` | Expose tool schemas, execute tools, and emit tool events |
+| MCP adapter | `task-pilot-agent/brain/core/tools/mcp_tool.py` | Convert Agent tool calls into MCP Market calls |
+| Local MCP tools | `task-pilot-agent/tools/mcp_local/mcp_server.py` | Provide filesystem, search, code, report, weather, and media tools |
+| Web UI | `task-pilot-agent/brain/web/autoagent.html` | Create tasks, list tasks, show timeline, tool calls, and final output |
 
-### 组件 1：用户入口
+## Component Flowcharts And Sequence Diagrams
 
-用户入口包括 Web 页面、SSE API、WebSocket API 和后台任务 API。入口层只负责接收请求、补齐默认值、创建或恢复任务，不直接写 Agent 执行逻辑。
+### 1. User Entry
+
+User entry points include the web UI, SSE API, WebSocket API, and background task API. This layer receives requests, fills defaults, creates or resumes tasks, and delegates execution to the shared Agent runner.
 
 ```mermaid
 flowchart TD
-  A["用户输入任务"] --> B{"入口类型"}
-  B --> C["Web 页面<br/>GET /agent/web/autoagent"]
+  A["User submits task"] --> B{"Entry type"}
+  B --> C["Web UI<br/>GET /agent/web/autoagent"]
   B --> D["SSE<br/>POST /agent/autoagent"]
-  B --> E["后台任务<br/>POST /agent/tasks"]
+  B --> E["Background task<br/>POST /agent/tasks"]
   B --> F["WebSocket<br/>WS /agent/ws/autoagent"]
   C --> D
   D --> G["_run_autoagent"]
-  E --> H["创建 queued 任务"]
+  E --> H["Create queued task"]
   H --> G
   F --> G
   G --> I["TaskStore + AgentContext"]
@@ -68,38 +85,38 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-  participant User as 用户
-  participant Web as Web 页面
+  participant User
+  participant Web as Web UI
   participant API as FastAPI /agent
   participant Runner as _run_autoagent
   participant Store as TaskStore
 
-  User->>Web: 输入任务并点击发送
+  User->>Web: Enter task and send
   Web->>API: POST /agent/autoagent
-  API->>Runner: 建立 SSE 队列并执行请求
+  API->>Runner: Open SSE queue and run request
   Runner->>Store: create_task()
   Store-->>Runner: taskId / workDir
   Runner-->>Web: SSE task_created / task_running
-  Web-->>User: 展示任务状态和时间线
+  Web-->>User: Show status and timeline
 ```
 
-### 组件 2：任务系统
+### 2. Task System
 
-任务系统是主干。每次 Agent 运行都对应一条任务记录，过程事件、工具调用、工具结果、最终输出和产物都挂到同一个 `taskId` 上。
+Every Agent run is a durable task. Input, output, errors, tool calls, tool results, artifacts, and lifecycle changes are all attached to the same `taskId`.
 
 ```mermaid
 flowchart TD
-  A["create_task"] --> B["生成 taskId / traceId"]
-  B --> C["创建任务工作目录"]
-  C --> D["写入 meta_agent_task"]
+  A["create_task"] --> B["Generate taskId / traceId"]
+  B --> C["Prepare task workspace"]
+  C --> D["Insert meta_agent_task"]
   D --> E["add_event: task_created"]
   E --> F["update_status: running"]
-  F --> G["运行中持续 add_event"]
-  G --> H{"执行结果"}
+  F --> G["Persist runtime events"]
+  G --> H{"Execution result"}
   H --> I["completed + output_text"]
   H --> J["failed + error_message"]
   H --> K["cancelled"]
-  I --> L["历史回看"]
+  I --> L["Replay from history"]
   J --> L
   K --> L
 ```
@@ -108,8 +125,8 @@ flowchart TD
 sequenceDiagram
   participant Runner as _run_autoagent
   participant Store as TaskStore
-  participant DB as 数据库
-  participant FS as 任务工作目录
+  participant DB as Database
+  participant FS as Task Workspace
 
   Runner->>Store: create_task(input, agent_id, mode)
   Store->>FS: prepare_task_workspace(taskId)
@@ -120,21 +137,21 @@ sequenceDiagram
   Runner->>Store: update_status(completed / failed / cancelled)
 ```
 
-### 组件 3：Agent 注册表
+### 3. Agent Registry
 
-每个 Agent 一个目录。`agent.yaml` 描述职责、类型、工具、权限、交接关系；`system_prompt.md` 保存完整提示词；`evals.yaml` 保存评测样例。
+Each Agent has its own directory. `agent.yaml` defines role, type, tools, permissions, and handoffs. `system_prompt.md` stores the full system prompt. `evals.yaml` stores smoke and regression cases.
 
 ```mermaid
 flowchart TD
-  A["config/agents/"] --> B["遍历每个 Agent 目录"]
-  B --> C["读取 agent.yaml"]
-  C --> D["读取 system_prompt.md"]
-  D --> E["读取 evals.yaml"]
-  E --> F["校验 id、type、handoffs、权限"]
-  F --> G["生成 AgentConfig"]
-  G --> H["注册到 AgentRegistry"]
-  H --> I["Web/API 可列出 Agent"]
-  H --> J["运行时可按 agent_id 取配置"]
+  A["config/agents/"] --> B["Scan Agent directories"]
+  B --> C["Read agent.yaml"]
+  C --> D["Read system_prompt.md"]
+  D --> E["Read evals.yaml"]
+  E --> F["Validate id, type, handoffs, permissions"]
+  F --> G["Build AgentConfig"]
+  G --> H["Register in AgentRegistry"]
+  H --> I["List Agents through Web/API"]
+  H --> J["Resolve AgentConfig at runtime"]
 ```
 
 ```mermaid
@@ -144,29 +161,29 @@ sequenceDiagram
   participant YAML as config/agents
   participant Runtime as Agent Runtime
 
-  App->>Registry: 初始化全局 AgentRegistry
-  Registry->>YAML: 读取 */agent.yaml
-  Registry->>YAML: 读取 system_prompt.md / evals.yaml
-  Registry-->>App: 可用 Agent 列表
+  App->>Registry: Initialize global registry
+  Registry->>YAML: Read */agent.yaml
+  Registry->>YAML: Read system_prompt.md / evals.yaml
+  Registry-->>App: Available Agents
   Runtime->>Registry: get(agent_id)
-  Registry-->>Runtime: AgentConfig + system prompt + 权限
+  Registry-->>Runtime: AgentConfig + system prompt + permissions
 ```
 
-### 组件 4：Agent 核心运行时
+### 4. Agent Core Runtime
 
-当前主线是 ReAct/Supervisor。`plans_executor` 仍保留为兼容链路；新能力优先进入 ReAct/Supervisor 和工具系统。
+The main path is ReAct/Supervisor. `plans_executor` still exists as a compatibility path, but new capabilities should go into ReAct/Supervisor and the tool system.
 
 ```mermaid
 flowchart TD
-  A["_run_autoagent"] --> B["解析 AgentConfig"]
-  B --> C["构建 AgentContext"]
-  C --> D["加载记忆上下文"]
-  D --> E["ToolGateway 构建工具集合"]
-  E --> F["AgentHandlerFactory 选择 Handler"]
+  A["_run_autoagent"] --> B["Resolve AgentConfig"]
+  B --> C["Build AgentContext"]
+  C --> D["Load memory context"]
+  D --> E["ToolGateway builds ToolCollection"]
+  E --> F["AgentHandlerFactory selects Handler"]
   F --> G{"Handler"}
-  G --> H["SupervisorHandler<br/>选择目标 Agent"]
-  G --> I["ReactHandler<br/>ReAct 循环"]
-  G --> J["PlanSolveHandler<br/>兼容旧流程"]
+  G --> H["SupervisorHandler<br/>select worker Agent"]
+  G --> I["ReactHandler<br/>ReAct loop"]
+  G --> J["PlanSolveHandler<br/>compatibility flow"]
   H --> I
   I --> K["SummaryAgent"]
   J --> K
@@ -195,26 +212,26 @@ sequenceDiagram
   Summary-->>Runner: final_text
 ```
 
-### 组件 5：工具系统
+### 5. Tool System
 
-Agent 不直接调用工具。所有工具都经过 `ToolGateway -> ToolCollection -> MCPTool`，这样才能统一处理权限、schema、超时、审计信息、工具调用事件和结果事件。
+Agents do not call tools directly. All tools pass through `ToolGateway -> ToolCollection -> MCPTool` so schema exposure, policy checks, timeout handling, audit data, tool-call events, and tool-result events stay consistent.
 
 ```mermaid
 flowchart TD
   A["AgentConfig.tools"] --> B["ToolGateway"]
   C["selected_tools / approved_tools"] --> B
   D["permissions / policy"] --> B
-  B --> E["加入内置工具<br/>plan / handoff / request_input"]
-  B --> F["MCPToolFetcher 拉取工具市场"]
+  B --> E["Add built-in tools<br/>plan / handoff / request_input"]
+  B --> F["MCPToolFetcher fetches MCP tools"]
   F --> G["ToolCollection.add_tool"]
-  G --> H{"是否允许"}
-  H --> I["可用工具 schema 暴露给模型"]
-  H --> J["blockedTools 写入策略事件"]
-  I --> K["模型选择工具"]
+  G --> H{"Allowed?"}
+  H --> I["Expose tool schema to model"]
+  H --> J["Record blockedTools in policy event"]
+  I --> K["Model selects tool"]
   K --> L["ToolCollection.execute"]
   L --> M["MCPTool.execute"]
   M --> N["POST /aggre_mcp_market/call_tool"]
-  N --> O["本地或远程 MCP Server"]
+  N --> O["Local or remote MCP server"]
 ```
 
 ```mermaid
@@ -223,12 +240,12 @@ sequenceDiagram
   participant Tools as ToolCollection
   participant Adapter as MCPTool
   participant Market as MCP Market
-  participant MCP as 本地 MCP Server
+  participant MCP as Local MCP Server
   participant Printer as SSEPrinter
   participant Store as TaskStore
 
   Agent->>Tools: to_openai_tools()
-  Tools-->>Agent: 工具 schema
+  Tools-->>Agent: Tool schemas
   Agent->>Tools: execute("mcp_local:file_read", args)
   Tools->>Printer: tool_call
   Printer->>Store: add_event(tool_call)
@@ -243,19 +260,19 @@ sequenceDiagram
   Tools-->>Agent: observation
 ```
 
-### 组件 6：记忆 / 知识库
+### 6. Memory / Knowledge
 
-记忆只增强上下文，不替代任务记录。是否读取、写入哪些范围，由 Agent 配置里的 `memory.read` 和 `memory.write` 控制。
+Memory augments the task context. It does not replace durable task records. Read and write scopes are controlled by each Agent's `memory.read` and `memory.write` configuration.
 
 ```mermaid
 flowchart TD
-  A["AgentConfig.memory"] --> B{"是否允许读取"}
-  B --> C["不读取：记录 disabled"]
-  B --> D["读取 user_profile / task_history / RAG"]
-  D --> E["memory_manager 检索"]
-  E --> F["把结果写入 ctx.memory_context"]
+  A["AgentConfig.memory"] --> B{"Read allowed?"}
+  B --> C["No read: record disabled state"]
+  B --> D["Read user_profile / task_history / RAG"]
+  D --> E["memory_manager retrieves context"]
+  E --> F["Write results to ctx.memory_context"]
   F --> G["add_event: memory_context_loaded"]
-  G --> H["Agent prompt 可引用"]
+  G --> H["Agent prompt may use memory context"]
 ```
 
 ```mermaid
@@ -265,28 +282,28 @@ sequenceDiagram
   participant Memory as memory_manager
   participant Store as TaskStore
 
-  Runner->>Ctx: 设置 agent_memory
-  Runner->>Memory: 检索任务相关上下文
-  Memory-->>Runner: 记忆命中 / 空结果 / 降级信息
+  Runner->>Ctx: Apply agent_memory
+  Runner->>Memory: Retrieve task-related context
+  Memory-->>Runner: Hits / empty result / degraded result
   Runner->>Store: add_event(memory_context_loaded)
-  Runner->>Ctx: 写入可用上下文
+  Runner->>Ctx: Attach available context
 ```
 
-### 组件 7：日志 / 回看 / 评测
+### 7. Logs / Replay / Evaluation
 
-实时输出和历史回看走同一套事件结构。SSE 只是展示通道，任务完成后仍可通过任务 API 回放。
+Live streaming and historical replay share the same event structure. SSE is only the live transport. After a task finishes, the web UI can replay it through task APIs.
 
 ```mermaid
 flowchart TD
-  A["SSEPrinter.send"] --> B["浏览器实时看到消息"]
+  A["SSEPrinter.send"] --> B["Browser receives live message"]
   A --> C["event_sink"]
   C --> D["TaskStore.add_event"]
   D --> E["meta_agent_task_event"]
   E --> F["GET /agent/tasks/{taskId}/events"]
   F --> G["Web loadTask"]
-  G --> H["时间线 / 工具调用 / 最终答案"]
+  G --> H["Timeline / tool calls / final answer"]
   I["evals.yaml"] --> J["EvalRunner"]
-  J --> K["创建评测任务"]
+  J --> K["Create eval task"]
   K --> D
 ```
 
@@ -295,35 +312,35 @@ sequenceDiagram
   participant Runtime as Agent Runtime
   participant Printer as SSEPrinter
   participant Store as TaskStore
-  participant Web as Web 页面
-  participant API as 任务 API
+  participant Web as Web UI
+  participant API as Task API
 
   Runtime->>Printer: send(tool_call / result)
-  Printer-->>Web: SSE 实时输出
-  Printer->>Store: event_sink 持久化事件
+  Printer-->>Web: SSE live output
+  Printer->>Store: event_sink persists event
   Web->>API: GET /agent/tasks/{taskId}/events
   API->>Store: list_events(taskId)
-  Store-->>API: 事件列表
-  API-->>Web: 历史时间线
+  Store-->>API: Event list
+  API-->>Web: Replay timeline
 ```
 
-### 组件 8：权限 / 风险控制 / 沙箱边界
+### 8. Permission / Risk Control / Sandbox
 
-权限在 Agent 配置、用户授权、工具策略和运行环境中共同生效。高风险工具默认需要显式授权；沙箱模式下路径参数必须留在任务工作目录内。
+Permissions come from Agent config, user approvals, tool policy, and runtime environment. High-risk tools require explicit approval by default. In sandbox mode, path arguments must stay inside the task workspace.
 
 ```mermaid
 flowchart TD
   A["agent.yaml permissions"] --> B["AgentConfig.allows_tool"]
   C["tools[].policy"] --> B
   D["approved_tools"] --> B
-  B --> E{"允许工具？"}
-  E --> F["加入 ToolCollection"]
-  E --> G["加入 blockedTools"]
-  F --> H["执行前检查 run_environment"]
-  H --> I{"sandbox 路径是否越界"}
-  I --> J["拒绝并返回错误"]
-  I --> K["执行工具"]
-  G --> L["tool_policy_applied 事件"]
+  B --> E{"Allow tool?"}
+  E --> F["Add to ToolCollection"]
+  E --> G["Add to blockedTools"]
+  F --> H["Check run_environment before execution"]
+  H --> I{"Path stays in task workspace?"}
+  I --> J["Reject and return error"]
+  I --> K["Execute tool"]
+  G --> L["tool_policy_applied event"]
 ```
 
 ```mermaid
@@ -335,17 +352,17 @@ sequenceDiagram
 
   Gateway->>AgentCfg: allows_tool(tool, approved_tools)
   AgentCfg-->>Gateway: allowed / blockReason
-  Gateway->>Tools: add_tool 或记录 blocked
+  Gateway->>Tools: add_tool or record blocked
   Gateway-->>Store: tool_policy_applied
-  Tools->>Tools: 执行前检查路径边界
-  Tools-->>Tools: 允许执行或返回越界错误
+  Tools->>Tools: Check path boundary before execution
+  Tools-->>Tools: Execute or return boundary error
 ```
 
-### 真实请求 Demo：读取 README 并总结
+## Real Request Demo
 
-下面用一个真实业务路径说明：用户让默认通用 Agent 读取仓库 README，并输出启动方式总结。这个例子会触发 ReAct、文件读取工具、工具事件持久化和最终总结。
+This demo shows a request where the default general Agent reads the repository README and summarizes how to start the project. It triggers the ReAct runtime, the file-read tool, tool event persistence, and final summary generation.
 
-请求示例：
+### Request
 
 ```json
 {
@@ -359,17 +376,17 @@ sequenceDiagram
   "messages": [
     {
       "role": "user",
-      "content": "请读取 /path/to/task-pilot-agent/README.md，并用三句话总结如何启动项目"
+      "content": "Read /path/to/task-pilot-agent/README.md and summarize how to start the project in three sentences."
     }
   ]
 }
 ```
 
-真实请求时序图：
+### Request Sequence
 
 ```mermaid
 sequenceDiagram
-  participant Browser as Web 页面
+  participant Browser as Web UI
   participant API as POST /agent/autoagent
   participant Runner as _run_autoagent
   participant Store as TaskStore
@@ -379,26 +396,26 @@ sequenceDiagram
   participant LLM as LLMManager
   participant Tools as ToolCollection
   participant Market as MCP Market
-  participant MCP as 本地文件读取工具
+  participant MCP as Local file_read tool
   participant Summary as SummaryAgent
 
-  Browser->>API: 发送 demo 请求
-  API->>Runner: 建立 SSE 流
+  Browser->>API: Send demo request
+  API->>Runner: Open SSE stream
   Runner->>Store: create_task(demo-readme-001)
   Runner->>Store: add_event(task_created)
   Runner->>Registry: get("task-pilot-agent")
   Runner->>Gateway: build_collection(ctx)
-  Gateway-->>Runner: file_read 等允许工具
+  Gateway-->>Runner: Allowed tools, including file_read
   Runner->>Store: add_event(tool_policy_applied)
   Runner->>React: handle(ctx)
   React->>LLM: ask_tool_async(query, tools)
-  LLM-->>React: 选择 mcp_local:file_read
+  LLM-->>React: Select mcp_local:file_read
   React->>Tools: execute(file_read, path)
   Tools->>Store: add_event(tool_call)
   Tools->>Market: POST /call_tool
   Market->>MCP: file_read(path)
-  MCP-->>Market: README 内容
-  Market-->>Tools: 工具结果
+  MCP-->>Market: README content
+  Market-->>Tools: tool result
   Tools->>Store: add_event(tool_result)
   Tools-->>React: observation
   React->>Summary: summarize(query, evidence)
@@ -408,7 +425,7 @@ sequenceDiagram
   Runner->>Store: add_event(task_completed)
 ```
 
-Demo 任务记录：
+### Demo Task Record
 
 ```json
 {
@@ -420,12 +437,12 @@ Demo 任务记录：
   "mode": "react",
   "outputStyle": "markdown",
   "status": "completed",
-  "input": "请读取 /path/to/task-pilot-agent/README.md，并用三句话总结如何启动项目",
+  "input": "Read /path/to/task-pilot-agent/README.md and summarize how to start the project in three sentences.",
   "workDir": "uploads/tasks/demo-readme-001"
 }
 ```
 
-Demo 事件片段：
+### Demo Event Payloads
 
 ```json
 [
@@ -488,7 +505,7 @@ Demo 事件片段：
     "source": "sse",
     "payload": {
       "messageType": "result",
-      "result": "项目使用 uv 安装依赖，复制 config.yaml.example 后补齐配置。进入 task-pilot-agent 目录执行 uv run main.py 启动。默认会同时启动 9010 的 Web/API 服务和 9009 的本地 MCP 工具服务。"
+      "result": "Install dependencies with uv, copy config.yaml.example to config.yaml, and fill required settings. Start from the task-pilot-agent directory with uv run main.py. By default, the app starts the Web/API service on port 9010 and the local MCP tool service on port 9009."
     }
   },
   {
@@ -501,7 +518,7 @@ Demo 事件片段：
 ]
 ```
 
-Demo 回看接口：
+Replay APIs:
 
 ```bash
 curl http://127.0.0.1:9010/agent/tasks/demo-readme-001
@@ -509,115 +526,82 @@ curl http://127.0.0.1:9010/agent/tasks/demo-readme-001/events
 curl http://127.0.0.1:9010/agent/tasks/demo-readme-001/artifacts
 ```
 
-## 目录结构
+## Repository Layout
 
-- `config/`：运行配置与 prompt
-  - `config/config.yaml.example`：配置示例（复制后生效）
-  - `config/prompt.yaml`、`config/prompt_en.yaml`：提示词模板（按 `lang` 覆盖）
-- `task-pilot-agent/`：服务端代码（FastAPI + Agent + MCP）
-  - `task-pilot-agent/main.py`：启动入口（会拉起本地 MCP 子进程 + FastAPI）
-  - `task-pilot-agent/app_main.py`：FastAPI app（`/agent`、`/file/v1`、`/aggre_mcp_market`）
-  - `task-pilot-agent/tools/mcp_local/`：本地 MCP 服务器与工具实现
+- `config/`: runtime config and prompts
+  - `config/config.yaml.example`: safe config template
+  - `config/prompt.yaml`, `config/prompt_en.yaml`: prompt templates
+  - `config/agents/`: directory-based Agent configs
+- `task-pilot-agent/`: FastAPI service, Agent runtime, MCP integration, and local tools
+  - `task-pilot-agent/main.py`: startup entry point
+  - `task-pilot-agent/app_main.py`: FastAPI app registration
+  - `task-pilot-agent/brain/`: Agent API, runtime, task system, and web page
+  - `task-pilot-agent/tools/mcp_local/`: local MCP server and built-in tools
+  - `task-pilot-agent/tools/aggre_mcp_market/`: MCP aggregation layer
 
-## 快速开始（开发）
+## Quick Start
 
-### 1) 安装依赖（uv）
+### 1. Install Dependencies
 
 ```bash
 cd task-pilot-agent
 uv sync
 ```
 
-### 2) 准备配置
+### 2. Prepare Config
 
 ```bash
 cp ../config/config.yaml.example ../config/config.yaml
 ```
 
-**配置必改项（建议先搜 `CHANGE_ME`）**
+Search for `CHANGE_ME` and fill the required fields before starting the service.
 
-以下字段如果保持示例值，服务通常无法正常工作或存在安全风险：
+Important config areas:
 
-- 数据库（文件/消息存储依赖，启动时会建表）
-  - `db.password` 或 `db.url`
-  - `db.host/db.port/db.user/db.name`（如果不用 `db.url`）
-- 大模型（Planner/Executor/Summary/ReAct 都依赖）
-  - `llm.config.api_key`、`llm.config.site_url`、`llm.config.model`
-  - 若启用 `llm.contexts + llm.configs[]` 分阶段配置：每个 `llm.configs[].config.api_key/site_url/model` 也需要补齐
-- 向量与嵌入（mem0 记忆依赖；不使用记忆可先关闭 `memory.search_memory`）
-  - `embedder.config.api_key`、`embedder.config.openai_base_url`（或 provider 对应的 base_url）
-  - `vector_store.config.url`（Qdrant 地址）、`vector_store.config.collection_name`（建议按环境区分）
+- `db`: database URL or host/user/password/name.
+- `llm`: primary model provider, API base URL, model, and API key.
+- `embedder` and `vector_store`: memory/RAG support.
+- `mcp`: local MCP and MCP Market settings.
+- `core.agent_id`: default Agent, currently `task-pilot-agent`.
+- `core.default_run_environment`: default runtime environment, usually `local`.
 
-按功能启用时需要配置的字段：
+Do not commit real API keys, passwords, cookies, local databases, logs, or user data. Use environment variables or local ignored config files for secrets.
 
-- 搜索（deepsearch/搜索组件用到）
-  - `search[].api_key`（或通过环境变量 `JINA_SEARCH_API_KEY` / `BOCHA_SEARCH_API_KEY` / `SERPER_SEARCH_API_KEY`）
-- browser-use 浏览器智能体（调用 browser agent 时用到）
-  - `browser_use.sandbox_url`
-  - `browser_use.config.api_key/site_url/model`
-- 多模态工具（调用 audio/image/video tool 时用到）
-  - `audio_llm.config.api_key/site_url/model`
-  - `image_llm.config.api_key/site_url/model`
-  - `video_llm.config.api_key/site_url/model`
+### 3. Start The Service
 
-**安全建议**
-
-- 不要把真实 `api_key/password` 直接提交到仓库；推荐使用环境变量覆盖（见下文“环境变量与配置覆盖”）。
-
-**数据库类型说明（`db.url`）**
-
-`db.url` 是标准 SQLAlchemy DSN，支持切换数据库类型：
-
-- MySQL / MariaDB（生产推荐）：`mysql://user:password@127.0.0.1:3306/meta_agent`
-- SQLite（仅建议本地开发/单进程）：`sqlite:///./meta_agent.db`
-
-SQLite 注意事项：
-
-- 多 worker 并发写入容易出现 `database is locked`，建议设置 `UVICORN_WORKERS=1`
-- `sqlite:///./xxx.db` 的相对路径以启动目录为准，生产环境建议使用绝对路径
-
-必须配置/确认的关键项（与服务能否启动直接相关）：
-
-- `db`：文件服务会在启动时初始化表（`meta_agent_file`），数据库不可用会导致启动失败
-- `llm`：主对话模型（可通过 `contexts` 为 planner/executor/summary/react 指定不同模型）
-- `embedder` + `vector_store`：mem0 记忆（向量存储）相关
-- `browser_use`：浏览器智能体依赖 browser-use sandbox（如不需要可先不调用相关工具）
-- `audio_llm`/`image_llm`/`video_llm`：多模态工具需要
-
-配置字段的详细说明见：`config/config.yaml.example`。
-
-### 3) 启动服务
-
-从 `task-pilot-agent/` 目录启动（代码会固定读取 `../config/config.yaml`）：
+Run from the `task-pilot-agent/` directory:
 
 ```bash
 cd task-pilot-agent
 uv run main.py
 ```
 
-默认会启动：
+Default services:
 
-- FastAPI：`http://0.0.0.0:9010`
-- 本地 MCP Server：`http://0.0.0.0:9009/mcp`（由主进程 spawn 子进程拉起）
+- Web/API service: `http://0.0.0.0:9010`
+- Local MCP service: `http://0.0.0.0:9009/mcp`
 
-健康检查：`GET /health`
+Health check:
 
-## 常用接口
+```bash
+curl http://127.0.0.1:9010/health
+```
 
-### Agent（SSE / WebSocket）
+## Common APIs
 
-- `POST /agent/autoagent`：SSE 流式输出（推荐）
-- `GET /agent/web/autoagent`：简易 Web 调试页
-- `WS /agent/ws/autoagent`：WebSocket 方式调用
+### Agent APIs
 
-请求体核心字段（`brain.models.requests.GptQueryReq`）：
+- `POST /agent/autoagent`: SSE streaming Agent run.
+- `GET /agent/web/autoagent`: Web task console.
+- `WS /agent/ws/autoagent`: WebSocket Agent run.
+- `POST /agent/tasks`: create a background task.
+- `GET /agent/tasks`: list tasks.
+- `GET /agent/tasks/{task_id}`: get task detail.
+- `GET /agent/tasks/{task_id}/events`: replay task events.
+- `POST /agent/tasks/{task_id}/cancel`: cancel a running task.
+- `POST /agent/tasks/{task_id}/retry`: retry a task.
 
-- `messages`: 必填，最后一条必须是 `role=user`
-- `agent_id`: 可选，不传时使用 `config/config.yaml.example` 中的 `core.agent_id`
-- `mode`: 可选，当前默认 Agent 使用 `react`；旧链路仍支持 `plans_executor`
-- `outputStyle`: 可选，默认取 `core.default_output_style`
-
-curl 示例（SSE）：
+SSE example:
 
 ```bash
 curl -N http://127.0.0.1:9010/agent/autoagent \
@@ -626,56 +610,64 @@ curl -N http://127.0.0.1:9010/agent/autoagent \
     "agent_id":"task-pilot-agent",
     "mode":"react",
     "outputStyle":"markdown",
-    "messages":[{"role":"user","content":"帮我总结一下这个项目的启动流程"}]
+    "messages":[{"role":"user","content":"Summarize this project startup flow"}]
   }'
 ```
 
-### 文件服务
+### File APIs
 
-- `POST /file/v1/upload_file_form`：表单上传
-- `POST /file/v1/upload_file_data`：multipart 上传（字段 `requestId`）
-- `GET /file/v1/preview_file/{request_id}/{file_name}`：预览
-- `GET /file/v1/download_file/{request_id}/{file_name}`：下载
+- `POST /file/v1/upload_file_form`: upload through form data.
+- `POST /file/v1/upload_file_data`: multipart upload with `requestId`.
+- `GET /file/v1/preview_file/{request_id}/{file_name}`: preview a file.
+- `GET /file/v1/download_file/{request_id}/{file_name}`: download a file.
 
-### MCP Market（工具聚合层）
+### MCP Market APIs
 
-- `GET /aggre_mcp_market/tools`：列出聚合到的 MCP 工具
-- `GET /aggre_mcp_market/prompt`：生成工具提示词片段
-- `POST /aggre_mcp_market/call_tool`：调用指定工具（支持 `Accept: text/event-stream` 或 `?stream=true`）
+- `GET /aggre_mcp_market/tools`: list aggregated MCP tools.
+- `GET /aggre_mcp_market/prompt`: generate a tool prompt fragment.
+- `POST /aggre_mcp_market/call_tool`: call a tool directly.
 
-## 源码导览
+## Configuration Overrides
 
-上面的架构图描述产品主链路；更细的服务端源码导览见 `task-pilot-agent/README.md`。
+The project uses Pydantic Settings. Environment variables can override YAML fields with prefix `APP_` and nested keys separated by `__`.
 
-## 环境变量与配置覆盖
-
-项目使用 Pydantic Settings，支持用环境变量覆盖 YAML（前缀 `APP_`，嵌套字段用 `__`）：
-
-- 示例：`APP_SERVER__PORT=9010`、`APP_LLM__CONFIG__API_KEY=...`
-- workers：`UVICORN_WORKERS=5`
-- Langfuse（可选）：`LANGFUSE_PUBLIC_KEY`、`LANGFUSE_SECRET_KEY`、`LANGFUSE_BASE_URL`
-- 搜索（可选）：`JINA_SEARCH_API_KEY`、`BOCHA_SEARCH_API_KEY`、`SERPER_SEARCH_API_KEY`（以及 `SERPER_SEARCH_PROXY`/`HTTP(S)_PROXY`）
-- 文件 DB（可选覆盖）：`FILE_DB_URL`（优先于 `db.*` 生成的 DSN）
-
-## 代码统计（Python）
-
-当前仓库（`git ls-files`）统计：
-
-- Python 文件：`112`
-- Python 总行数（含测试）：`13281`
-  - 业务代码（不含 `task-pilot-agent/tests/`）：`10166`
-  - 测试代码（`task-pilot-agent/tests/`）：`3115`
-
-可用以下命令自行刷新统计：
+Examples:
 
 ```bash
-git ls-files '*.py' | wc -l
-git ls-files '*.py' -z | xargs -0 wc -l | tail -n 1
+APP_SERVER__PORT=9010
+APP_LLM__CONFIG__API_KEY=...
+UVICORN_WORKERS=5
 ```
 
-## 运行测试（示例）
+Optional environment variables:
+
+- `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`
+- `JINA_SEARCH_API_KEY`, `BOCHA_SEARCH_API_KEY`, `SERPER_SEARCH_API_KEY`
+- `FILE_DB_URL`
+- `APP_AGENT_CONFIG_DIR`
+- `APP_TASK_WORKSPACE_ROOT`
+
+## Tests
+
+Run all tests:
 
 ```bash
 cd task-pilot-agent
-uv run pytest -s tests/tools/mcp_local/tool/test_browser_agent.py -k test_browser_agent_1
+uv run pytest -v --tb=short tests/
 ```
+
+Run focused task/Agent tests:
+
+```bash
+cd task-pilot-agent
+uv run pytest tests/tasks/test_agent_registry.py -q
+uv run pytest tests/tasks/test_autoagent_web.py -q
+uv run pytest tests/tasks/test_tool_gateway.py -q
+```
+
+## More Documentation
+
+- Chinese README: [README.zh-CN.md](README.zh-CN.md)
+- Server-side source guide: [task-pilot-agent/README.md](task-pilot-agent/README.md)
+- Config template: [config/config.yaml.example](config/config.yaml.example)
+- Architecture alignment notes: [docs/harness_agent_alignment_review.md](docs/harness_agent_alignment_review.md)
