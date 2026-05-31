@@ -240,6 +240,7 @@ class AuthProviderSettings(BaseModel):
     issuer: Optional[str] = Field(default=None)
     authorize_url: Optional[str] = Field(default=None)
     token_url: Optional[str] = Field(default=None)
+    jwks_url: Optional[str] = Field(default=None)
     userinfo_url: Optional[str] = Field(default=None)
     scopes: List[str] = Field(default_factory=list)
     subject_strategy: str = Field("sub")
@@ -277,6 +278,31 @@ class AuthSettings(BaseModel):
                 issuer="https://accounts.google.com",
                 scopes=["openid", "profile", "email"],
                 subject_strategy="sub",
+            ),
+            "microsoft": AuthProviderSettings(
+                enabled=False,
+                protocol="oidc",
+                client_id_env="MICROSOFT_CLIENT_ID",
+                client_secret_env="MICROSOFT_CLIENT_SECRET",
+                redirect_uri_env="MICROSOFT_REDIRECT_URI",
+                issuer="https://login.microsoftonline.com",
+                authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                jwks_url="https://login.microsoftonline.com/common/discovery/v2.0/keys",
+                scopes=["openid", "profile", "email"],
+                subject_strategy="tenant_oid",
+            ),
+            "wechat": AuthProviderSettings(
+                enabled=False,
+                protocol="oauth2",
+                client_id_env="WECHAT_APP_ID",
+                client_secret_env="WECHAT_APP_SECRET",
+                redirect_uri_env="WECHAT_REDIRECT_URI",
+                authorize_url="https://open.weixin.qq.com/connect/qrconnect",
+                token_url="https://api.weixin.qq.com/sns/oauth2/access_token",
+                userinfo_url="https://api.weixin.qq.com/sns/userinfo",
+                scopes=["snsapi_login"],
+                subject_strategy="unionid_then_appid_openid",
             ),
         }
     )

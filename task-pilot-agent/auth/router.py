@@ -57,21 +57,23 @@ async def logout(request: Request) -> JSONResponse:
     return response
 
 
-@auth_router.get("/google/login")
-async def google_login(
+@auth_router.get("/{provider}/login", name="provider_login")
+async def provider_login(
+    provider: str,
     request: Request,
     redirect_after: Optional[str] = Query(default="/agent/web/autoagent"),
     service: AuthService = Depends(auth_service),
 ) -> RedirectResponse:
-    provider = _get_google_provider_or_503()
-    redirect_uri = _google_redirect_uri(request)
+    provider_name = _normalize_provider_or_404(provider)
+    identity_provider = _get_provider_or_503(provider_name)
+    redirect_uri = _provider_redirect_uri(request, provider_name)
     oauth_state = service.create_oauth_state(
-        provider="google",
+        provider=provider_name,
         purpose=OAuthStatePurpose.LOGIN,
         redirect_after=redirect_after,
     )
     try:
-        url = provider.authorization_url(
+        url = identity_provider.authorization_url(
             state=oauth_state.state,
             nonce=oauth_state.nonce,
             redirect_uri=redirect_uri,
@@ -89,32 +91,37 @@ async def google_login(
     return response
 
 
-@auth_router.get("/google/callback")
-async def google_callback(
+@auth_router.get("/{provider}/callback", name="provider_callback")
+async def provider_callback(
+    provider: str,
     request: Request,
     code: str = Query(default=""),
     state: str = Query(default=""),
     service: AuthService = Depends(auth_service),
 ) -> RedirectResponse:
+    provider_name = _normalize_provider_or_404(provider)
     if not code or not state:
-        raise HTTPException(status_code=400, detail="missing google callback parameters")
+        raise HTTPException(status_code=400, detail=f"missing {provider_name} callback parameters")
     nonce_cookie = _oauth_nonce_cookie_name(state)
     nonce = request.cookies.get(nonce_cookie)
     if not nonce:
         raise HTTPException(status_code=400, detail="oauth nonce missing")
 
-    provider = _get_google_provider_or_503()
+    identity_provider = _get_provider_or_503(provider_name)
     try:
         oauth_state = service.consume_oauth_state(
             state=state,
             nonce=nonce,
-            provider="google",
+            provider=provider_name,
             purpose=OAuthStatePurpose.LOGIN,
         )
-        token_response = await provider.exchange_code(code=code, redirect_uri=_google_redirect_uri(request))
-        profile = await provider.normalize_identity(token_response=token_response, nonce=nonce)
+        token_response = await identity_provider.exchange_code(
+            code=code,
+            redirect_uri=_provider_redirect_uri(request, provider_name),
+        )
+        profile = await identity_provider.normalize_identity(token_response=token_response, nonce=nonce)
         user = service.create_or_update_external_user(profile)
-        created_session = service.create_session(user.user_id, metadata={"provider": "google"})
+        created_session = service.create_session(user.user_id, metadata={"provider": provider_name})
     except (AuthError, IdentityProviderError) as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
@@ -135,18 +142,25 @@ async def whoami(current_user: TaskPilotUser = Depends(require_current_user)) ->
     return {"userId": current_user.user_id}
 
 
-def _get_google_provider_or_503():
+def _normalize_provider_or_404(provider: str) -> str:
+    normalized = str(provider or "").strip().lower().replace("-", "_")
+    if not normalized or normalized in {"providers", "me", "logout", "whoami"}:
+        raise HTTPException(status_code=404, detail="provider not found")
+    return normalized
+
+
+def _get_provider_or_503(provider: str):
     try:
-        return provider_registry.get("google")
+        return provider_registry.get(provider)
     except KeyError as exc:
-        raise HTTPException(status_code=503, detail="google provider is not enabled") from exc
+        raise HTTPException(status_code=503, detail=f"{provider} provider is not enabled") from exc
 
 
-def _google_redirect_uri(request: Request) -> str:
-    configured = provider_registry.redirect_uri("google")
+def _provider_redirect_uri(request: Request, provider: str) -> str:
+    configured = provider_registry.redirect_uri(provider)
     if configured:
         return configured
-    return str(request.url_for("google_callback"))
+    return str(request.url_for("provider_callback", provider=provider))
 
 
 def _oauth_nonce_cookie_name(state: str) -> str:
