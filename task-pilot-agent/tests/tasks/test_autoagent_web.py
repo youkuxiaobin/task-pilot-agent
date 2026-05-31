@@ -107,6 +107,20 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         assert marker in source
 
 
+def test_task_lists_are_compact_title_only():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+    task_row_block = source.split('<button v-for="task in tasks"', 1)[1].split("</button>", 1)[0]
+
+    assert '<span class="recent-meta">' not in source
+    assert "recent-meta" not in styles
+    assert '<span class="task-title">{{ task.input || task.taskId }}</span>' in task_row_block
+    assert "status-pill" not in task_row_block
+    assert "formatDate(task.createdAt)" not in task_row_block
+    assert "formatDuration(task.durationMs)" not in task_row_block
+    assert "display: flex;" in styles.split(".task-row", 1)[1].split("}", 1)[0]
+
+
 def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     source = APP_VUE_PATH.read_text(encoding="utf-8")
     submit_block = source.split("async function submitTask", 1)[1].split("async function readSse", 1)[0]

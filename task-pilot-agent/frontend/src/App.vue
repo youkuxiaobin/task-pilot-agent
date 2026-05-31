@@ -926,10 +926,6 @@ onMounted(async () => {
           @click="loadTask(task.taskId)"
         >
           <span class="recent-title">{{ task.input || task.taskId }}</span>
-          <span class="recent-meta">
-            <span class="status-pill" :class="statusClass(task.status)">{{ statusLabel(task.status) }}</span>
-            <span>{{ formatDate(task.createdAt) }}</span>
-          </span>
         </button>
       </section>
 
@@ -1186,10 +1182,6 @@ onMounted(async () => {
         <div class="task-table">
           <button v-for="task in tasks" :key="task.taskId" type="button" class="task-row" @click="loadTask(task.taskId)">
             <span class="task-title">{{ task.input || task.taskId }}</span>
-            <span class="status-pill" :class="statusClass(task.status)">{{ statusLabel(task.status) }}</span>
-            <span>{{ agentName(task.agentId) || task.agentId || '-' }}</span>
-            <span>{{ formatDate(task.createdAt) }}</span>
-            <span>{{ formatDuration(task.durationMs) || '-' }}</span>
           </button>
           <div v-if="!tasks.length" class="empty-main">{{ t('tasks.empty') }}</div>
         </div>
