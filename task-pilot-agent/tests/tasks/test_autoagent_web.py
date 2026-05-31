@@ -185,6 +185,34 @@ def test_autoagent_submit_uses_config_defaults_except_agent():
     assert "uploadSelectedFiles" not in submit_block
 
 
+def test_autoagent_page_keeps_live_process_cards_quiet_and_scroll_respectful():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        "PROCESS_HIDDEN_IN_CHAT = new Set(['plan_thought', 'tool_thought', 'stream'])",
+        "LOW_SIGNAL_TASK_PREFIXES",
+        "function hasChatTextSelection",
+        "function isChatNearBottom",
+        "function markUserReading",
+        "toolCardTitle",
+        "renderTechnicalDetailsHTML",
+        "details class=\"technical-details\"",
+        "compact: options.compact !== false",
+        "isOpen: options.isOpen === true",
+        "state.pendingRender = true",
+        "state.followLatest && !hasChatTextSelection()",
+        "chatMessages.addEventListener('scroll'",
+        "document.addEventListener('selectionchange'",
+    ]:
+        assert marker in html
+
+    assert "if(scroll) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight" not in html
+    assert re.search(
+        r"case 'agent_phase':[\s\S]*if\(data.status === 'failed' \|\| data.error\)",
+        html,
+    )
+
+
 def test_autoagent_inline_javascript_has_valid_syntax(tmp_path):
     node = shutil.which("node")
     if not node:
