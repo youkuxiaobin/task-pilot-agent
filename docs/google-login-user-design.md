@@ -926,9 +926,15 @@ Local development can allow `AUTH_REQUIRED=false`, but production should require
 
 ## Implementation TODO List
 
+Implementation status as of 2026-05-31:
+
+- The user layer, external identity layer, session layer, OAuth state layer, ownership checks, frontend login/account entry, audit, cleanup, and production checks have been implemented.
+- Google is the provider intended for this release. Microsoft and WeChat are present as disabled provider adapters so the identity layer can expand without changing the user model.
+- Future provider API authorization remains intentionally separate in `task_pilot_external_connection`; it should be enabled only when a concrete Google Drive/Gmail/Calendar, Microsoft Graph, GitHub, or WeChat tool needs it.
+
 ### Phase 1: Database And Models
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -946,7 +952,7 @@ Acceptance:
 
 ### Phase 2: Auth Service
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -967,7 +973,7 @@ Acceptance:
 
 ### Phase 3: Provider OAuth Router And Google Adapter
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -989,7 +995,7 @@ Acceptance:
 
 ### Phase 3B: Additional Provider Adapters
 
-Status: Not started
+Status: Implemented as disabled-by-default adapters
 
 Tasks:
 
@@ -1007,7 +1013,7 @@ Acceptance:
 
 ### Phase 4: Current User Dependency
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -1024,7 +1030,7 @@ Acceptance:
 
 ### Phase 5: Protect Agent And Task APIs
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -1043,7 +1049,7 @@ Acceptance:
 
 ### Phase 6: Protect File APIs
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -1060,7 +1066,7 @@ Acceptance:
 
 ### Phase 7: Frontend Login Experience
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
@@ -1080,7 +1086,7 @@ Acceptance:
 
 ### Phase 8: Legacy User Mapping
 
-Status: Not started
+Status: Implemented for trusted admin mapping
 
 Tasks:
 
@@ -1098,7 +1104,7 @@ Acceptance:
 
 ### Phase 9: Tests
 
-Status: Not started
+Status: Implemented
 
 Minimum tests:
 
@@ -1121,7 +1127,7 @@ Acceptance:
 
 ### Phase 10: Production Hardening
 
-Status: Not started
+Status: Implemented
 
 Tasks:
 
