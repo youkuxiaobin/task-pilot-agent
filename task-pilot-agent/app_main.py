@@ -14,6 +14,7 @@ from tools.aggre_mcp_market.app import aggre_mcp_market_router, init_mcp_market_
 
 from brain.app import agent_router  # noqa: E402
 from file.file_op import file_router  # noqa: E402
+from auth.hardening import validate_auth_production_config  # noqa: E402
 from auth.router import auth_router  # noqa: E402
 from utils.logger import get_logger  # noqa: E402
 from langfuse import Langfuse  # noqa: E402
@@ -26,6 +27,7 @@ uvicorn_workers = int(os.getenv("UVICORN_WORKERS", "5"))
 async def _bootstrap():
     logger.info("Starting bootstrap in worker...")
     _set_proctitle("taskpilotagent-api-worker")
+    validate_auth_production_config(agentSettings)
     
     try:
         langfuse = Langfuse(

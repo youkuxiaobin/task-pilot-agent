@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from auth.models import (
     IdentityStatus,
     OAuthStatePurpose,
+    TaskPilotAuthAuditEvent,
     TaskPilotOAuthState,
     TaskPilotUser,
     TaskPilotUserIdentity,
@@ -40,6 +41,19 @@ class AuthNotFoundError(AuthError):
 
 class AuthDisabledError(AuthError):
     pass
+
+
+class AuthAuditEventType:
+    LOGIN = "login"
+    LOGOUT = "logout"
+    LOGOUT_ALL = "logout_all"
+    IDENTITY_BOUND = "identity_bound"
+    IDENTITY_UNBOUND = "identity_unbound"
+    USER_CREATED = "user_created"
+    USER_UPDATED = "user_updated"
+    USER_DISABLED = "user_disabled"
+    USER_DELETED = "user_deleted"
+    LEGACY_USER_MAPPED = "legacy_user_mapped"
 
 
 @dataclass(frozen=True)
@@ -253,6 +267,23 @@ class AuthService:
             record.revoked_at = now_ms()
             session.commit()
             return True
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def revoke_all_sessions(self, user_id: str) -> int:
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            count = (
+                session.query(TaskPilotUserSession)
+                .filter(TaskPilotUserSession.user_id == user_id, TaskPilotUserSession.revoked_at.is_(None))
+                .update({"revoked_at": timestamp}, synchronize_session=False)
+            )
+            session.commit()
+            return int(count or 0)
         except Exception:
             session.rollback()
             raise
@@ -518,6 +549,20 @@ class AuthService:
         finally:
             session.close()
 
+    def get_user_identity(self, user_id: str, identity_id: str) -> Optional[TaskPilotUserIdentity]:
+        session = self._session_maker()
+        try:
+            identity = (
+                session.query(TaskPilotUserIdentity)
+                .filter(TaskPilotUserIdentity.user_id == user_id, TaskPilotUserIdentity.identity_id == identity_id)
+                .one_or_none()
+            )
+            if identity:
+                session.expunge(identity)
+            return identity
+        finally:
+            session.close()
+
     def unbind_identity(self, user_id: str, identity_id: str) -> TaskPilotUserIdentity:
         timestamp = now_ms()
         session = self._session_maker()
@@ -713,6 +758,121 @@ class AuthService:
             "lastSeenAt": identity.last_seen_at,
         }
 
+    def record_audit_event(
+        self,
+        event_type: str,
+        *,
+        actor_user_id: Optional[str] = None,
+        target_user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        request: Any = None,
+    ) -> TaskPilotAuthAuditEvent:
+        record = TaskPilotAuthAuditEvent(
+            event_id=generate_token("aud", 18),
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            target_user_id=target_user_id,
+            provider=normalize_provider_name(provider) if provider else None,
+            ip_hash=_hash_request_ip(request),
+            user_agent_hash=_hash_request_user_agent(request),
+            metadata_json=json_dumps(sanitize_payload(metadata or {})),
+            created_at=now_ms(),
+        )
+        session = self._session_maker()
+        try:
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def list_audit_events(
+        self,
+        *,
+        actor_user_id: Optional[str] = None,
+        target_user_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        provider: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[TaskPilotAuthAuditEvent]:
+        session = self._session_maker()
+        try:
+            query = session.query(TaskPilotAuthAuditEvent)
+            if actor_user_id:
+                query = query.filter(TaskPilotAuthAuditEvent.actor_user_id == actor_user_id)
+            if target_user_id:
+                query = query.filter(TaskPilotAuthAuditEvent.target_user_id == target_user_id)
+            if event_type:
+                query = query.filter(TaskPilotAuthAuditEvent.event_type == event_type)
+            if provider:
+                query = query.filter(TaskPilotAuthAuditEvent.provider == normalize_provider_name(provider))
+            events = (
+                query.order_by(TaskPilotAuthAuditEvent.created_at.desc())
+                .offset(max(offset, 0))
+                .limit(max(min(limit, 200), 1))
+                .all()
+            )
+            for event in events:
+                session.expunge(event)
+            return events
+        finally:
+            session.close()
+
+    def cleanup_expired_sessions(self, *, now: Optional[int] = None) -> int:
+        timestamp = int(now if now is not None else now_ms())
+        session = self._session_maker()
+        try:
+            count = (
+                session.query(TaskPilotUserSession)
+                .filter(TaskPilotUserSession.expires_at <= timestamp)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return int(count or 0)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def cleanup_expired_oauth_states(self, *, now: Optional[int] = None) -> int:
+        timestamp = int(now if now is not None else now_ms())
+        session = self._session_maker()
+        try:
+            count = (
+                session.query(TaskPilotOAuthState)
+                .filter(
+                    (TaskPilotOAuthState.expires_at <= timestamp)
+                    | (TaskPilotOAuthState.consumed_at.is_not(None))
+                )
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return int(count or 0)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def serialize_audit_event(self, event: TaskPilotAuthAuditEvent) -> Dict[str, Any]:
+        return {
+            "eventId": event.event_id,
+            "eventType": event.event_type,
+            "actorUserId": event.actor_user_id,
+            "targetUserId": event.target_user_id,
+            "provider": event.provider,
+            "metadata": json_loads(event.metadata_json, {}),
+            "createdAt": event.created_at,
+        }
+
     def _get_identity_for_update(
         self,
         session: Session,
@@ -787,3 +947,28 @@ def _safe_redirect_after(value: Optional[str]) -> str:
     if not text.startswith("/") or text.startswith("//"):
         return "/agent/web/autoagent"
     return text
+
+
+def _hash_request_ip(request: Any) -> Optional[str]:
+    if request is None:
+        return None
+    try:
+        forwarded = request.headers.get("x-forwarded-for", "")
+    except Exception:
+        forwarded = ""
+    if forwarded:
+        raw_ip = forwarded.split(",", 1)[0].strip()
+    else:
+        client = getattr(request, "client", None)
+        raw_ip = getattr(client, "host", None)
+    return hash_token(raw_ip) if raw_ip else None
+
+
+def _hash_request_user_agent(request: Any) -> Optional[str]:
+    if request is None:
+        return None
+    try:
+        user_agent = request.headers.get("user-agent")
+    except Exception:
+        user_agent = None
+    return hash_token(user_agent) if user_agent else None

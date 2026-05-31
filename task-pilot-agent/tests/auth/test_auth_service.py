@@ -222,3 +222,27 @@ def test_legacy_user_mapping_moves_existing_tasks_and_files(auth_service, tmp_pa
     assert result == {"tasks": 1, "files": 1}
     assert tasks.TaskStore().get_task("legacy-task").user_id == target_user.user_id
     assert asyncio.run(file_table_op.FileInfoOp.get_by_file_id("legacy-file")).user_id == target_user.user_id
+
+
+def test_audit_events_are_sanitized_and_expired_records_cleanup(auth_service):
+    service, service_module = auth_service
+    user = service.create_user(user_id="audit-user", primary_email="audit@example.com")
+    audit_event = service.record_audit_event(
+        service_module.AuthAuditEventType.LOGIN,
+        target_user_id=user.user_id,
+        provider="google",
+        metadata={"access_token": "raw-token", "nested": {"cookie": "raw-cookie"}},
+    )
+
+    events = service.list_audit_events(target_user_id=user.user_id)
+    assert [event.event_id for event in events] == [audit_event.event_id]
+    payload = service.serialize_audit_event(events[0])
+    assert payload["metadata"]["access_token"] == "***"
+    assert payload["metadata"]["nested"]["cookie"] == "***"
+
+    created_session = service.create_session(user.user_id, ttl_seconds=1)
+    created_state = service.create_oauth_state(provider="google", ttl_seconds=1)
+
+    assert service.cleanup_expired_sessions(now=created_session.record.expires_at + 1) == 1
+    assert service.get_user_by_session_token(created_session.session_token) is None
+    assert service.cleanup_expired_oauth_states(now=created_state.record.expires_at + 1) == 1

@@ -35,6 +35,20 @@ def reveal_secrets(value: Any) -> Any:
     return value
 
 
+def _env_bool(name: str) -> Optional[bool]:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return None
+    return int(raw)
+
+
 def normalize_database_url(url: str) -> str:
     """Use the pure-Python MySQL driver when the URL does not name a driver."""
     if url.startswith("mysql://"):
@@ -408,7 +422,31 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
 
 # 工厂函数
 def get_settings() -> AgentSettings:
-    return AgentSettings()
+    settings = AgentSettings()
+    _apply_auth_env_overrides(settings)
+    return settings
+
+
+def _apply_auth_env_overrides(settings: AgentSettings) -> None:
+    bool_overrides = {
+        "AUTH_REQUIRED": "required",
+        "AUTH_COOKIE_SECURE": "cookie_secure",
+    }
+    for env_name, field_name in bool_overrides.items():
+        value = _env_bool(env_name)
+        if value is not None:
+            setattr(settings.auth, field_name, value)
+
+    ttl = _env_int("AUTH_SESSION_TTL_SECONDS")
+    if ttl is not None:
+        settings.auth.session_ttl_seconds = ttl
+
+    if os.getenv("AUTH_SESSION_COOKIE_NAME"):
+        settings.auth.session_cookie_name = os.getenv("AUTH_SESSION_COOKIE_NAME") or settings.auth.session_cookie_name
+    if os.getenv("AUTH_DEV_USER_ID"):
+        settings.auth.dev_user_id = os.getenv("AUTH_DEV_USER_ID") or settings.auth.dev_user_id
+    if os.getenv("AUTH_ADMIN_USER_IDS"):
+        settings.auth.admin_user_ids = _csv_to_list(os.getenv("AUTH_ADMIN_USER_IDS")) or []
 
     
 agentSettings = get_settings()

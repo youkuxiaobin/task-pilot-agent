@@ -34,6 +34,7 @@ def auth_app(tmp_path, monkeypatch):
 
     router.agentSettings.auth.required = False
     router.agentSettings.auth.cookie_secure = False
+    router.agentSettings.auth.admin_user_ids = []
     router.agentSettings.auth.providers["google"].enabled = False
 
     app = FastAPI()
@@ -120,6 +121,76 @@ def test_google_login_callback_creates_session(auth_app, monkeypatch):
     payload = me_response.json()
     assert payload["authenticated"] is True
     assert payload["user"]["primaryEmail"] == "router@example.com"
+
+    router.agentSettings.auth.admin_user_ids = [payload["user"]["userId"]]
+    audit_response = client.get("/auth/admin/audit-events", params={"event_type": "login"})
+    assert audit_response.status_code == 200
+    assert audit_response.json()["items"][0]["targetUserId"] == payload["user"]["userId"]
+
+    logout_response = client.post("/auth/logout")
+    assert logout_response.status_code == 200
+    router.agentSettings.auth.admin_user_ids = []
+    logout_audit_response = client.get("/auth/admin/audit-events", params={"event_type": "logout"})
+    assert logout_audit_response.status_code == 200
+    assert logout_audit_response.json()["items"][0]["targetUserId"] == payload["user"]["userId"]
+
+
+def test_provider_link_binds_identity_to_current_user(auth_app, monkeypatch):
+    app, router = auth_app
+
+    class FakeMicrosoftProvider:
+        def authorization_url(self, *, state, nonce, redirect_uri, scopes=None):
+            return f"https://provider.example/link?state={state}&nonce={nonce}"
+
+        async def exchange_code(self, *, code, redirect_uri):
+            assert code == "ok"
+            return {"id_token": "fake-link"}
+
+        async def normalize_identity(self, *, token_response, nonce=None):
+            return ExternalIdentityProfile(
+                provider="microsoft",
+                provider_subject="tenant-1:oid-1",
+                provider_subject_type="tenant_oid",
+                provider_tenant_id="tenant-1",
+                email="linked@example.com",
+                email_verified=True,
+                display_name="Linked User",
+                raw_profile={"tid": "tenant-1", "oid": "oid-1", "refresh_token": "must-redact"},
+            )
+
+    class FakeRegistry:
+        def list_public_providers(self):
+            return [{"provider": "microsoft", "label": "Microsoft"}]
+
+        def get(self, provider):
+            assert provider == "microsoft"
+            return FakeMicrosoftProvider()
+
+        def redirect_uri(self, provider):
+            return "http://testserver/auth/microsoft/callback"
+
+    monkeypatch.setattr(router, "provider_registry", FakeRegistry())
+    client = TestClient(app)
+
+    link_response = client.post("/auth/microsoft/link", follow_redirects=False)
+    assert link_response.status_code in {302, 307}
+    state = parse_qs(urlparse(link_response.headers["location"]).query)["state"][0]
+
+    callback_response = client.get(
+        f"/auth/microsoft/callback?code=ok&state={state}",
+        follow_redirects=False,
+    )
+    assert callback_response.status_code in {302, 307}
+
+    identities_response = client.get("/auth/users/me/identities")
+    assert identities_response.status_code == 200
+    identities = identities_response.json()["items"]
+    assert identities[0]["provider"] == "microsoft"
+    assert identities[0]["providerTenantId"] == "tenant-1"
+
+    audit_response = client.get("/auth/admin/audit-events", params={"event_type": "identity_bound"})
+    assert audit_response.status_code == 200
+    assert audit_response.json()["items"][0]["provider"] == "microsoft"
 
 
 def test_current_user_profile_routes_use_dev_user_when_auth_optional(auth_app):

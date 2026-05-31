@@ -10,13 +10,23 @@ from auth.dependencies import auth_service, get_optional_current_user, require_a
 from auth.models import OAuthStatePurpose, TaskPilotUser
 from auth.providers.base import IdentityProviderError
 from auth.providers.registry import ProviderRegistry
+from auth.rate_limit import InMemoryRateLimiter, RateLimitError
 from auth.security import hash_token
-from auth.service import AuthConflictError, AuthDisabledError, AuthError, AuthNotFoundError, AuthService
+from auth.service import (
+    AuthAuditEventType,
+    AuthConflictError,
+    AuthDisabledError,
+    AuthError,
+    AuthNotFoundError,
+    AuthService,
+)
 from config.config import agentSettings
 
 
 auth_router = APIRouter()
 provider_registry = ProviderRegistry()
+callback_rate_limiter = InMemoryRateLimiter(max_attempts=30, window_seconds=60)
+session_validation_rate_limiter = InMemoryRateLimiter(max_attempts=120, window_seconds=60)
 
 
 class UpdateUserReq(BaseModel):
@@ -55,6 +65,7 @@ async def get_me(
     service: AuthService = Depends(auth_service),
     current_user: Optional[TaskPilotUser] = Depends(get_optional_current_user),
 ) -> dict:
+    _check_rate_limit(session_validation_rate_limiter, request, "session")
     if current_user:
         return {
             "authenticated": True,
@@ -74,11 +85,41 @@ async def get_me(
 
 
 @auth_router.post("/logout")
-async def logout(request: Request) -> JSONResponse:
+async def logout(
+    request: Request,
+    service: AuthService = Depends(auth_service),
+) -> JSONResponse:
     token = request.cookies.get(agentSettings.auth.session_cookie_name)
+    user = service.get_user_by_session_token(token) if token else None
     if token:
-        AuthService().revoke_session(token)
+        service.revoke_session(token)
+    if user:
+        service.record_audit_event(
+            AuthAuditEventType.LOGOUT,
+            actor_user_id=user.user_id,
+            target_user_id=user.user_id,
+            request=request,
+        )
     response = JSONResponse({"loggedOut": True})
+    response.delete_cookie(agentSettings.auth.session_cookie_name, path="/")
+    return response
+
+
+@auth_router.post("/logout-all")
+async def logout_all(
+    request: Request,
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> JSONResponse:
+    revoked_count = service.revoke_all_sessions(current_user.user_id)
+    service.record_audit_event(
+        AuthAuditEventType.LOGOUT_ALL,
+        actor_user_id=current_user.user_id,
+        target_user_id=current_user.user_id,
+        request=request,
+        metadata={"revokedSessions": revoked_count},
+    )
+    response = JSONResponse({"revokedSessions": revoked_count})
     response.delete_cookie(agentSettings.auth.session_cookie_name, path="/")
     return response
 
@@ -96,6 +137,7 @@ async def get_current_user_profile(
 
 @auth_router.patch("/users/me")
 async def update_current_user_profile(
+    request: Request,
     req: UpdateUserReq,
     service: AuthService = Depends(auth_service),
     current_user: TaskPilotUser = Depends(require_current_user),
@@ -104,6 +146,13 @@ async def update_current_user_profile(
         user = service.update_user(current_user.user_id, _user_updates(req))
     except AuthError as exc:
         raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.USER_UPDATED,
+        actor_user_id=current_user.user_id,
+        target_user_id=current_user.user_id,
+        request=request,
+        metadata={"fields": sorted(_user_updates(req).keys())},
+    )
     return {"user": service.serialize_user(user)}
 
 
@@ -117,14 +166,26 @@ async def list_current_user_identities(
 
 @auth_router.delete("/users/me/identities/{identity_id}")
 async def unbind_current_user_identity(
+    request: Request,
     identity_id: str,
     service: AuthService = Depends(auth_service),
     current_user: TaskPilotUser = Depends(require_current_user),
 ) -> dict:
+    existing = service.get_user_identity(current_user.user_id, identity_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="identity not found")
     try:
         identity = service.unbind_identity(current_user.user_id, identity_id)
     except AuthError as exc:
         raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.IDENTITY_UNBOUND,
+        actor_user_id=current_user.user_id,
+        target_user_id=current_user.user_id,
+        provider=existing.provider,
+        request=request,
+        metadata={"identityId": identity.identity_id},
+    )
     return {"identity": service.serialize_identity(identity)}
 
 
@@ -144,6 +205,7 @@ async def list_users_admin(
 
 @auth_router.post("/admin/users")
 async def create_user_admin(
+    request: Request,
     req: CreateUserReq,
     service: AuthService = Depends(auth_service),
     admin_user: TaskPilotUser = Depends(require_admin_user),
@@ -160,11 +222,19 @@ async def create_user_admin(
         )
     except AuthError as exc:
         raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.USER_CREATED,
+        actor_user_id=admin_user.user_id,
+        target_user_id=user.user_id,
+        request=request,
+        metadata={"source": user.source},
+    )
     return {"user": service.serialize_user(user)}
 
 
 @auth_router.patch("/admin/users/{user_id}")
 async def update_user_admin(
+    request: Request,
     user_id: str,
     req: UpdateUserReq,
     service: AuthService = Depends(auth_service),
@@ -174,29 +244,55 @@ async def update_user_admin(
         user = service.update_user(user_id, _user_updates(req))
     except AuthError as exc:
         raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.USER_UPDATED,
+        actor_user_id=admin_user.user_id,
+        target_user_id=user.user_id,
+        request=request,
+        metadata={"fields": sorted(_user_updates(req).keys())},
+    )
     return {"user": service.serialize_user(user)}
 
 
 @auth_router.post("/admin/users/{user_id}/disable")
 async def disable_user_admin(
+    request: Request,
     user_id: str,
     service: AuthService = Depends(auth_service),
     admin_user: TaskPilotUser = Depends(require_admin_user),
 ) -> dict:
-    return {"disabled": service.disable_user(user_id)}
+    disabled = service.disable_user(user_id)
+    if disabled:
+        service.record_audit_event(
+            AuthAuditEventType.USER_DISABLED,
+            actor_user_id=admin_user.user_id,
+            target_user_id=user_id,
+            request=request,
+        )
+    return {"disabled": disabled}
 
 
 @auth_router.delete("/admin/users/{user_id}")
 async def delete_user_admin(
+    request: Request,
     user_id: str,
     service: AuthService = Depends(auth_service),
     admin_user: TaskPilotUser = Depends(require_admin_user),
 ) -> dict:
-    return {"deleted": service.soft_delete_user(user_id)}
+    deleted = service.soft_delete_user(user_id)
+    if deleted:
+        service.record_audit_event(
+            AuthAuditEventType.USER_DELETED,
+            actor_user_id=admin_user.user_id,
+            target_user_id=user_id,
+            request=request,
+        )
+    return {"deleted": deleted}
 
 
 @auth_router.post("/admin/legacy-users")
 async def create_legacy_user_admin(
+    request: Request,
     req: CreateLegacyUserReq,
     service: AuthService = Depends(auth_service),
     admin_user: TaskPilotUser = Depends(require_admin_user),
@@ -210,11 +306,19 @@ async def create_legacy_user_admin(
         )
     except (AuthError, ValueError) as exc:
         raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.USER_CREATED,
+        actor_user_id=admin_user.user_id,
+        target_user_id=user.user_id,
+        request=request,
+        metadata={"source": "legacy"},
+    )
     return {"user": service.serialize_user(user)}
 
 
 @auth_router.post("/admin/legacy-users/{legacy_user_id}/map")
 async def map_legacy_user_admin(
+    request: Request,
     legacy_user_id: str,
     req: MapLegacyUserReq,
     service: AuthService = Depends(auth_service),
@@ -228,7 +332,110 @@ async def map_legacy_user_admin(
         )
     except (AuthError, ValueError) as exc:
         raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.LEGACY_USER_MAPPED,
+        actor_user_id=admin_user.user_id,
+        target_user_id=req.target_user_id,
+        request=request,
+        metadata={"legacyUserId": legacy_user_id, **result},
+    )
     return {"mapped": result}
+
+
+@auth_router.get("/admin/audit-events")
+async def list_audit_events_admin(
+    actor_user_id: Optional[str] = Query(default=None),
+    target_user_id: Optional[str] = Query(default=None),
+    event_type: Optional[str] = Query(default=None),
+    provider: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    events = service.list_audit_events(
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+        event_type=event_type,
+        provider=provider,
+        limit=limit,
+        offset=offset,
+    )
+    return {"items": [service.serialize_audit_event(event) for event in events]}
+
+
+@auth_router.post("/admin/cleanup")
+async def cleanup_auth_records_admin(
+    service: AuthService = Depends(auth_service),
+    admin_user: TaskPilotUser = Depends(require_admin_user),
+) -> dict:
+    return {
+        "expiredSessions": service.cleanup_expired_sessions(),
+        "expiredOAuthStates": service.cleanup_expired_oauth_states(),
+    }
+
+
+@auth_router.post("/{provider}/link", name="provider_link")
+async def provider_link(
+    provider: str,
+    request: Request,
+    redirect_after: Optional[str] = Query(default="/agent/web/autoagent"),
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> RedirectResponse:
+    provider_name = _normalize_provider_or_404(provider)
+    identity_provider = _get_provider_or_503(provider_name)
+    redirect_uri = _provider_redirect_uri(request, provider_name)
+    oauth_state = service.create_oauth_state(
+        provider=provider_name,
+        purpose=OAuthStatePurpose.LINK,
+        user_id=current_user.user_id,
+        redirect_after=redirect_after,
+    )
+    try:
+        url = identity_provider.authorization_url(
+            state=oauth_state.state,
+            nonce=oauth_state.nonce,
+            redirect_uri=redirect_uri,
+        )
+    except IdentityProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    response = RedirectResponse(url)
+    _set_cookie(
+        response,
+        _oauth_nonce_cookie_name(oauth_state.state),
+        oauth_state.nonce,
+        max_age=600,
+        http_only=True,
+    )
+    return response
+
+
+@auth_router.delete("/{provider}/link/{identity_id}")
+async def unlink_provider_identity(
+    provider: str,
+    identity_id: str,
+    request: Request,
+    service: AuthService = Depends(auth_service),
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> dict:
+    provider_name = _normalize_provider_or_404(provider)
+    existing = service.get_user_identity(current_user.user_id, identity_id)
+    if not existing or existing.provider != provider_name:
+        raise HTTPException(status_code=404, detail="identity not found")
+    try:
+        identity = service.unbind_identity(current_user.user_id, identity_id)
+    except AuthError as exc:
+        raise _auth_http_error(exc) from exc
+    service.record_audit_event(
+        AuthAuditEventType.IDENTITY_UNBOUND,
+        actor_user_id=current_user.user_id,
+        target_user_id=current_user.user_id,
+        provider=provider_name,
+        request=request,
+        metadata={"identityId": identity.identity_id},
+    )
+    return {"identity": service.serialize_identity(identity)}
 
 
 @auth_router.get("/{provider}/login", name="provider_login")
@@ -272,8 +479,10 @@ async def provider_callback(
     code: str = Query(default=""),
     state: str = Query(default=""),
     service: AuthService = Depends(auth_service),
+    current_user: Optional[TaskPilotUser] = Depends(get_optional_current_user),
 ) -> RedirectResponse:
     provider_name = _normalize_provider_or_404(provider)
+    _check_rate_limit(callback_rate_limiter, request, f"callback:{provider_name}")
     if not code or not state:
         raise HTTPException(status_code=400, detail=f"missing {provider_name} callback parameters")
     nonce_cookie = _oauth_nonce_cookie_name(state)
@@ -287,26 +496,56 @@ async def provider_callback(
             state=state,
             nonce=nonce,
             provider=provider_name,
-            purpose=OAuthStatePurpose.LOGIN,
         )
         token_response = await identity_provider.exchange_code(
             code=code,
             redirect_uri=_provider_redirect_uri(request, provider_name),
         )
         profile = await identity_provider.normalize_identity(token_response=token_response, nonce=nonce)
-        user = service.create_or_update_external_user(profile)
-        created_session = service.create_session(user.user_id, metadata={"provider": provider_name})
     except (AuthError, IdentityProviderError) as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    response = RedirectResponse(oauth_state.redirect_after or "/agent/web/autoagent")
-    _set_cookie(
-        response,
-        agentSettings.auth.session_cookie_name,
-        created_session.session_token,
-        max_age=agentSettings.auth.session_ttl_seconds,
-        http_only=True,
-    )
+    if oauth_state.purpose == OAuthStatePurpose.LINK:
+        if not current_user and not agentSettings.auth.required:
+            current_user = service.ensure_dev_user()
+        if not current_user or current_user.user_id != oauth_state.user_id:
+            raise HTTPException(status_code=401, detail="login session required for provider link")
+        try:
+            identity = service.bind_identity(current_user.user_id, profile)
+        except AuthError as exc:
+            raise _auth_http_error(exc) from exc
+        service.record_audit_event(
+            AuthAuditEventType.IDENTITY_BOUND,
+            actor_user_id=current_user.user_id,
+            target_user_id=current_user.user_id,
+            provider=provider_name,
+            request=request,
+            metadata={"identityId": identity.identity_id},
+        )
+        response = RedirectResponse(oauth_state.redirect_after or "/agent/web/autoagent")
+    elif oauth_state.purpose == OAuthStatePurpose.LOGIN:
+        try:
+            user = service.create_or_update_external_user(profile)
+            created_session = service.create_session(user.user_id, metadata={"provider": provider_name})
+        except AuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        service.record_audit_event(
+            AuthAuditEventType.LOGIN,
+            target_user_id=user.user_id,
+            provider=provider_name,
+            request=request,
+            metadata={"sessionId": created_session.record.session_id},
+        )
+        response = RedirectResponse(oauth_state.redirect_after or "/agent/web/autoagent")
+        _set_cookie(
+            response,
+            agentSettings.auth.session_cookie_name,
+            created_session.session_token,
+            max_age=agentSettings.auth.session_ttl_seconds,
+            http_only=True,
+        )
+    else:
+        raise HTTPException(status_code=400, detail="unsupported oauth state purpose")
     response.delete_cookie(nonce_cookie, path="/")
     return response
 
@@ -318,7 +557,7 @@ async def whoami(current_user: TaskPilotUser = Depends(require_current_user)) ->
 
 def _normalize_provider_or_404(provider: str) -> str:
     normalized = str(provider or "").strip().lower().replace("-", "_")
-    if not normalized or normalized in {"providers", "me", "logout", "whoami"}:
+    if not normalized or normalized in {"admin", "providers", "me", "users", "logout", "logout_all", "whoami"}:
         raise HTTPException(status_code=404, detail="provider not found")
     return normalized
 
@@ -358,6 +597,15 @@ def _set_cookie(
         samesite="lax",
         path="/",
     )
+
+
+def _check_rate_limit(limiter: InMemoryRateLimiter, request: Request, scope: str) -> None:
+    client = getattr(request, "client", None)
+    client_host = getattr(client, "host", "unknown")
+    try:
+        limiter.check(f"{scope}:{client_host}")
+    except RateLimitError as exc:
+        raise HTTPException(status_code=429, detail="too many requests") from exc
 
 
 def _user_updates(req: UpdateUserReq) -> dict:

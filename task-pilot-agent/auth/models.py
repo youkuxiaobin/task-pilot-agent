@@ -128,6 +128,21 @@ class TaskPilotExternalConnection(Base):
     updated_at = Column(BigInteger, nullable=False)
 
 
+class TaskPilotAuthAuditEvent(Base):
+    __tablename__ = "task_pilot_auth_audit_event"
+
+    id = Column(ID_TYPE, primary_key=True, autoincrement=True)
+    event_id = Column(String(128), nullable=False, unique=True, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    actor_user_id = Column(String(128), nullable=True, index=True)
+    target_user_id = Column(String(128), nullable=True, index=True)
+    provider = Column(String(64), nullable=True, index=True)
+    ip_hash = Column(String(128), nullable=True)
+    user_agent_hash = Column(String(128), nullable=True)
+    metadata_json = Column("metadata", LONG_TEXT, nullable=True)
+    created_at = Column(BigInteger, nullable=False, index=True)
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -147,4 +162,3 @@ def json_loads(value: Optional[str], default: Any) -> Any:
 
 def create_auth_tables() -> None:
     Base.metadata.create_all(get_engine())
-
