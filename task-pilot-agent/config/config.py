@@ -228,6 +228,59 @@ class MCPSettings(BaseModel):
     mcp_local: MCPLocalSettings = Field(default_factory=MCPLocalSettings)
     mcp_market: MCPMarketSettings = Field(default_factory=MCPMarketSettings)
 
+class AuthProviderSettings(BaseModel):
+    enabled: bool = Field(False)
+    protocol: str = Field("oidc")
+    client_id: Optional[SecretStr] = Field(default=None)
+    client_secret: Optional[SecretStr] = Field(default=None)
+    client_id_env: Optional[str] = Field(default=None)
+    client_secret_env: Optional[str] = Field(default=None)
+    redirect_uri: Optional[str] = Field(default=None)
+    redirect_uri_env: Optional[str] = Field(default=None)
+    issuer: Optional[str] = Field(default=None)
+    authorize_url: Optional[str] = Field(default=None)
+    token_url: Optional[str] = Field(default=None)
+    userinfo_url: Optional[str] = Field(default=None)
+    scopes: List[str] = Field(default_factory=list)
+    subject_strategy: str = Field("sub")
+
+    def resolved_client_id(self) -> str:
+        if self.client_id_env and os.getenv(self.client_id_env):
+            return os.getenv(self.client_id_env) or ""
+        return reveal_secret(self.client_id)
+
+    def resolved_client_secret(self) -> str:
+        if self.client_secret_env and os.getenv(self.client_secret_env):
+            return os.getenv(self.client_secret_env) or ""
+        return reveal_secret(self.client_secret)
+
+    def resolved_redirect_uri(self) -> str:
+        if self.redirect_uri_env and os.getenv(self.redirect_uri_env):
+            return os.getenv(self.redirect_uri_env) or ""
+        return self.redirect_uri or ""
+
+
+class AuthSettings(BaseModel):
+    required: bool = Field(False)
+    dev_user_id: str = Field("dev-user")
+    session_cookie_name: str = Field("tpa_session")
+    session_ttl_seconds: int = Field(60 * 60 * 24 * 30, ge=60)
+    cookie_secure: bool = Field(True)
+    providers: Dict[str, AuthProviderSettings] = Field(
+        default_factory=lambda: {
+            "google": AuthProviderSettings(
+                enabled=False,
+                protocol="oidc",
+                client_id_env="GOOGLE_CLIENT_ID",
+                client_secret_env="GOOGLE_CLIENT_SECRET",
+                redirect_uri_env="GOOGLE_REDIRECT_URI",
+                issuer="https://accounts.google.com",
+                scopes=["openid", "profile", "email"],
+                subject_strategy="sub",
+            ),
+        }
+    )
+
 class SearchSetting(BaseModel):
     provider: str = Field("jina", description="搜索服务提供方，如 jina/bocha/serper")
     api_key: SecretStr = Field(..., description="必填，可来自 .env / env / YAML / secrets")
@@ -254,6 +307,7 @@ class AgentSettings(BaseSettings):
     video_llm: LLMSettings = Field(default_factory=LLMSettings)
     summary_agent: SummaryAgentSettings = Field(default_factory=SummaryAgentSettings)
     search: List[SearchSetting] = Field(default_factory=list)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
 
     # 统一配置
     model_config = SettingsConfigDict(
