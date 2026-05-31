@@ -34,11 +34,17 @@ const messages = {
     'common.showSidebar': '显示侧边栏',
     'common.resizeSidebar': '拖拽调整侧边栏宽度',
     'common.moreOptions': '更多选项',
-    'auth.loginGoogle': '使用 Google 登录',
+    'auth.noProviders': '暂无可用登录方式',
     'auth.logout': '退出',
     'auth.requiredTitle': '登录后使用 TaskPilot',
     'auth.requiredDesc': '任务、文件和历史记录会绑定到当前账号。',
     'auth.currentUser': '当前用户',
+    'auth.account': '账号',
+    'auth.profile': '账号信息',
+    'auth.identities': '已绑定登录方式',
+    'auth.linkProvider': '绑定登录方式',
+    'auth.unlink': '解绑',
+    'auth.noIdentities': '暂无绑定的第三方登录方式。',
     'task.current': '当前任务',
     'task.delete': '删除',
     'task.deleteConfirm': '确定删除这个会话吗？删除后无法在任务列表中查看。',
@@ -148,11 +154,17 @@ const messages = {
     'common.showSidebar': 'Show sidebar',
     'common.resizeSidebar': 'Drag to resize sidebar',
     'common.moreOptions': 'More options',
-    'auth.loginGoogle': 'Continue with Google',
+    'auth.noProviders': 'No sign-in providers available',
     'auth.logout': 'Log out',
     'auth.requiredTitle': 'Sign in to use TaskPilot',
     'auth.requiredDesc': 'Tasks, files, and history are tied to the current account.',
     'auth.currentUser': 'Current user',
+    'auth.account': 'Account',
+    'auth.profile': 'Profile',
+    'auth.identities': 'Linked sign-in methods',
+    'auth.linkProvider': 'Link sign-in method',
+    'auth.unlink': 'Unlink',
+    'auth.noIdentities': 'No third-party sign-in methods linked.',
     'task.current': 'Current task',
     'task.delete': 'Delete',
     'task.deleteConfirm': 'Delete this conversation? It will be removed from the task list.',
@@ -249,6 +261,9 @@ const authRequired = ref(false)
 const authenticated = ref(false)
 const currentUser = ref(null)
 const authProviders = ref([])
+const accountLoading = ref(false)
+const accountProfile = ref(null)
+const accountIdentities = ref([])
 const sidebarOpen = ref(false)
 const sidebarDensityVersion = 'compact-1'
 const savedSidebarDensityVersion = localStorage.getItem('taskpilot-sidebar-density-version')
@@ -365,13 +380,19 @@ const taskMeta = computed(() => {
 })
 
 const needsLogin = computed(() => authRequired.value && !authenticated.value)
-const googleProvider = computed(() => authProviders.value.find((provider) => provider.provider === 'google') || null)
+const enabledAuthProviders = computed(() => authProviders.value.filter((provider) => provider?.provider))
 const displayUserName = computed(() => (
   currentUser.value?.displayName
   || currentUser.value?.primaryEmail
   || currentUser.value?.userId
   || ''
 ))
+const availableLinkProviders = computed(() => {
+  const linked = new Set(accountIdentities.value
+    .filter((identity) => identity.status === 'active')
+    .map((identity) => identity.provider))
+  return enabledAuthProviders.value.filter((provider) => !linked.has(provider.provider))
+})
 
 const mergedTimeline = computed(() => {
   const replay = currentEvents.value.map((event) => normalizeTimelineEvent(event))
@@ -411,7 +432,7 @@ watch(selectedAgentId, async () => {
 })
 
 function switchView(view) {
-  const allowedViews = new Set(['home', 'tasks', 'agents', 'tools', 'taskDetail'])
+  const allowedViews = new Set(['home', 'tasks', 'agents', 'tools', 'taskDetail', 'account'])
   if (!allowedViews.has(view)) view = 'home'
   openTaskMenuId.value = ''
   activeView.value = view
@@ -419,6 +440,7 @@ function switchView(view) {
   if (view === 'tasks') refreshTasks()
   if (view === 'agents') refreshAgents()
   if (view === 'tools') refreshToolCatalog()
+  if (view === 'account') loadAccountProfile()
 }
 
 function closeTaskMenu() {
@@ -837,6 +859,7 @@ function applyAuthPayload(payload = {}) {
   authenticated.value = Boolean(payload.authenticated)
   currentUser.value = payload.user || null
   authProviders.value = Array.isArray(payload.providers) ? payload.providers : authProviders.value
+  accountProfile.value = payload.user || accountProfile.value
 }
 
 async function loadAuthProviders() {
@@ -877,10 +900,67 @@ function startProviderLogin(provider) {
   window.location.href = `/auth/${encodeURIComponent(provider)}/login?redirect_after=${encodeURIComponent(nextPath)}`
 }
 
+function startProviderLink(provider) {
+  const nextPath = `${window.location.pathname}${window.location.search || ''}` || '/agent/web/autoagent'
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = `/auth/${encodeURIComponent(provider)}/link?redirect_after=${encodeURIComponent(nextPath)}`
+  document.body.appendChild(form)
+  form.submit()
+}
+
+function providerLabel(provider) {
+  return provider?.label || provider?.provider || ''
+}
+
+function providerLoginLabel(provider) {
+  const name = providerLabel(provider)
+  return language.value === 'en' ? `Continue with ${name}` : `使用 ${name} 登录`
+}
+
+function providerLinkLabel(provider) {
+  const name = providerLabel(provider)
+  return language.value === 'en' ? `Link ${name}` : `绑定 ${name}`
+}
+
+async function loadAccountProfile() {
+  if (!currentUser.value) return
+  accountLoading.value = true
+  try {
+    const response = await fetch('/auth/users/me')
+    if (!response.ok) throw new Error(serviceError(response.status))
+    const data = await response.json()
+    accountProfile.value = data.user || currentUser.value
+    currentUser.value = accountProfile.value
+    accountIdentities.value = Array.isArray(data.identities) ? data.identities : []
+  } catch (error) {
+    addNotification(withDetail('账号信息加载失败', 'Account failed to load', error.message), 'failed')
+  } finally {
+    accountLoading.value = false
+  }
+}
+
+async function unlinkIdentity(identity) {
+  if (!identity?.identityId || !identity?.provider) return
+  try {
+    const response = await fetch(
+      `/auth/${encodeURIComponent(identity.provider)}/link/${encodeURIComponent(identity.identityId)}`,
+      { method: 'DELETE' },
+    )
+    if (!response.ok) throw new Error(serviceError(response.status))
+    await loadAccountProfile()
+    await refreshAuth()
+  } catch (error) {
+    addNotification(withDetail('解绑失败', 'Unlink failed', error.message), 'failed')
+  }
+}
+
 async function logout() {
   await fetch('/auth/logout', { method: 'POST' })
   authenticated.value = false
   currentUser.value = null
+  accountProfile.value = null
+  accountIdentities.value = []
   newTask()
   await refreshAuth()
   await refreshTasks()
@@ -1549,13 +1629,23 @@ onBeforeUnmount(() => {
         </div>
         <div class="topbar-right">
           <div v-if="!authLoading" class="auth-area">
-            <div v-if="currentUser" class="user-chip" :title="`${t('auth.currentUser')}：${currentUser.userId}`">
+            <button v-if="currentUser" type="button" class="user-chip" :title="`${t('auth.currentUser')}：${currentUser.userId}`" @click="switchView('account')">
               <img v-if="currentUser.avatarUrl" class="user-avatar" :src="currentUser.avatarUrl" alt="" />
               <span v-else class="user-avatar user-avatar-fallback">{{ displayUserName.slice(0, 1).toUpperCase() }}</span>
               <span>{{ displayUserName }}</span>
-            </div>
+            </button>
             <button v-if="authenticated" type="button" class="ghost-button small" @click="logout">{{ t('auth.logout') }}</button>
-            <button v-else-if="googleProvider" type="button" class="ghost-button small" @click="startProviderLogin('google')">{{ t('auth.loginGoogle') }}</button>
+            <template v-else>
+              <button
+                v-for="provider in enabledAuthProviders"
+                :key="provider.provider"
+                type="button"
+                class="ghost-button small"
+                @click="startProviderLogin(provider.provider)"
+              >
+                {{ providerLabel(provider) }}
+              </button>
+            </template>
           </div>
           <select v-model="language" class="language-select" :title="t('common.language')">
             <option value="zh">中文</option>
@@ -1586,13 +1676,73 @@ onBeforeUnmount(() => {
           <p>{{ t('auth.requiredDesc') }}</p>
           <div class="auth-provider-list">
             <button
-              v-if="googleProvider"
+              v-for="provider in enabledAuthProviders"
+              :key="provider.provider"
               type="button"
               class="primary-button"
-              @click="startProviderLogin('google')"
+              @click="startProviderLogin(provider.provider)"
             >
-              {{ t('auth.loginGoogle') }}
+              {{ providerLoginLabel(provider) }}
             </button>
+            <div v-if="!enabledAuthProviders.length" class="empty-card">{{ t('auth.noProviders') }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeView === 'account'" class="view account-view">
+        <div class="account-shell">
+          <div class="account-header">
+            <div>
+              <div class="section-eyebrow">{{ t('auth.account') }}</div>
+              <h1>{{ displayUserName }}</h1>
+            </div>
+            <button type="button" class="ghost-button" @click="loadAccountProfile">{{ t('common.refresh') }}</button>
+          </div>
+          <div class="account-grid">
+            <section class="account-section">
+              <h2>{{ t('auth.profile') }}</h2>
+              <div class="profile-row">
+                <span>{{ t('auth.currentUser') }}</span>
+                <strong>{{ accountProfile?.userId || currentUser?.userId }}</strong>
+              </div>
+              <div class="profile-row">
+                <span>Email</span>
+                <strong>{{ accountProfile?.primaryEmail || currentUser?.primaryEmail || '-' }}</strong>
+              </div>
+              <div class="profile-row">
+                <span>{{ t('common.status') }}</span>
+                <strong>{{ accountProfile?.status || currentUser?.status || '-' }}</strong>
+              </div>
+            </section>
+            <section class="account-section">
+              <h2>{{ t('auth.identities') }}</h2>
+              <div v-if="accountLoading" class="empty-card">{{ t('common.running') }}</div>
+              <div v-else-if="!accountIdentities.length" class="empty-card">{{ t('auth.noIdentities') }}</div>
+              <div v-else class="identity-list">
+                <div v-for="identity in accountIdentities" :key="identity.identityId" class="identity-row">
+                  <div>
+                    <strong>{{ identity.provider }}</strong>
+                    <span>{{ identity.email || identity.displayName || identity.providerSubjectType }}</span>
+                  </div>
+                  <button type="button" class="ghost-button small" @click="unlinkIdentity(identity)">{{ t('auth.unlink') }}</button>
+                </div>
+              </div>
+            </section>
+            <section class="account-section">
+              <h2>{{ t('auth.linkProvider') }}</h2>
+              <div class="auth-provider-list">
+                <button
+                  v-for="provider in availableLinkProviders"
+                  :key="provider.provider"
+                  type="button"
+                  class="primary-button"
+                  @click="startProviderLink(provider.provider)"
+                >
+                  {{ providerLinkLabel(provider) }}
+                </button>
+                <div v-if="!availableLinkProviders.length" class="empty-card">{{ t('auth.noProviders') }}</div>
+              </div>
+            </section>
           </div>
         </div>
       </section>

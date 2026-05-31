@@ -498,6 +498,7 @@ body.resizing-sidebar * {
   color: var(--text-main);
   font-size: 13px;
   font-weight: 650;
+  text-align: left;
 }
 
 .user-chip span:last-child {
@@ -566,6 +567,94 @@ body.resizing-sidebar * {
   gap: 8px;
   width: 100%;
   margin-top: 6px;
+}
+
+.account-view {
+  padding: 32px;
+}
+
+.account-shell {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+
+.account-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.section-eyebrow {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.account-header h1 {
+  margin: 4px 0 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.account-section {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: #ffffff;
+  padding: 18px;
+}
+
+.account-section h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.profile-row,
+.identity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
+
+.profile-row span,
+.identity-row span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.profile-row strong,
+.identity-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.identity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.identity-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
 }
 
 .detail-view {
@@ -1469,6 +1558,10 @@ body.resizing-sidebar * {
   .hero-block {
     margin-top: 40px;
   }
+
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1494,6 +1587,15 @@ body.resizing-sidebar * {
 
   .home-view {
     padding: 34px 12px;
+  }
+
+  .account-view {
+    padding: 20px 12px;
+  }
+
+  .account-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .hero-block h1 {
