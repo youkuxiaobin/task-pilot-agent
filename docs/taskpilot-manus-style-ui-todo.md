@@ -1,460 +1,460 @@
-# TaskPilot 产品化页面改版 ToDo
+# TaskPilot Product UI Redesign ToDo
 
-## 目标
+## Goal
 
-把当前偏调试用途的 TaskPilot 控制台，改成面向普通用户的 Agent 工作台。
+Turn the current debug-oriented TaskPilot console into an Agent workspace for regular users.
 
-参考 Manus 的产品形态，但不照搬品牌和具体交互。重点学习它的页面组织方式：
+Use Manus as a product reference, but do not copy its branding or exact interactions. The key ideas to learn from are its page organization:
 
-- 左侧是稳定的功能导航。
-- 中间是清晰的新建任务入口。
-- 常用能力以快捷按钮出现。
-- 任务历史、项目、Agent、插件、定时任务、资料库都有独立入口。
-- 执行过程和最终产物都能回看。
+- A stable left-side navigation.
+- A clear central entry point for creating new tasks.
+- Frequently used capabilities exposed as shortcut actions.
+- Dedicated entry points for task history, projects, Agents, plugins, schedules, and library.
+- Execution process and final artifacts can be reviewed later.
 
-## 完成标准
+## Completion Criteria
 
-- 首页第一屏像一个可直接使用的工作台，而不是调试页面。
-- 用户能清楚知道可以新建任务、选择 Agent、上传文件、选插件、看任务记录。
-- 已有任务能力不能丢：任务创建、运行状态、过程回放、工具调用、产物、重试、取消、补充输入都要保留。
-- 页面上不直接暴露调试项，运行模式、输出格式、工具细节放进高级设置。
-- 每个新入口都先接真实数据；如果后台暂时没有完整能力，要用明确的空状态和后续接口计划。
-- 每阶段改完后要实际打开页面检查桌面和手机宽度，至少跑 `tests/tasks/test_autoagent_web.py` 和任务控制相关测试。
+- The first screen looks like a usable workspace, not a debugging page.
+- Users can clearly create tasks, choose Agents, upload files, select tools, and review task history.
+- Existing task capabilities must remain: task creation, running status, process replay, tool calls, artifacts, retry, cancel, and follow-up input.
+- Debug options are not exposed by default. Run mode, output format, and tool details belong in advanced settings.
+- Every new entry point should be backed by real data first. If the backend does not yet fully support it, show a clear empty state and document the follow-up API plan.
+- After each stage, open the page and check both desktop and mobile widths. At minimum, run `tests/tasks/test_autoagent_web.py` and the task control tests.
 
-## 当前问题
+## Current Problems
 
-- 首页信息密度低，像工程调试台，不像正式产品。
-- 左侧只有会话和最近任务，没有清晰的产品功能分区。
-- 很多能力已经有底座，但隐藏了：Agent 选择、工具选择、任务筛选、评测、文件上传、高级运行配置。
-- 任务详情没有明显区分“过程”“结果”“产物”。
-- Agent、插件、项目、资料库、定时任务没有独立页面。
-- 浏览器任务、文件任务、报告任务、数据分析等能力没有形成快捷入口。
-- 空状态文案偏说明性质，缺少让用户直接开始工作的入口。
+- The home page has low product density and feels like an engineering console instead of a finished product.
+- The sidebar only contains conversations and recent tasks. It lacks clear product-level sections.
+- Many existing capabilities are hidden: Agent selection, tool selection, task filtering, evals, file upload, and advanced runtime settings.
+- Task detail does not clearly separate process, result, and artifacts.
+- Agents, plugins, projects, library, and scheduled tasks do not have dedicated pages.
+- Browser tasks, file tasks, report tasks, data analysis, and similar capabilities are not exposed as shortcut entries.
+- Empty states are mostly explanatory and do not guide users toward starting work.
 
-## 改版原则
+## Redesign Principles
 
-- 先改信息架构，再改视觉细节。
-- 先把已有能力露出来，再补后台缺口。
-- 页面默认面向普通用户，高级配置折叠。
-- 任务是主线：所有 Agent、工具、文件、项目、产物都要能回到任务记录。
-- 视觉风格保持克制：浅灰侧栏、白色主区、轻边框、少量强调色、8px 以内圆角、图标加短文字。
-- 不做营销首页，打开就是工作台。
+- Improve information architecture before visual details.
+- Expose existing capabilities first, then fill backend gaps.
+- The default UI is for regular users; advanced settings are collapsed.
+- Tasks are the main thread: every Agent, tool, file, project, and artifact should link back to task records.
+- Keep the visual style restrained: light gray sidebar, white main area, thin borders, subtle shadows, limited accent colors, border radius within 8px, icons plus short labels.
+- Do not build a marketing landing page. Opening the page should show the workspace.
 
 ## ToDo List
 
-### 1. 重建整体页面骨架
+### 1. Rebuild The Overall Page Shell
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 把现有 `autoagent.html` 从“聊天页”改成“工作台壳子”。
-- 左侧导航固定为：新建任务、Agent、插件、定时任务、库、项目、所有任务。
-- 左侧底部保留设置、布局切换、来源标识等低频入口。
-- 顶部区域保留当前模型或默认 Agent、通知、用户入口。
+- Turn the existing `autoagent.html` from a chat page into a workspace shell.
+- Fix the left navigation as: New Task, Agents, Plugins, Scheduled Tasks, Library, Projects, All Tasks.
+- Keep low-frequency entries such as settings, layout switching, and source attribution at the bottom of the sidebar.
+- Keep the current model or default Agent, notifications, and user entry in the top area.
 
-怎么改：
+How to change:
 
-- 修改 `task-pilot-agent/brain/web/autoagent.html` 的 HTML 结构。
-- 新增 `activeView` 状态，用一个页面承载多个视图：home、agents、plugins、schedules、library、projects、tasks、taskDetail。
-- 现有任务列表从侧栏底部移到“所有任务”视图，侧栏只保留最近任务的简短入口。
-- 用统一的导航项渲染函数生成左侧菜单，避免后续每加一个入口都改多处 DOM。
+- Modify the HTML structure in `task-pilot-agent/brain/web/autoagent.html`.
+- Add an `activeView` state so one page can host multiple views: home, agents, plugins, schedules, library, projects, tasks, and taskDetail.
+- Move the existing task list from the sidebar bottom into the All Tasks view. The sidebar should only keep a short recent-task entry.
+- Render the left menu with one shared navigation item renderer so future entries do not require changes in multiple DOM locations.
 
-验收：
+Acceptance:
 
-- 打开页面默认进入“新建任务”。
-- 点击左侧每个入口能切换视图。
-- 移动端侧栏可以收起，不遮挡输入区。
+- The page opens on New Task by default.
+- Each left navigation entry switches views.
+- On mobile, the sidebar can collapse and does not cover the input area.
 
-### 2. 重做新建任务首页
+### 2. Rebuild The New Task Home Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 首页中央显示一句主问题，比如“我能为你做什么？”
-- 输入框改成 Manus 类似的大输入框，支持多行输入。
-- 输入框内或下方放常用操作：上传文件、选择工具、云浏览器或浏览器任务、语音、发送。
-- 输入框下方放快捷任务：制作幻灯片、创建网站、数据分析、浏览器任务、文件处理、写报告、代码任务、更多。
+- Show a central prompt such as "What can I do for you?"
+- Replace the input with a large Manus-like multiline task composer.
+- Put common actions inside or below the composer: upload files, choose tools, cloud browser or browser task, voice input, and send.
+- Put shortcut tasks below the composer: make slides, create website, data analysis, browser task, file processing, write report, code task, more.
 
-怎么改：
+How to change:
 
-- 把当前底部固定输入框改成首页主输入框，同时任务详情页保留底部追问输入。
-- 快捷任务点击后，把对应提示词填入输入框，或选择对应 Agent。
-- 文件上传按钮默认显示，不再 hidden。
-- Agent 下拉保留，但放在输入框附近，作为“由谁来完成”的选择。
-- 输出格式、运行模式、运行环境移入“高级设置”抽屉或弹出层。
+- Replace the current fixed bottom input with the main home composer. Keep a follow-up input on the task detail page.
+- Clicking a shortcut should fill the matching prompt or select the matching Agent.
+- Show the file upload button by default instead of hiding it.
+- Keep the Agent dropdown, but place it near the composer as the "who should do this" choice.
+- Move output format, run mode, and runtime environment into an Advanced Settings drawer or popover.
 
-验收：
+Acceptance:
 
-- 新用户不需要打开高级项，也能直接提交任务。
-- 点击快捷任务后，页面能自动选择合适 Agent 或预填任务。
-- 文件上传数量能显示在输入框附近。
+- New users can submit a task without opening advanced settings.
+- Clicking a shortcut selects a suitable Agent or pre-fills the task.
+- Uploaded file count is shown near the composer.
 
-### 3. 建立统一视觉样式
+### 3. Establish A Unified Visual Style
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 去掉现在偏重的渐变背景和调试卡片感。
-- 采用浅灰侧栏、白色内容区、细边框、轻阴影。
-- 图标按钮统一尺寸，文字按钮只用于明确命令。
-- 状态标签统一颜色：运行中、等待输入、完成、失败、取消。
+- Remove the heavy gradient background and debugging-card feel.
+- Use a light gray sidebar, white content area, thin borders, and subtle shadows.
+- Standardize icon button sizes. Use text buttons only for clear commands.
+- Standardize status tag colors: running, waiting for input, completed, failed, cancelled.
 
-怎么改：
+How to change:
 
-- 在 `autoagent.html` 的 CSS 顶部重写设计变量：背景、文字、边框、状态色、间距、圆角。
-- 引入统一的按钮、导航项、输入框、标签、列表项、空状态样式。
-- 如果继续使用单 HTML 文件，优先用 CSS class 复用；后续拆前端工程时再组件化。
-- 图标优先使用现有图标库或轻量图标资源，避免大量手写特殊符号。
+- Rewrite design variables at the top of the CSS in `autoagent.html`: background, text, borders, status colors, spacing, and radius.
+- Add shared styles for buttons, nav items, inputs, tags, list items, and empty states.
+- If still using a single HTML file, prefer reusable CSS classes. Componentize later when the frontend is split into a proper app.
+- Prefer an existing icon library or lightweight icon resources. Avoid large amounts of handwritten symbol markup.
 
-验收：
+Acceptance:
 
-- 页面整体看起来像正式应用，不像开发调试页。
-- 桌面、平板、手机宽度下文字不重叠。
-- 输入区、任务列表、过程卡片的视觉层级清楚。
+- The page looks like a real application, not a development console.
+- Text does not overlap on desktop, tablet, or mobile widths.
+- Input area, task list, and process cards have clear visual hierarchy.
 
-### 4. 所有任务页产品化
+### 4. Productize The All Tasks Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 把当前隐藏的任务筛选能力做成正式页面。
-- 支持按状态、关键词、用户、Agent、时间、耗时、错误状态筛选。
-- 任务列表展示输入摘要、状态、Agent、创建时间、耗时、产物数量、失败原因摘要。
+- Turn the currently hidden task filtering capability into a formal page.
+- Support filtering by status, keyword, user, Agent, time, duration, and error state.
+- Task rows should show input summary, status, Agent, created time, duration, artifact count, and failure summary.
 
-怎么改：
+How to change:
 
-- 继续使用现有 `/agent/tasks` 接口。
-- 将侧栏里的筛选控件迁移到“所有任务”主视图。
-- 任务列表点击后进入任务详情视图。
-- 如果后台已有字段不足，先从 `metadata` 中读取 Agent 快照、产物、用量信息。
+- Continue using the existing `/agent/tasks` API.
+- Move the filter controls from the sidebar into the All Tasks main view.
+- Clicking a task should open the task detail view.
+- If backend fields are not enough, read Agent snapshot, artifacts, and usage information from `metadata` first.
 
-验收：
+Acceptance:
 
-- 筛选条件能真实请求后端并刷新列表。
-- 失败任务能直接看到失败摘要。
-- 点击任务能完整回放历史过程。
+- Filters make real backend requests and refresh the list.
+- Failed tasks show a failure summary directly.
+- Clicking a task replays its full historical process.
 
-### 5. 任务详情页拆成三栏或两栏
+### 5. Split Task Detail Into Two Or Three Areas
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 当前消息流要拆成更像任务详情的页面。
-- 详情页应包含：任务输入、当前状态、当前 Agent、计划、时间线、工具调用、工具结果、最终答案、错误、产物。
-- 产物要有独立区域，可以下载或预览。
+- Replace the current message stream with a task-detail style page.
+- The detail page should include: task input, current status, current Agent, plan, timeline, tool calls, tool results, final answer, errors, and artifacts.
+- Artifacts should have their own area with download or preview.
 
-怎么改：
+How to change:
 
-- 继续使用 `/agent/tasks/{task_id}`、`/events`、`/artifacts`。
-- 左侧或主区域显示过程时间线。
-- 右侧显示任务概览和产物列表。
-- 最终答案固定放在详情页顶部或底部明显位置，不淹没在过程卡片中。
-- 工具调用默认折叠，但失败和风险事件默认展开。
+- Continue using `/agent/tasks/{task_id}`, `/events`, and `/artifacts`.
+- Show the process timeline in the main area or left area.
+- Show task summary and artifact list on the right.
+- Put the final answer in a prominent location near the top or bottom of the detail page, not buried inside process cards.
+- Tool calls are collapsed by default, but failures and risk events open by default.
 
-验收：
+Acceptance:
 
-- 用户能一眼看出任务有没有完成、结果是什么、产物在哪里。
-- 工具调用和错误没有被隐藏。
-- 历史任务刷新页面后仍能完整显示。
+- Users can immediately tell whether the task is complete, what the result is, and where artifacts are.
+- Tool calls and errors are not hidden.
+- Historical tasks still render fully after page refresh.
 
-### 6. Agent 页面
+### 6. Agents Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 增加独立 Agent 页面，展示所有可用 Agent。
-- 每个 Agent 展示名称、用途、能力标签、可用工具、权限、能交给哪些 Agent。
-- 支持从 Agent 页面直接发起任务。
+- Add a dedicated Agents page that lists all available Agents.
+- Each Agent should show name, purpose, capability tags, available tools, permissions, and allowed handoffs.
+- Users can start a task directly from an Agent page.
 
-怎么改：
+How to change:
 
-- 使用现有 `/agent/agents`、`/agent/agents/{agent_id}`、`/agent/tools?agent_id=...`。
-- Agent 卡片按类型分组：总控、搜索、浏览器、数据、代码、报告。
-- 高风险工具显示清楚的提示，不默认勾选。
-- Agent 配置异常时显示在页面中，而不是只显示在调试摘要里。
+- Use the existing `/agent/agents`, `/agent/agents/{agent_id}`, and `/agent/tools?agent_id=...` APIs.
+- Group Agent cards by type: supervisor, search, browser, data, code, report.
+- Show high-risk tools clearly and do not select them by default.
+- Agent configuration errors should appear on the page instead of only inside debugging summaries.
 
-验收：
+Acceptance:
 
-- 用户能理解每个 Agent 适合做什么。
-- 能从某个 Agent 卡片直接进入新建任务，并预选该 Agent。
-- 配置错误能被看到并定位到具体 Agent。
+- Users can understand what each Agent is good for.
+- Users can start a new task from an Agent card with that Agent preselected.
+- Configuration errors are visible and can be traced to specific Agents.
 
-### 7. 插件页面
+### 7. Plugins Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 增加插件页面，展示可用工具和不可用工具。
-- 区分内置工具、MCP 工具、外部扩展工具。
-- 显示工具用途、输入输出概要、风险等级、当前是否可用、不可用原因。
+- Add a Plugins page that shows available and unavailable tools.
+- Distinguish built-in tools, MCP tools, and external extension tools.
+- Show purpose, input and output summary, risk level, availability, and unavailable reason.
 
-怎么改：
+How to change:
 
-- 短期复用 `/agent/tools` 接口。
-- 如果选择了 Agent，则展示该 Agent 可用工具。
-- 后续新增插件管理接口：启用、停用、配置密钥、测试连接。
-- 对 shell、代码执行、文件写入等高风险能力使用明显开关和审批说明。
+- Reuse the `/agent/tools` API in the short term.
+- If an Agent is selected, show tools available to that Agent.
+- Later, add plugin management APIs: enable, disable, configure secrets, and test connection.
+- Use clear toggles and approval explanations for high-risk capabilities such as shell, code execution, and file write.
 
-验收：
+Acceptance:
 
-- 用户能知道当前系统能调用哪些工具。
-- 不可用工具有原因，不只是消失。
-- 高风险工具不会被误开。
+- Users know what tools the system can call.
+- Unavailable tools have reasons instead of simply disappearing.
+- High-risk tools are not enabled accidentally.
 
-### 8. 项目页面
+### 8. Projects Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 增加项目入口，把一组任务、文件、默认要求、默认 Agent 组织在一起。
-- 项目用于长期工作，比如调研专题、客户报告、代码项目、数据分析项目。
+- Add a Projects entry to organize a group of tasks, files, default instructions, and default Agent.
+- Projects support long-running work such as research topics, customer reports, code projects, and data analysis projects.
 
-怎么改：
+How to change:
 
-- 第一阶段可以先做前端空状态和创建项目表单。
-- 后端建议新增项目表，字段包括：项目 ID、名称、描述、默认 Agent、默认工具、默认输出格式、文件范围、创建人、时间。
-- 任务创建时允许带 `project_id`，写入任务 `metadata`。
-- 任务列表支持按项目筛选。
+- In the first stage, this can be a frontend empty state and a project creation form.
+- Backend should add a project table with: project ID, name, description, default Agent, default tools, default output format, file scope, owner, and timestamps.
+- Task creation should accept `project_id` and write it into task `metadata`.
+- Task list should support filtering by project.
 
-验收：
+Acceptance:
 
-- 用户能创建项目并在项目内发起任务。
-- 项目详情能看到该项目下的任务列表。
-- 项目默认设置能影响新任务。
+- Users can create projects and start tasks inside projects.
+- Project detail shows tasks under that project.
+- Project defaults affect new tasks.
 
-### 9. 库页面
+### 9. Library Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 增加资料库入口，管理上传文件、知识资料、生成产物。
-- 用户能从库里选择文件，带入新任务。
+- Add a Library entry to manage uploaded files, knowledge materials, and generated artifacts.
+- Users can select files from the library and attach them to a new task.
 
-怎么改：
+How to change:
 
-- 短期接现有文件上传、预览、下载接口。
-- 页面分区：上传文件、最近文件、任务产物、知识资料。
-- 后续补文件归属、标签、项目关联、可检索状态。
-- 文件被任务使用时，在任务详情里反向显示来源文件。
+- In the short term, connect to existing file upload, preview, and download APIs.
+- Page sections: upload files, recent files, task artifacts, knowledge materials.
+- Later, add file ownership, tags, project links, and retrieval status.
+- When a file is used by a task, the task detail page should show the source file.
 
-验收：
+Acceptance:
 
-- 用户能上传文件并在页面上看到。
-- 文件能作为新任务输入。
-- 任务产物能回到库中统一管理。
+- Users can upload files and see them on the page.
+- Files can be used as new task input.
+- Task artifacts can be managed from the library.
 
-### 10. 定时任务页面
+### 10. Scheduled Tasks Page
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 增加定时任务入口。
-- 支持一次性、每天、每周、每月运行。
-- 能查看运行历史和最近一次结果。
+- Add a Scheduled Tasks entry.
+- Support one-time, daily, weekly, and monthly runs.
+- Show run history and the latest result.
 
-怎么改：
+How to change:
 
-- 后端新增定时任务模型：标题、任务输入、Agent、工具、计划规则、状态、上次运行、下次运行、创建人。
-- 先实现页面结构和空状态，再接真实创建接口。
-- 每次定时执行都创建普通任务记录，不另起一套结果存储。
-- 定时任务详情页关联历史任务列表。
+- Add a backend scheduled task model: title, task input, Agent, tools, schedule rule, status, last run, next run, owner.
+- Implement page structure and empty state first, then connect the real create API.
+- Every scheduled run should create a normal task record instead of using a separate result store.
+- Scheduled task detail should link to historical task records.
 
-验收：
+Acceptance:
 
-- 用户能创建、暂停、恢复、删除定时任务。
-- 每次运行都有普通任务记录可回看。
-- 失败时能看到失败原因。
+- Users can create, pause, resume, and delete scheduled tasks.
+- Every run has a normal task record that can be reviewed.
+- Failures show clear reasons.
 
-### 11. 浏览器和运行环境可视化
+### 11. Browser And Runtime Visualization
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 把“浏览器任务”“本地环境”“沙箱环境”从隐藏配置变成用户能理解的运行选项。
-- 浏览器任务应该有独立提示：会访问网页、可截图、可提取页面、敏感操作需要确认。
+- Turn "browser task", "local runtime", and "sandbox runtime" from hidden config into understandable user options.
+- Browser tasks should show a clear notice: they may visit web pages, take screenshots, extract page content, and require confirmation for sensitive actions.
 
-怎么改：
+How to change:
 
-- 新建任务快捷入口中加入“浏览器任务”。
-- 选择浏览器任务时默认选择 `browser_agent`。
-- 任务详情中对浏览器相关工具调用加专门图标和摘要。
-- 后续如果加入可视化浏览器面板，放在任务详情右侧产物区或独立运行区。
+- Add Browser Task to the new task shortcuts.
+- Selecting Browser Task should default to `browser_agent`.
+- In task detail, use dedicated icons and summaries for browser-related tool calls.
+- If a visual browser panel is added later, place it in the artifact area on the right or in a dedicated runtime area.
 
-验收：
+Acceptance:
 
-- 用户能明确选择“让 Agent 操作网页”。
-- 涉及登录、提交、删除、购买等动作时必须停下来等用户确认。
-- 浏览器相关结果能在任务详情中清楚显示。
+- Users can explicitly choose "let the Agent operate a web page".
+- Actions involving login, submission, deletion, purchase, or similar impact must stop and wait for user confirmation.
+- Browser-related results are clear in task detail.
 
-### 12. 产物预览和成品入口
+### 12. Artifact Preview And Finished Output Entry
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 把报告、PPT、HTML、图片、表格等结果当成“产物”管理，不只是一段聊天回复。
-- 首页快捷任务要能引导用户生成这些成品。
+- Treat reports, PPTs, HTML, images, and tables as artifacts, not only as chat replies.
+- Home shortcuts should guide users toward generating these finished outputs.
 
-怎么改：
+How to change:
 
-- 任务详情右侧加产物列表和预览区域。
-- 对 HTML、Markdown、图片、表格优先支持在线预览。
-- PPT、文档等先提供下载，后续再做预览。
-- 产物生成失败时在产物区显示失败原因。
+- Add an artifact list and preview area to the right side of task detail.
+- Support online preview first for HTML, Markdown, images, and tables.
+- Provide download for PPT and documents first; preview can come later.
+- If artifact generation fails, show the failure reason in the artifact area.
 
-验收：
+Acceptance:
 
-- 用户不用翻过程，也能找到最终文件。
-- 产物数量、类型、下载入口清楚。
-- 刷新页面后产物仍可访问。
+- Users can find final files without reading through the process.
+- Artifact count, type, and download entry are clear.
+- Artifacts remain accessible after refresh.
 
-### 13. 高级设置抽屉
+### 13. Advanced Settings Drawer
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 把运行模式、输出格式、运行环境、工具选择、评测入口收进高级设置。
-- 默认新建任务只暴露 Agent、文件、快捷任务、发送。
+- Move run mode, output format, runtime environment, tool selection, and eval entry into advanced settings.
+- By default, new task creation only exposes Agent, files, shortcuts, and send.
 
-怎么改：
+How to change:
 
-- 新增高级设置按钮。
-- 点击后显示抽屉或浮层。
-- 现有 hidden 控件迁移进高级设置，不再散落在输入栏。
-- 评测入口只在开发或管理员模式显示。
+- Add an Advanced Settings button.
+- Clicking it opens a drawer or popover.
+- Move existing hidden controls into advanced settings instead of scattering them around the input bar.
+- Show eval entry only in development or admin mode.
 
-验收：
+Acceptance:
 
-- 普通用户不会被 Plans Executor、ReAct、eval 这类配置干扰。
-- 高级用户仍能选择工具和运行方式。
-- 原有测试中关于默认提交参数的行为不变。
+- Regular users are not distracted by Plans Executor, ReAct, eval, or similar settings.
+- Advanced users can still select tools and runtime options.
+- Existing tests for default submission behavior still pass.
 
-### 14. 通知和任务完成提醒
+### 14. Notifications And Task Completion Reminders
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 页面顶部增加通知入口。
-- 支持任务完成、失败、等待输入的提醒。
+- Add a notification entry in the top area.
+- Support reminders for task completion, failure, and waiting-for-input states.
 
-怎么改：
+How to change:
 
-- 第一阶段只做前端通知中心，读取当前会话和最近任务状态。
-- 后续接浏览器通知和服务端事件。
-- 如果用户允许通知，任务完成时发浏览器通知。
+- In the first stage, implement a frontend notification center based on current session and recent task status.
+- Later, connect browser notifications and server-side events.
+- If users allow notifications, send browser notifications when a task completes.
 
-验收：
+Acceptance:
 
-- 运行中的任务完成后，页面有明显提醒。
-- 等待输入任务不会被用户忽略。
-- 用户可以关闭或清空通知。
+- Running task completion is clearly visible.
+- Waiting-for-input tasks are not easy to miss.
+- Users can close or clear notifications.
 
-### 15. 移动端适配
+### 15. Mobile Adaptation
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 手机端不应该只是压缩桌面页面。
-- 左侧导航变成抽屉，任务输入优先展示。
-- 任务详情用单列切换：概览、过程、产物。
+- Mobile should not be only a compressed desktop page.
+- The left navigation becomes a drawer, and task input gets priority.
+- Task detail uses single-column switching: overview, process, artifacts.
 
-怎么改：
+How to change:
 
-- 使用 CSS media query 重写 900px 和 640px 以下布局。
-- 固定尺寸控件使用稳定宽高，避免点击后跳动。
-- 长任务标题、长工具名、长文件名必须截断或换行。
+- Use CSS media queries to rewrite layouts below 900px and 640px.
+- Fixed-format controls should have stable dimensions so they do not jump after interactions.
+- Long task titles, tool names, and file names must truncate or wrap cleanly.
 
-验收：
+Acceptance:
 
-- 手机宽度下可以新建任务、查看任务、打开产物。
-- 没有文字挤压、按钮遮挡、横向滚动失控。
+- Users can create tasks, review tasks, and open artifacts on mobile widths.
+- No text squeezing, button overlap, or uncontrolled horizontal scrolling.
 
-### 16. 测试和验收脚本
+### 16. Tests And Acceptance Scripts
 
-状态：未开始
+Status: Not started
 
-要改什么：
+What to change:
 
-- 每个页面改动都要有自动检查。
-- 视觉和交互要用浏览器实际打开验证。
+- Every page change needs automated checks.
+- Visual and interaction behavior should be verified by opening the page in a browser.
 
-怎么改：
+How to change:
 
-- 更新 `tests/tasks/test_autoagent_web.py`，覆盖新导航、新建任务、隐藏高级设置、任务回看。
-- 保留并更新任务控制测试，确保取消、重试、补充输入不受影响。
-- 页面改完后启动本地服务，打开 `/agent/web/autoagent` 做桌面和手机宽度检查。
+- Update `tests/tasks/test_autoagent_web.py` to cover new navigation, new task creation, hidden advanced settings, and task replay.
+- Keep and update task control tests so cancel, retry, follow-up input, and task listing remain unaffected.
+- After page changes, start the local service and open `/agent/web/autoagent` for desktop and mobile width checks.
 
-验收：
+Acceptance:
 
-- `uv run pytest tests/tasks/test_autoagent_web.py tests/tasks/test_task_control_api.py -q` 通过。
-- 本地页面能打开，主流程能点通。
-- 如果某些后台能力暂时没有实现，页面必须明确显示“暂未接入”，不能假装可用。
+- `uv run pytest tests/tasks/test_autoagent_web.py tests/tasks/test_task_control_api.py -q` passes.
+- The local page opens and the main flow can be clicked through.
+- If some backend capabilities are not yet implemented, the page must clearly show "not connected yet" and must not pretend the feature works.
 
-## 推荐执行顺序
+## Recommended Execution Order
 
-1. 先做页面骨架、导航和首页输入区。
-2. 再做所有任务页和任务详情页。
-3. 然后做 Agent 页面和插件页面，因为它们可以直接复用已有接口。
-4. 接着做项目、库、定时任务，这三块需要补后端模型和接口。
-5. 最后补通知、浏览器可视化、产物预览增强和移动端细节。
+1. Build the page shell, navigation, and home task composer first.
+2. Then build the All Tasks page and task detail page.
+3. Then build the Agents page and Plugins page, because they can reuse existing APIs directly.
+4. Then build Projects, Library, and Scheduled Tasks; these three areas need backend models and APIs.
+5. Finally add notifications, browser visualization, artifact preview improvements, and mobile details.
 
-## 第一阶段最小交付范围
+## First-Stage Minimum Delivery Scope
 
-第一阶段建议只改前端页面，不新增复杂后台模型：
+The first stage should only change the frontend page and avoid adding complex backend models:
 
-- 新导航。
-- 新建任务首页。
-- 所有任务视图。
-- 任务详情视图。
-- Agent 视图。
-- 插件视图。
-- 高级设置抽屉。
+- New navigation.
+- New task home page.
+- All Tasks view.
+- Task Detail view.
+- Agents view.
+- Plugins view.
+- Advanced Settings drawer.
 
-第一阶段可以暂时把项目、库、定时任务做成空状态页面，并写清楚“后续接入”。
+Projects, Library, and Scheduled Tasks can temporarily be empty-state pages with clear "to be connected later" messaging.
 
-## 第一阶段涉及文件
+## First-Stage Files
 
 - `task-pilot-agent/brain/web/autoagent.html`
-  - 主要页面结构、样式和交互逻辑。
+  - Main page structure, styling, and interaction logic.
 
 - `task-pilot-agent/tests/tasks/test_autoagent_web.py`
-  - 页面结构、默认提交、高级设置隐藏、导航入口、任务回看测试。
+  - Page structure, default submission, hidden advanced settings, navigation entries, and task replay tests.
 
 - `task-pilot-agent/tests/tasks/test_task_control_api.py`
-  - 确认任务创建、取消、重试、补充输入、任务列表、事件过滤仍正常。
+  - Confirm task creation, cancel, retry, follow-up input, task list, and event filtering still work.
 
-## 第二阶段可能涉及文件
+## Possible Second-Stage Files
 
 - `task-pilot-agent/brain/app.py`
-  - 新增项目、资料库、定时任务接口。
+  - Add APIs for projects, library, and scheduled tasks.
 
 - `task-pilot-agent/brain/core/tasks.py`
-  - 任务关联项目、产物归库、定时任务运行记录。
+  - Link tasks to projects, register artifacts in the library, and record scheduled task runs.
 
 - `task-pilot-agent/file/file_op.py`
-  - 文件库展示、文件归属、项目关联。
+  - File library display, file ownership, and project links.
 
 - `config/agents/*/agent.yaml`
-  - 为快捷任务补齐 Agent 默认能力和默认工具说明。
+  - Complete default Agent capabilities and default tool descriptions for shortcut tasks.
 
-## 风险和注意事项
+## Risks And Notes
 
-- 不要把已有任务回放能力改坏，这是当前产品最有价值的底座。
-- 不要把工具调用、错误和风险提示藏起来，只能换成更好理解的展示方式。
-- 项目、库、定时任务不要只做前端假页面，必须尽快接入真实任务记录。
-- 高风险工具不要因为产品化而默认开放。
-- 页面风格可以参考 Manus 的清爽工作台感，但不要复制品牌、文案和图形资产。
+- Do not break existing task replay. It is currently one of the most valuable product foundations.
+- Do not hide tool calls, errors, or risk warnings. They can only be shown in a clearer way.
+- Projects, Library, and Scheduled Tasks should not remain frontend-only fake pages. They must connect to real task records as soon as possible.
+- High-risk tools must not be enabled by default because of productization.
+- The visual style can reference Manus's clean workspace feel, but do not copy its brand, copy, or graphic assets.
