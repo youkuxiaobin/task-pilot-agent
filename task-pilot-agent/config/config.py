@@ -49,6 +49,43 @@ def _env_int(name: str) -> Optional[int]:
     return int(raw)
 
 
+AUTH_CONFIG_ALIASES = {
+    "AUTH_REQUIRED": "required",
+    "AUTH_DEV_USER_ID": "dev_user_id",
+    "AUTH_ADMIN_USER_IDS": "admin_user_ids",
+    "AUTH_SESSION_COOKIE_NAME": "session_cookie_name",
+    "AUTH_SESSION_TTL_SECONDS": "session_ttl_seconds",
+    "AUTH_COOKIE_SECURE": "cookie_secure",
+}
+
+AUTH_PROVIDER_CONFIG_ALIASES = {
+    "google": {
+        "GOOGLE_ENABLED": "enabled",
+        "GOOGLE_AUTH_ENABLED": "enabled",
+        "GOOGLE_CLIENT_ID": "client_id",
+        "GOOGLE_CLIENT_SECRET": "client_secret",
+        "GOOGLE_REDIRECT_URI": "redirect_uri",
+        "GOOGLE_SCOPES": "scopes",
+    },
+    "microsoft": {
+        "MICROSOFT_ENABLED": "enabled",
+        "MICROSOFT_AUTH_ENABLED": "enabled",
+        "MICROSOFT_CLIENT_ID": "client_id",
+        "MICROSOFT_CLIENT_SECRET": "client_secret",
+        "MICROSOFT_REDIRECT_URI": "redirect_uri",
+        "MICROSOFT_SCOPES": "scopes",
+    },
+    "wechat": {
+        "WECHAT_ENABLED": "enabled",
+        "WECHAT_AUTH_ENABLED": "enabled",
+        "WECHAT_APP_ID": "client_id",
+        "WECHAT_APP_SECRET": "client_secret",
+        "WECHAT_REDIRECT_URI": "redirect_uri",
+        "WECHAT_SCOPES": "scopes",
+    },
+}
+
+
 def normalize_database_url(url: str) -> str:
     """Use the pure-Python MySQL driver when the URL does not name a driver."""
     if url.startswith("mysql://"):
@@ -410,13 +447,62 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
             data = {}
 
         # 直接返回嵌套 dict，字段名需与模型一致（server/db/auth）
-        return data
+        return _normalize_auth_config_aliases(data)
     def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[object, str, bool]:
         # YAML 用模型字段名（不走 alias）
         value = self._data.get(field_name, None)
         # 复杂值：交给 pydantic 去递归解析（嵌套模型/列表/字典等）
         is_complex = isinstance(value, (dict, list))
         return value, field_name, is_complex
+
+
+def _normalize_auth_config_aliases(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
+
+    root_alias_keys = set(AUTH_CONFIG_ALIASES)
+    for aliases in AUTH_PROVIDER_CONFIG_ALIASES.values():
+        root_alias_keys.update(aliases)
+    has_root_auth_alias = any(key in data for key in root_alias_keys)
+    auth = data.get("auth")
+    if not isinstance(auth, dict):
+        if not has_root_auth_alias:
+            return data
+        auth = {}
+
+    normalized = dict(data)
+    auth_config = dict(auth)
+    alias_source = {
+        **{key: data[key] for key in root_alias_keys if key in data},
+        **{key: auth_config[key] for key in root_alias_keys if key in auth_config},
+    }
+
+    for alias, field_name in AUTH_CONFIG_ALIASES.items():
+        if alias in alias_source and field_name not in auth_config:
+            value = alias_source[alias]
+            if field_name == "admin_user_ids":
+                value = _csv_to_list(value)
+            auth_config[field_name] = value
+
+    providers = dict(auth_config.get("providers") or {})
+    for provider_name, aliases in AUTH_PROVIDER_CONFIG_ALIASES.items():
+        provider_config = dict(providers.get(provider_name) or {})
+        found_provider_alias = False
+        for alias, field_name in aliases.items():
+            if alias not in alias_source or field_name in provider_config:
+                continue
+            value = alias_source[alias]
+            if field_name == "scopes":
+                value = _csv_to_list(value)
+            provider_config[field_name] = value
+            found_provider_alias = True
+        if found_provider_alias or provider_name in providers:
+            providers[provider_name] = provider_config
+    if providers:
+        auth_config["providers"] = providers
+
+    normalized["auth"] = auth_config
+    return normalized
 
 
 
