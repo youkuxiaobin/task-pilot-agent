@@ -424,6 +424,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
 
     class FakeHandler:
         async def handle(self, ctx, _request):
+            assert ctx.language == "en"
             assert ctx.memory_context["memoryCount"] == 1
             assert ctx.memory_context["ragCount"] == 1
             assert ctx.memory_context["memoryResults"][0]["metadata"]["api_key"] == "***"
@@ -473,6 +474,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
         mode="react",
         outputStyle="markdown",
         run_environment="sandbox",
+        language="en",
         messages=[app_module.AgentMessage(role="user", content="hello")],
     )
 
@@ -484,6 +486,7 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert task.status == task_modules.AgentTaskStatus.COMPLETED
     assert task.output_text == "final answer"
     assert task_modules.serialize_task(task)["metadata"]["runEnvironment"] == "sandbox"
+    assert task_modules.serialize_task(task)["metadata"]["language"] == "en"
 
     event_types = [event.event_type for event in store.list_events("trace-autoagent")]
     assert "task_created" in event_types
@@ -529,6 +532,10 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     assert memory_payload["memoryResults"][0]["snippet"] == "remember public context"
     assert memory_payload["memoryResults"][0]["metadata"]["api_key"] == "***"
     assert memory_payload["ragResults"][0]["metadata"]["title"] == "demo"
+    agent_started_event = next(
+        event for event in store.list_events("trace-autoagent") if event.event_type == "agent_started"
+    )
+    assert task_modules.serialize_event(agent_started_event)["payload"]["language"] == "en"
 
     streamed_events = [
         json.loads(item.removeprefix("data: ").strip())

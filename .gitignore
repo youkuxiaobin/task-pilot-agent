@@ -11,3 +11,4 @@ logs/
 uploads/
 task-pilot-agent/logs/
 task-pilot-agent/uploads/
+task-pilot-agent/frontend/node_modules/

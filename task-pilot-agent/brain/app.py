@@ -38,6 +38,8 @@ logger = get_logger(__name__)
 agent_router = APIRouter()
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
+FRONTEND_ROOT = Path(__file__).resolve().parents[1] / "frontend"
+FRONTEND_DIST = FRONTEND_ROOT / "dist"
 
 agentRegistry = AgentRegistry()
 runningAgentTasks: Dict[str, asyncio.Task] = {}
@@ -141,6 +143,15 @@ def _normalize_run_environment(value: Optional[str]) -> str:
     if normalized in {"local", "sandbox"}:
         return normalized
     return "local"
+
+
+def _normalize_language(value: Optional[str]) -> str:
+    normalized = (value or "").strip().lower().replace("_", "-")
+    if normalized in {"en", "en-us", "english"}:
+        return "en"
+    if normalized in {"ch", "zh", "zh-cn", "cn", "chinese"}:
+        return "ch"
+    return "ch"
 
 
 def _truncate_for_event(value: Any, limit: int = 320) -> str:
@@ -619,6 +630,7 @@ def _fill_request_defaults(request: GptQueryReq) -> None:
     request.run_environment = _normalize_run_environment(
         request.run_environment or agentSettings.core.default_run_environment
     )
+    request.language = _normalize_language(request.language or getattr(agentSettings, "lang", "ch"))
     fill_output_styles(request)
 
 
@@ -748,6 +760,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "approvedTools": approved_tools,
                     "inputFiles": input_files,
                     "runEnvironment": request.run_environment,
+                    "language": request.language,
                 },
             )
             created_task_payload = serialize_task(created_task)
@@ -773,6 +786,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 "approvedTools": approved_tools,
                 "inputFiles": event_input_files,
                 "runEnvironment": request.run_environment,
+                "language": request.language,
                 "workDir": created_task_payload.get("workDir"),
             }
             if existing_task:
@@ -845,6 +859,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                     "agentSnapshot": agent_snapshot,
                     "mode": resolved_mode,
                     "runEnvironment": request.run_environment,
+                    "language": request.language,
                 },
                 trace_id=trace_id,
                 source="agent",
@@ -871,6 +886,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 selected_tools=selected_tools,
                 approved_tools=approved_tools,
                 run_environment=request.run_environment or "local",
+                language=request.language or "ch",
             )
             _convert_agent_messages(ctx, messages)
             logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
@@ -1091,6 +1107,7 @@ async def list_agent_tools(agent_id: Optional[str] = Query(default=None)) -> Dic
         toolCollection=None,
         dateInfo=time.strftime("%Y-%m-%d"),
         isStream=False,
+        language=_normalize_language(getattr(agentSettings, "lang", "ch")),
     )
     tc = await build_tool_collection(ctx)
     blocked = sorted(set(tc.blocked_tools))
@@ -1297,6 +1314,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
             "approvedTools": approved_tools,
             "inputFiles": input_files,
             "runEnvironment": request.run_environment,
+            "language": request.language,
         },
     )
     store.add_event(
@@ -1312,6 +1330,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
             "approvedTools": approved_tools,
             "inputFiles": input_files,
             "runEnvironment": request.run_environment,
+            "language": request.language,
         },
         trace_id=trace_id,
         source="api",
@@ -1341,6 +1360,7 @@ async def _start_handoff_task(
     selected_tools = _normalize_tool_selection(options.get("selected_tools"))
     approved_tools = _normalize_tool_selection(parent_ctx.approved_tools)
     run_environment = _normalize_run_environment(parent_ctx.run_environment)
+    language = _normalize_language(getattr(parent_ctx, "language", None))
     target_agent_snapshot = target_config.to_runtime_snapshot(approved_tools=approved_tools)
 
     request = GptQueryReq(
@@ -1353,6 +1373,7 @@ async def _start_handoff_task(
         selected_tools=selected_tools,
         approved_tools=approved_tools,
         run_environment=run_environment,
+        language=language,
         messages=[AgentMessage(role=RoleType.USER.value, content=task_text)],
     )
     _fill_request_defaults(request)
@@ -1375,6 +1396,7 @@ async def _start_handoff_task(
             "selectedTools": selected_tools,
             "approvedTools": approved_tools,
             "runEnvironment": run_environment,
+            "language": language,
         },
     )
     store.add_event(
@@ -1391,6 +1413,7 @@ async def _start_handoff_task(
             "selectedTools": selected_tools,
             "approvedTools": approved_tools,
             "runEnvironment": run_environment,
+            "language": language,
         },
         trace_id=trace_id,
         source="handoff",
@@ -1410,6 +1433,7 @@ async def _start_handoff_task(
                 "selectedTools": selected_tools,
                 "approvedTools": approved_tools,
                 "runEnvironment": run_environment,
+                "language": language,
             },
             trace_id=parent_ctx.requestId,
             source="handoff",
@@ -1418,7 +1442,12 @@ async def _start_handoff_task(
     return serialize_task(task)
 
 
-async def _resume_task_after_input(task_id: str, supplemental_input: str) -> None:
+async def _resume_task_after_input(
+    task_id: str,
+    supplemental_input: str,
+    *,
+    language_override: Optional[str] = None,
+) -> None:
     store = TaskStore()
     task = store.get_task(task_id)
     if not task:
@@ -1428,7 +1457,13 @@ async def _resume_task_after_input(task_id: str, supplemental_input: str) -> Non
     selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
     approved_tools = _normalize_tool_selection(metadata.get("approvedTools") if metadata else None)
     run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
+    language = _normalize_language(language_override or (metadata.get("language") if metadata else None))
     input_files = metadata.get("inputFiles") if metadata else None
+    supplemental_text = (
+        f"User supplemental input: {supplemental_input.strip()}"
+        if language == "en"
+        else f"用户补充输入：{supplemental_input.strip()}"
+    )
     messages = [
         AgentMessage(
             role=RoleType.USER.value,
@@ -1437,7 +1472,7 @@ async def _resume_task_after_input(task_id: str, supplemental_input: str) -> Non
         ),
         AgentMessage(
             role=RoleType.USER.value,
-            content=f"用户补充输入：{supplemental_input.strip()}",
+            content=supplemental_text,
         ),
     ]
     await _run_autoagent(
@@ -1451,6 +1486,7 @@ async def _resume_task_after_input(task_id: str, supplemental_input: str) -> Non
             selected_tools=selected_tools,
             approved_tools=approved_tools,
             run_environment=run_environment,
+            language=language,
             messages=messages,
         ),
         lambda _data: None,
@@ -1531,6 +1567,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
     selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
     approved_tools = _normalize_tool_selection(metadata.get("approvedTools") if metadata else None)
     run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
+    language = _normalize_language(metadata.get("language") if metadata else None)
     input_files = metadata.get("inputFiles") if metadata else None
     agent_snapshot = metadata.get("agentSnapshot") if isinstance(metadata.get("agentSnapshot"), dict) else None
     if agent_snapshot is None:
@@ -1552,6 +1589,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
             "selectedTools": selected_tools,
             "approvedTools": approved_tools,
             "runEnvironment": run_environment,
+            "language": language,
             "inputFiles": input_files,
         },
     )
@@ -1568,6 +1606,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
             "selectedTools": selected_tools,
             "approvedTools": approved_tools,
             "runEnvironment": run_environment,
+            "language": language,
             "inputFiles": input_files,
         },
         trace_id=retry_trace_id,
@@ -1591,6 +1630,7 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
         selected_tools=selected_tools,
         approved_tools=approved_tools,
         run_environment=run_environment,
+        language=language,
         messages=[
             AgentMessage(
                 role=RoleType.USER.value,
@@ -1611,6 +1651,9 @@ async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str,
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     was_waiting = task.status == AgentTaskStatus.WAITING_INPUT
+    task_payload = serialize_task(task)
+    metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
+    language = _normalize_language(req.language or (metadata.get("language") if metadata else None))
     try:
         event = store.add_user_input(task_id, req.content, user_id=req.user_id)
     except ValueError as exc:
@@ -1622,6 +1665,7 @@ async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str,
             {
                 "status": AgentTaskStatus.QUEUED,
                 "reason": "user_input_received",
+                "language": language,
             },
             trace_id=task.trace_id,
             source="api",
@@ -1629,11 +1673,11 @@ async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str,
         store.add_event(
             task_id,
             "task_resume_requested",
-            {"userInputEventId": event.id},
+            {"userInputEventId": event.id, "language": language},
             trace_id=task.trace_id,
             source="api",
         )
-        asyncio.create_task(_resume_task_after_input(task_id, req.content))
+        asyncio.create_task(_resume_task_after_input(task_id, req.content, language_override=language))
     updated_task = store.get_task(task_id) or task
     return {"task": serialize_task(updated_task), "event": serialize_event(event)}
 
@@ -1665,8 +1709,20 @@ async def download_agent_task_artifact(task_id: str, artifact_id: str) -> Any:
     )
 
 
-@agent_router.get("/web/autoagent", response_class=HTMLResponse)
-async def autoagent_console() -> HTMLResponse:
+@agent_router.get("/web/assets/{asset_path:path}")
+async def autoagent_frontend_asset(asset_path: str) -> FileResponse:
+    asset_file = (FRONTEND_DIST / "assets" / asset_path).resolve()
+    assets_root = (FRONTEND_DIST / "assets").resolve()
+    if not asset_file.is_file() or not asset_file.is_relative_to(assets_root):
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(str(asset_file))
+
+
+@agent_router.get("/web/autoagent")
+async def autoagent_console() -> Any:
+    vue_index = FRONTEND_DIST / "index.html"
+    if vue_index.is_file():
+        return FileResponse(str(vue_index), media_type="text/html")
     html_path = WEB_ROOT / "autoagent.html"
     return HTMLResponse(html_path.read_text(encoding="utf-8"))
 

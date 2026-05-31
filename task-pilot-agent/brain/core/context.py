@@ -43,6 +43,7 @@ class AgentContext:
     selected_tools: Optional[List[str]] = None
     approved_tools: Optional[List[str]] = None
     run_environment: str = "local"
+    language: str = "ch"
     memory_context: Dict[str, Any] = field(default_factory=dict)
     agent_memory: Dict[str, Any] = field(default_factory=dict)
     waiting_for_input: bool = False
@@ -73,6 +74,9 @@ class AgentContext:
 
     def compose_system_prompt(self, base_prompt: str) -> str:
         parts: List[str] = []
+        language_prompt = self.language_instruction()
+        if language_prompt:
+            parts.append(language_prompt)
         agent_prompt = (self.agent_system_prompt or "").strip()
         if agent_prompt:
             parts.append(agent_prompt)
@@ -82,6 +86,20 @@ class AgentContext:
         parts.append(base_prompt)
         return "\n\n".join(part for part in parts if part)
 
+    def normalized_language(self) -> str:
+        value = (self.language or "ch").strip().lower()
+        if value in {"en", "en-us", "en_us", "english"}:
+            return "en"
+        return "ch"
+
+    def language_instruction(self) -> str:
+        if self.normalized_language() == "en":
+            return (
+                "Output language: English. Reply to the user in clear, natural English. "
+                "Keep tool arguments and file paths unchanged when exact values are required."
+            )
+        return "输出语言：中文。请用清晰、自然的中文回复用户；必要的工具参数和文件路径保持原样。"
+
     def format_memory_context_for_prompt(self) -> str:
         context = self.memory_context or {}
         memory_results = context.get("memoryResults") if isinstance(context, dict) else None
@@ -89,9 +107,14 @@ class AgentContext:
         if not memory_results and not rag_results:
             return ""
 
-        lines: List[str] = [
-            "以下是本次任务可参考的历史记忆和知识库检索摘要。只在相关时使用，并优先以当前用户输入为准。"
-        ]
+        if self.normalized_language() == "en":
+            lines: List[str] = [
+                "The following are relevant memory and knowledge-base snippets for this task. Use them only when relevant, and prefer the current user input."
+            ]
+        else:
+            lines = [
+                "以下是本次任务可参考的历史记忆和知识库检索摘要。只在相关时使用，并优先以当前用户输入为准。"
+            ]
         for label, items in (("memory", memory_results), ("knowledge", rag_results)):
             if not isinstance(items, list):
                 continue

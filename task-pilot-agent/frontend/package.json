@@ -1,0 +1,19 @@
+{
+  "name": "taskpilot-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.3",
+    "dompurify": "^3.3.0",
+    "marked": "^17.0.1",
+    "vite": "^7.2.6",
+    "vue": "^3.5.24"
+  },
+  "devDependencies": {}
+}

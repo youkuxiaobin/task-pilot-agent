@@ -32,6 +32,7 @@ class GptQueryReq(BaseModel):
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    language: Optional[str] = None
     outputStyle: Optional[str] = None
     mode: Optional[str] = None
     selected_tools: Optional[List[str]] = None
@@ -43,3 +44,4 @@ class GptQueryReq(BaseModel):
 class TaskUserInputReq(BaseModel):
     content: str
     user_id: Optional[str] = None
+    language: Optional[str] = None

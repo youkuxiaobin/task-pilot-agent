@@ -72,6 +72,7 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
                 }
             ],
             "runEnvironment": "sandbox",
+            "language": "en",
             "approvedTools": ["mcp_local:code_interpreter"],
         },
     )
@@ -103,6 +104,7 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     assert payload["metadata"]["source"] == "retry"
     assert payload["metadata"]["parentTaskId"] == "retry-me"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["language"] == "en"
     assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert payload["metadata"]["inputFiles"][0]["fileName"] == "source.csv"
     assert payload["metadata"]["agentSnapshot"]["name"] == "Retry Agent"
@@ -115,6 +117,7 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
     retry_events = store.list_events(payload["taskId"])
     assert retry_events[0].event_type == "task_queued"
     assert tasks.serialize_event(retry_events[0])["payload"]["parentTaskId"] == "retry-me"
+    assert tasks.serialize_event(retry_events[0])["payload"]["language"] == "en"
     assert tasks.serialize_event(retry_events[0])["payload"]["agentSnapshot"]["name"] == "Retry Agent"
 
 
@@ -155,7 +158,7 @@ def test_add_task_input_queues_resume_when_waiting(app_modules, monkeypatch):
     payload = asyncio.run(
         app.add_agent_task_input(
             "wait-for-input",
-            app.TaskUserInputReq(content=" account-123 ", user_id="user-2"),
+            app.TaskUserInputReq(content=" account-123 ", user_id="user-2", language="en"),
         )
     )
 
@@ -174,7 +177,10 @@ def test_add_task_input_queues_resume_when_waiting(app_modules, monkeypatch):
     ]
     queued_payload = tasks.serialize_event(events[-2])["payload"]
     assert queued_payload["reason"] == "user_input_received"
-    assert tasks.serialize_event(events[-1])["payload"]["userInputEventId"] == payload["event"]["id"]
+    assert queued_payload["language"] == "en"
+    resume_payload = tasks.serialize_event(events[-1])["payload"]
+    assert resume_payload["userInputEventId"] == payload["event"]["id"]
+    assert resume_payload["language"] == "en"
 
 
 def test_resume_task_after_input_replays_same_task_context(app_modules, monkeypatch):
@@ -224,9 +230,40 @@ def test_resume_task_after_input_replays_same_task_context(app_modules, monkeypa
     assert req.selected_tools == ["mcp_local:deepsearch"]
     assert req.approved_tools == ["mcp_local:code_interpreter"]
     assert req.run_environment == "sandbox"
+    assert req.language == "ch"
     assert req.messages[0].content == "lookup account"
     assert req.messages[0].uploadFile[0].fileName == "source.csv"
     assert req.messages[1].content == "用户补充输入：account-123"
+
+
+def test_resume_task_after_input_can_continue_in_english(app_modules, monkeypatch):
+    app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(
+        task_id="resume-english-task",
+        trace_id="trace-resume-english-task",
+        conversation_id="conversation-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        mode="react",
+        output_style="markdown",
+        input_text="lookup account",
+        metadata={"language": "en"},
+    )
+
+    captured = {}
+
+    async def fake_run_autoagent(req, enqueue):
+        captured["req"] = req
+        captured["enqueue"] = enqueue
+
+    monkeypatch.setattr(app, "_run_autoagent", fake_run_autoagent)
+
+    asyncio.run(app._resume_task_after_input("resume-english-task", " account-123 "))
+
+    req = captured["req"]
+    assert req.language == "en"
+    assert req.messages[1].content == "User supplemental input: account-123"
 
 
 def test_create_task_api_persists_task_and_starts_background_run(app_modules, monkeypatch):
@@ -255,6 +292,7 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
                 outputStyle="markdown",
                 mode="react",
                 run_environment="sandbox",
+                language="en",
                 approved_tools=["mcp_local:code_interpreter"],
                 messages=[app.AgentMessage(role="user", content="run in background")],
             )
@@ -265,18 +303,21 @@ def test_create_task_api_persists_task_and_starts_background_run(app_modules, mo
     assert payload["status"] == tasks.AgentTaskStatus.QUEUED
     assert payload["metadata"]["source"] == "api"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["language"] == "en"
     assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert payload["metadata"]["agentSnapshot"]["id"] == "task-pilot-agent"
     assert payload["metadata"]["agentSnapshot"]["name"] == "TaskPilot 默认 Agent"
     assert created_background
     background_req = created_background[0].cr_frame.f_locals["req"]
     assert background_req.trace_id == payload["taskId"]
+    assert background_req.language == "en"
     created_background[0].close()
 
     store = tasks.TaskStore()
     events = store.list_events(payload["taskId"])
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["runEnvironment"] == "sandbox"
+    assert tasks.serialize_event(events[-1])["payload"]["language"] == "en"
     assert tasks.serialize_event(events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert tasks.serialize_event(events[-1])["payload"]["agentSnapshot"]["id"] == "task-pilot-agent"
 
@@ -657,6 +698,7 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
         outputStyle="markdown",
         approved_tools=["mcp_local:code_interpreter"],
         run_environment="sandbox",
+        language="en",
     )
 
     payload = asyncio.run(
@@ -672,6 +714,7 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert payload["metadata"]["source"] == "handoff"
     assert payload["metadata"]["parentTaskId"] == "parent-task"
     assert payload["metadata"]["runEnvironment"] == "sandbox"
+    assert payload["metadata"]["language"] == "en"
     assert payload["metadata"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert payload["metadata"]["agentSnapshot"]["id"] == "child-agent"
     assert created_background
@@ -681,11 +724,13 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["parentAgentId"] == "parent-agent"
     assert tasks.serialize_event(events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
+    assert tasks.serialize_event(events[-1])["payload"]["language"] == "en"
     parent_events = store.list_events("parent-task")
     assert parent_events[-1].event_type == "task_handoff_requested"
     assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentId"] == "child-agent"
     assert tasks.serialize_event(parent_events[-1])["payload"]["childTaskId"] == payload["taskId"]
     assert tasks.serialize_event(parent_events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
+    assert tasks.serialize_event(parent_events[-1])["payload"]["language"] == "en"
     assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentSnapshot"]["id"] == "child-agent"
 
     with pytest.raises(ValueError, match="cannot hand off"):
