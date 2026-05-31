@@ -129,6 +129,8 @@ def test_task_detail_is_continuous_chat_window():
 
     for marker in [
         "const chatMessages = ref([])",
+        "function createSessionId",
+        "function resetConversationState",
         "async function submitChatMessage",
         "function appendAssistantContent",
         "function seedChatFromTask",
@@ -155,13 +157,18 @@ def test_task_detail_is_continuous_chat_window():
     ]:
         assert marker in source
 
-    assert "buildPriorConversationMessages()" in submit_block
+    assert "if (source === 'home') resetConversationState()" in submit_block
+    assert "const priorMessages = source === 'chat' ? buildPriorConversationMessages() : []" in submit_block
     assert "messages: [...priorMessages, { role: 'user', content: text, uploadFile: uploadedFiles }]" in submit_block
     assert "keepChat: true" in source
+    assert '@click="item.id === \'home\' ? newTask() : switchView(item.id)"' in source
     detail_block = source.split('<section v-else-if="activeView === \'taskDetail\'"', 1)[1].split(
         '<section v-else-if="activeView === \'tasks\'"', 1
     )[0]
     assert 'class="conversation-thread"' in detail_block
+    assert 'class="detail-header"' not in detail_block
+    assert "currentTask?.input || t('task.current')" not in detail_block
+    assert "{{ taskMeta }}" not in detail_block
     assert 'v-for="(message, index) in chatMessages"' in detail_block
     assert "isProgressMessage(message, index) && progressItems.length" in detail_block
     assert 'class="timeline-card"' not in detail_block
@@ -216,8 +223,8 @@ def test_vue_sidebar_is_collapsible_resizable_and_detail_layout_is_responsive():
         "container-type: inline-size",
         "@container (max-width: 1180px)",
         ".conversation-thread",
-        "width: min(980px, calc(100% - 76px))",
-        "width: min(900px, calc(100% - 48px))",
+        "width: min(720px, calc(100% - 48px))",
+        "width: fit-content",
         "overflow-wrap: anywhere",
     ]:
         assert marker in styles

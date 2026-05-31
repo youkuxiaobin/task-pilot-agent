@@ -659,6 +659,7 @@ body.resizing-sidebar * {
 
 .detail-view {
   container-type: inline-size;
+  overflow: hidden;
 }
 
 .home-view {
@@ -966,28 +967,41 @@ body.resizing-sidebar * {
 }
 
 .conversation-thread {
-  width: min(980px, calc(100% - 76px));
+  width: min(720px, calc(100% - 48px));
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   margin: 0 auto;
-  padding: 4px 0 42px;
+  padding: 50px 0 22px;
+}
+
+.conversation-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
 }
 
 .conversation-stream {
   min-height: 0;
+  flex: 1;
+  overflow: auto;
   display: grid;
   align-content: start;
-  gap: 28px;
+  gap: 24px;
   padding: 10px 0 22px;
 }
 
 .chat-message {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   max-width: min(860px, 100%);
 }
 
 .chat-user {
   justify-self: end;
-  width: min(720px, 88%);
+  width: fit-content;
+  max-width: min(640px, 88%);
 }
 
 .chat-assistant {
@@ -1002,7 +1016,54 @@ body.resizing-sidebar * {
 }
 
 .chat-user .chat-speaker {
-  text-align: right;
+  display: none;
+}
+
+.chat-assistant .chat-speaker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-main);
+  font-size: 18px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.chat-assistant .chat-speaker small {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.assistant-mark {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.assistant-mark svg {
+  width: 24px;
+  height: 24px;
+}
+
+.assistant-mark-route {
+  fill: none;
+  stroke: #a7a7a4;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 2 3;
+}
+
+.assistant-mark-plane {
+  fill: #262626;
+}
+
+.assistant-mark-dot {
+  fill: var(--blue);
 }
 
 .chat-bubble {
@@ -1012,10 +1073,12 @@ body.resizing-sidebar * {
 }
 
 .chat-user .chat-bubble {
+  width: fit-content;
+  max-width: 100%;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: #ffffff;
-  padding: 14px 18px;
+  padding: 10px 14px;
 }
 
 .chat-assistant .chat-bubble {
@@ -1031,24 +1094,23 @@ body.resizing-sidebar * {
 }
 
 .chat-composer {
-  position: sticky;
-  bottom: 14px;
+  position: relative;
   z-index: 3;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
+  background: #ffffff;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-  padding: 12px;
+  padding: 10px;
 }
 
 .chat-composer textarea {
   width: 100%;
-  min-height: 58px;
+  min-height: 44px;
   resize: vertical;
   border: 0;
   border-radius: 0;
   outline: 0;
-  padding: 6px 8px;
+  padding: 4px 8px;
   background: transparent;
   color: var(--text-main);
   line-height: 1.5;
@@ -1058,7 +1120,7 @@ body.resizing-sidebar * {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .small-send {
@@ -1072,9 +1134,9 @@ body.resizing-sidebar * {
 }
 
 .conversation-progress {
-  margin: 10px 0 22px;
+  margin: 10px 0 18px;
   color: #555553;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -1113,19 +1175,19 @@ body.resizing-sidebar * {
 }
 
 .markdown-body h1 {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.35;
-  font-weight: 720;
+  font-weight: 700;
 }
 
 .markdown-body h2 {
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.35;
   font-weight: 680;
 }
 
 .markdown-body h3 {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.4;
   font-weight: 650;
 }
@@ -1172,6 +1234,8 @@ body.resizing-sidebar * {
 
 .timeline-item {
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
   overflow: hidden;
   border: 0;
   border-radius: 12px;
@@ -1181,31 +1245,35 @@ body.resizing-sidebar * {
 .progress-action-list {
   position: relative;
   display: grid;
-  gap: 6px;
-  padding-left: 10px;
+  justify-items: start;
+  gap: 8px;
+  padding-left: 8px;
 }
 
 .progress-action-list::before {
   content: "";
   position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: 14px;
+  top: 13px;
+  bottom: 13px;
+  left: 12px;
   border-left: 1px dashed #d8d8d6;
 }
 
 .timeline-item summary {
   position: relative;
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) max-content max-content;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 30px;
+  display: inline-grid;
+  grid-template-columns: 12px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+  background: #f3f3f2;
   border-radius: 999px;
   padding: 0 10px;
   cursor: pointer;
   color: #555553;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.35;
   list-style: none;
@@ -1222,6 +1290,8 @@ body.resizing-sidebar * {
 .timeline-dot {
   width: 8px;
   height: 8px;
+  position: relative;
+  z-index: 1;
   border-radius: 999px;
   background: #8c8c89;
 }
@@ -1242,7 +1312,7 @@ body.resizing-sidebar * {
 .progress-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, auto) auto;
   align-items: center;
   gap: 6px 8px;
 }
@@ -1253,8 +1323,8 @@ body.resizing-sidebar * {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #555553;
-  font-size: 14px;
-  font-weight: 560;
+  font-size: 13px;
+  font-weight: 540;
 }
 
 .progress-main small {
@@ -1273,6 +1343,7 @@ body.resizing-sidebar * {
 }
 
 .progress-state {
+  display: none;
   border-radius: 999px;
   background: #eeeeec;
   color: var(--text-muted);
@@ -1299,6 +1370,7 @@ body.resizing-sidebar * {
 }
 
 .timeline-item time {
+  display: none;
   color: var(--text-faint);
   font-size: 12px;
   font-weight: 600;
@@ -1308,7 +1380,7 @@ body.resizing-sidebar * {
 .progress-detail {
   display: grid;
   gap: 8px;
-  margin: 4px 0 8px 28px;
+  margin: 5px 0 8px 28px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   background: #ffffff;
@@ -1499,13 +1571,13 @@ body.resizing-sidebar * {
 
 @container (max-width: 1180px) {
   .conversation-thread {
-    width: min(900px, calc(100% - 48px));
+    width: min(720px, calc(100% - 48px));
   }
 }
 
 @container (max-width: 760px) {
   .timeline-item summary {
-    grid-template-columns: 12px minmax(0, 1fr) max-content;
+    grid-template-columns: 12px minmax(0, 1fr);
   }
 
   .timeline-item time {
@@ -1515,7 +1587,7 @@ body.resizing-sidebar * {
 
 @media (max-width: 1040px) {
   .conversation-thread {
-    width: min(860px, calc(100% - 48px));
+    width: min(720px, calc(100% - 48px));
   }
 
   .filter-bar {

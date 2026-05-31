@@ -291,7 +291,7 @@ const scrollRef = ref(null)
 const chatInput = ref('')
 const chatMessages = ref([])
 const activeAssistantMessageId = ref('')
-const currentSessionId = ref(`sess_${Date.now().toString(36)}`)
+const currentSessionId = ref(createSessionId())
 const currentTaskId = ref('')
 const currentTask = ref(null)
 const currentEvents = ref([])
@@ -499,8 +499,12 @@ function stopSidebarResize() {
   window.removeEventListener('pointermove', resizeSidebar)
 }
 
-function newTask() {
-  currentSessionId.value = `sess_${Date.now().toString(36)}`
+function createSessionId() {
+  return `sess_${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function resetConversationState(options = {}) {
+  currentSessionId.value = createSessionId()
   currentTaskId.value = ''
   currentTask.value = null
   currentEvents.value = []
@@ -512,6 +516,15 @@ function newTask() {
   chatMessages.value = []
   activeAssistantMessageId.value = ''
   statusText.value = t('common.ready')
+  if (options.resetQuery) query.value = ''
+  if (options.resetFiles) {
+    selectedFiles.value = []
+    if (fileInputRef.value) fileInputRef.value.value = ''
+  }
+}
+
+function newTask() {
+  resetConversationState({ resetQuery: true, resetFiles: true })
   switchView('home')
   nextTick(() => document.querySelector('#query')?.focus())
 }
@@ -628,7 +641,8 @@ function seedChatFromTask(task, output) {
 async function submitConversationMessage(text, source) {
   if (!text || running.value) return
 
-  const priorMessages = buildPriorConversationMessages()
+  if (source === 'home') resetConversationState()
+  const priorMessages = source === 'chat' ? buildPriorConversationMessages() : []
   const userMessage = {
     id: chatMessageId('user'),
     role: 'user',
@@ -1567,7 +1581,7 @@ onBeforeUnmount(() => {
           type="button"
           class="nav-item"
           :class="{ active: activeView === item.id }"
-          @click="switchView(item.id)"
+          @click="item.id === 'home' ? newTask() : switchView(item.id)"
         >
           <span class="nav-icon">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
@@ -1827,15 +1841,10 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="activeView === 'taskDetail'" class="view detail-view">
-        <div class="detail-header">
-          <div>
-            <h2>{{ currentTask?.input || t('task.current') }}</h2>
-            <p>{{ taskMeta }}</p>
-          </div>
-          <button v-if="running" type="button" class="danger-button" @click="stopTask">{{ t('common.stop') }}</button>
-        </div>
-
         <div class="conversation-thread">
+          <div v-if="running" class="conversation-controls">
+            <button type="button" class="ghost-button small" @click="stopTask">{{ t('common.stop') }}</button>
+          </div>
           <div ref="scrollRef" class="conversation-stream">
             <div v-if="!chatMessages.length" class="muted-text">{{ t('chat.empty') }}</div>
             <div
@@ -1844,7 +1853,20 @@ onBeforeUnmount(() => {
               class="chat-message"
               :class="`chat-${message.role}`"
             >
-              <div class="chat-speaker">{{ message.role === 'user' ? t('chat.user') : t('chat.assistant') }}</div>
+              <div class="chat-speaker">
+                <template v-if="message.role === 'assistant'">
+                  <span class="assistant-mark" aria-hidden="true">
+                    <svg viewBox="0 0 32 32" focusable="false">
+                      <path class="assistant-mark-route" d="M7 23c4-8 9-12 18-14" />
+                      <path class="assistant-mark-plane" d="M7 24 25 6l-5 18-5-7-8 7Z" />
+                      <circle class="assistant-mark-dot" cx="10" cy="22" r="2.2" />
+                    </svg>
+                  </span>
+                  <span>TaskPilot</span>
+                  <small>{{ t('chat.assistant') }}</small>
+                </template>
+                <template v-else>{{ t('chat.user') }}</template>
+              </div>
               <div class="chat-bubble">
                 <template v-if="message.role === 'assistant'">
                   <div
