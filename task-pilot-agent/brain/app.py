@@ -26,9 +26,11 @@ from brain.core.handlers.factory import AgentHandlerFactory
 from brain.core.handlers.react import ReactHandler
 from brain.core.handlers.plan_solve import PlanSolveHandler
 from brain.core.handlers.supervisor import SupervisorHandler
+from auth.dependencies import require_current_user, require_current_websocket_user
+from auth.models import TaskPilotUser
 from config.config import agentSettings
 from pydantic import ValidationError
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from utils.logger import get_logger, configure_log_context, clear_log_context
 from llm.types import LLMMessage, RoleType
 from memory.memory_mgr import memory_manager
@@ -632,6 +634,29 @@ def _fill_request_defaults(request: GptQueryReq) -> None:
     )
     request.language = _normalize_language(request.language or getattr(agentSettings, "lang", "ch"))
     fill_output_styles(request)
+
+
+def _current_user_id(current_user: Any, fallback_user_id: Optional[str] = None) -> Optional[str]:
+    user_id = getattr(current_user, "user_id", None)
+    if user_id:
+        return str(user_id)
+    return fallback_user_id
+
+
+def _is_injected_user(current_user: Any) -> bool:
+    return bool(getattr(current_user, "user_id", None))
+
+
+def _ensure_task_owner(task: Any, current_user: Any) -> None:
+    if not _is_injected_user(current_user):
+        return
+    owner = str(getattr(task, "user_id", "") or "")
+    current_user_id = str(getattr(current_user, "user_id", "") or "")
+    if owner == current_user_id:
+        return
+    if not owner and not agentSettings.auth.required:
+        return
+    raise HTTPException(status_code=404, detail="task not found")
 
 
 def _convert_agent_messages(ctx: AgentContext, messages: Optional[List[AgentMessage]]) -> None:
@@ -1247,10 +1272,12 @@ async def list_agent_tasks(
     has_error: Optional[bool] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user: TaskPilotUser = Depends(require_current_user),
 ) -> Dict[str, Any]:
+    effective_user_id = _current_user_id(current_user, user_id)
     store = TaskStore()
     tasks = store.list_tasks(
-        user_id=user_id,
+        user_id=effective_user_id,
         status=status,
         agent_id=agent_id,
         keyword=keyword,
@@ -1278,7 +1305,10 @@ async def list_agent_tasks(
 
 
 @agent_router.post("/tasks")
-async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
+async def create_agent_task(
+    req: GptQueryReq,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
     request = _clone_gpt_request(req)
     try:
         messages = _validate_user_message(request)
@@ -1286,6 +1316,7 @@ async def create_agent_task(req: GptQueryReq) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _fill_request_defaults(request)
+    request.user_id = _current_user_id(current_user, request.user_id)
     trace_id = request.trace_id or str(uuid.uuid4())
     request.trace_id = trace_id
     agent_config = _resolve_agent_config(request.agent_id or "")
@@ -1494,11 +1525,15 @@ async def _resume_task_after_input(
 
 
 @agent_router.get("/tasks/{task_id}")
-async def get_agent_task(task_id: str) -> Dict[str, Any]:
+async def get_agent_task(
+    task_id: str,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
     store = TaskStore()
     task = store.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     return serialize_task(task)
 
 
@@ -1509,10 +1544,13 @@ async def list_agent_task_events(
     source: Optional[str] = Query(default=None),
     limit: int = Query(default=500, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
+    current_user: TaskPilotUser = Depends(require_current_user),
 ) -> Dict[str, Any]:
     store = TaskStore()
-    if not store.get_task(task_id):
+    task = store.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     events = store.list_events(task_id, event_type=event_type, source=source, limit=limit, offset=offset)
     return {
         "items": [serialize_event(event) for event in events],
@@ -1524,11 +1562,15 @@ async def list_agent_task_events(
 
 
 @agent_router.post("/tasks/{task_id}/cancel")
-async def cancel_agent_task(task_id: str) -> Dict[str, Any]:
+async def cancel_agent_task(
+    task_id: str,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
     store = TaskStore()
     task = store.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     if task.status in {
         AgentTaskStatus.COMPLETED,
         AgentTaskStatus.FAILED,
@@ -1553,11 +1595,15 @@ async def cancel_agent_task(task_id: str) -> Dict[str, Any]:
 
 
 @agent_router.post("/tasks/{task_id}/retry")
-async def retry_agent_task(task_id: str) -> Dict[str, Any]:
+async def retry_agent_task(
+    task_id: str,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
     store = TaskStore()
     task = store.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     if not task.input_text:
         raise HTTPException(status_code=400, detail="task has no input to retry")
 
@@ -1645,17 +1691,22 @@ async def retry_agent_task(task_id: str) -> Dict[str, Any]:
 
 
 @agent_router.post("/tasks/{task_id}/input")
-async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str, Any]:
+async def add_agent_task_input(
+    task_id: str,
+    req: TaskUserInputReq,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
     store = TaskStore()
     task = store.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     was_waiting = task.status == AgentTaskStatus.WAITING_INPUT
     task_payload = serialize_task(task)
     metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
     language = _normalize_language(req.language or (metadata.get("language") if metadata else None))
     try:
-        event = store.add_user_input(task_id, req.content, user_id=req.user_id)
+        event = store.add_user_input(task_id, req.content, user_id=_current_user_id(current_user, req.user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if was_waiting:
@@ -1683,17 +1734,30 @@ async def add_agent_task_input(task_id: str, req: TaskUserInputReq) -> Dict[str,
 
 
 @agent_router.get("/tasks/{task_id}/artifacts")
-async def list_agent_task_artifacts(task_id: str) -> Dict[str, Any]:
+async def list_agent_task_artifacts(
+    task_id: str,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Dict[str, Any]:
     store = TaskStore()
-    if not store.get_task(task_id):
+    task = store.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     artifacts = store.list_artifacts(task_id)
     return {"items": [serialize_artifact(artifact) for artifact in artifacts]}
 
 
 @agent_router.get("/tasks/{task_id}/artifacts/{artifact_id}")
-async def download_agent_task_artifact(task_id: str, artifact_id: str) -> Any:
+async def download_agent_task_artifact(
+    task_id: str,
+    artifact_id: str,
+    current_user: TaskPilotUser = Depends(require_current_user),
+) -> Any:
     store = TaskStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    _ensure_task_owner(task, current_user)
     artifact = store.get_artifact(task_id, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="artifact not found")
@@ -1727,7 +1791,12 @@ async def autoagent_console() -> Any:
     return HTMLResponse(html_path.read_text(encoding="utf-8"))
 
 @agent_router.post("/autoagent")
-async def autoagent(req: GptQueryReq):
+async def autoagent(
+    req: GptQueryReq,
+    current_user: TaskPilotUser = Depends(require_current_user),
+):
+    req.user_id = _current_user_id(current_user, req.user_id)
+
     async def run(enqueue: Callable[[str], None]) -> None:
         await _run_autoagent(req, enqueue)
 
@@ -1737,6 +1806,15 @@ async def autoagent(req: GptQueryReq):
 @agent_router.websocket("/ws/autoagent")
 async def autoagent_ws(websocket: WebSocket) -> None:
     await websocket.accept()
+    try:
+        current_user = await require_current_websocket_user(websocket)
+    except HTTPException as exc:
+        with contextlib.suppress(Exception):
+            await websocket.send_json({"error": exc.detail})
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1008)
+        return
+
     try:
         payload = await websocket.receive_json()
     except WebSocketDisconnect:
@@ -1757,6 +1835,7 @@ async def autoagent_ws(websocket: WebSocket) -> None:
             await websocket.close(code=1003)
         return
 
+    req.user_id = _current_user_id(current_user, req.user_id)
     queue: asyncio.Queue[str] = asyncio.Queue()
 
     def enqueue(data: str) -> None:

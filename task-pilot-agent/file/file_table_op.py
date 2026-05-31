@@ -15,6 +15,8 @@ from sqlalchemy import (
 	LargeBinary,
 	String,
 	Text,
+	inspect,
+	text,
 	func,
 )
 from sqlalchemy.dialects import mysql, postgresql
@@ -63,9 +65,12 @@ FileDB = _FileDB()
 class FileInfo(Base):
 	__tablename__ = "meta_agent_file"
 
-	id = Column(BigInteger, primary_key=True, autoincrement=True)
+	id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
 	file_id = Column(String(128), nullable=False, unique=True, index=True)
 	request_id = Column(String(128), nullable=False, index=True, default="")
+	user_id = Column(String(128), nullable=False, index=True, default="")
+	task_id = Column(String(128), nullable=False, index=True, default="")
+	conversation_id = Column(String(128), nullable=False, index=True, default="")
 	filename = Column(String(512), nullable=False)
 	description = Column(Text, nullable=True)
 	mime_type = Column(String(128), nullable=True)
@@ -89,6 +94,18 @@ class FileInfo(Base):
 
 
 Base.metadata.create_all(get_engine())
+
+
+def _ensure_file_owner_columns() -> None:
+	engine = get_engine()
+	existing = {column["name"] for column in inspect(engine).get_columns("meta_agent_file")}
+	with engine.begin() as conn:
+		for column_name in ("user_id", "task_id", "conversation_id"):
+			if column_name not in existing:
+				conn.execute(text(f"ALTER TABLE meta_agent_file ADD COLUMN {column_name} VARCHAR(128) NOT NULL DEFAULT ''"))
+
+
+_ensure_file_owner_columns()
 
 
 def _ensure_bytes(content: DataT, encoding: Optional[str] = None) -> Tuple[bytes, Optional[str]]:
@@ -129,6 +146,9 @@ class FileStorageManager:
 		mime_type: Optional[str] = None,
 		encoding: Optional[str] = None,
 		status: int = 1,
+		user_id: Optional[str] = None,
+		task_id: Optional[str] = None,
+		conversation_id: Optional[str] = None,
 	) -> FileInfo:
 		content_bytes, encoding_used = _ensure_bytes(content, encoding)
 		file_size = len(content_bytes)
@@ -143,6 +163,9 @@ class FileStorageManager:
 			if record:
 				record.filename = filename
 				record.request_id = normalized_request_id
+				record.user_id = user_id or record.user_id or ""
+				record.task_id = task_id or record.task_id or ""
+				record.conversation_id = conversation_id or record.conversation_id or ""
 				record.description = description or ""
 				record.content = content_bytes
 				record.file_size = file_size
@@ -154,6 +177,9 @@ class FileStorageManager:
 				record = FileInfo(
 					file_id=file_id,
 					request_id=normalized_request_id,
+					user_id=user_id or "",
+					task_id=task_id or "",
+					conversation_id=conversation_id or "",
 					filename=filename,
 					file_path= file_path,
 					description=description or "",
@@ -240,6 +266,9 @@ class FileInfoOp:
 		request_id: Optional[str] = None,
 		mime_type: Optional[str] = None,
 		encoding: Optional[str] = None,
+		user_id: Optional[str] = None,
+		task_id: Optional[str] = None,
+		conversation_id: Optional[str] = None,
 	) -> FileInfo:
 		file_path = await FileDB.save(filename, content, scope=request_id)
 		if mime_type is None:
@@ -254,6 +283,10 @@ class FileInfoOp:
 			description or "",
 			mime_type,
 			encoding,
+			1,
+			user_id,
+			task_id,
+			conversation_id,
 		)
 
 	@classmethod
@@ -264,6 +297,9 @@ class FileInfoOp:
 		file_id: str,
 		request_id: Optional[str] = None,
 		description: Optional[str] = "",
+		user_id: Optional[str] = None,
+		task_id: Optional[str] = None,
+		conversation_id: Optional[str] = None,
 	) -> FileInfo:
 		data = await file.read()
 		return await cls.add_by_content(
@@ -273,6 +309,9 @@ class FileInfoOp:
 			description=description or "",
 			request_id=request_id,
 			mime_type=file.content_type,
+			user_id=user_id,
+			task_id=task_id,
+			conversation_id=conversation_id,
 		)
 
 	@classmethod
