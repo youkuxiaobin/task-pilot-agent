@@ -95,25 +95,22 @@ button:disabled {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   min-height: 34px;
-  padding: 0 40px 14px 6px;
+  padding: 0 38px 14px 6px;
 }
 
 .brand-mark {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid #cfcfcd;
-  border-radius: 8px;
-  background: #ffffff;
   overflow: hidden;
 }
 
 .brand-mark svg {
-  width: 23px;
-  height: 23px;
+  width: 25px;
+  height: 25px;
 }
 
 .brand-mark-route {
@@ -133,7 +130,7 @@ button:disabled {
 }
 
 .brand-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 760;
   line-height: 1.1;
 }
@@ -238,8 +235,23 @@ body.resizing-sidebar * {
 }
 
 .nav-icon {
-  color: #404040;
-  font-size: 16px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: #3f3f3f;
+}
+
+.nav-icon svg,
+.button-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .side-section {
@@ -383,12 +395,12 @@ body.resizing-sidebar * {
 }
 
 .topbar {
-  min-height: 64px;
+  min-height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 0 30px;
+  gap: 16px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--border-soft);
   background: rgba(251, 251, 250, 0.9);
 }
@@ -428,7 +440,7 @@ body.resizing-sidebar * {
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .sidebar-toggle {
@@ -446,7 +458,7 @@ body.resizing-sidebar * {
 }
 
 .model-select {
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -463,7 +475,7 @@ body.resizing-sidebar * {
   align-items: center;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .status-dot {
@@ -487,7 +499,7 @@ body.resizing-sidebar * {
 .user-chip {
   min-width: 0;
   max-width: 220px;
-  min-height: 32px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -509,9 +521,9 @@ body.resizing-sidebar * {
 }
 
 .user-avatar {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   border-radius: 999px;
   object-fit: cover;
 }
@@ -679,7 +691,7 @@ body.resizing-sidebar * {
   margin: 0 0 30px;
   color: #30302f;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(40px, 4.6vw, 58px);
+  font-size: 54px;
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1.05;
@@ -740,6 +752,20 @@ body.resizing-sidebar * {
   font-weight: 620;
 }
 
+.tool-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.button-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  color: #444442;
+}
+
 .primary-button {
   background: #111111;
   border-color: #111111;
@@ -763,7 +789,7 @@ body.resizing-sidebar * {
 .filter-bar select,
 .filter-bar input,
 .advanced-panel select {
-  min-height: 36px;
+  min-height: 34px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #ffffff;
@@ -973,7 +999,7 @@ body.resizing-sidebar * {
   display: flex;
   flex-direction: column;
   margin: 0 auto;
-  padding: 50px 0 22px;
+  padding: 42px 0 22px;
 }
 
 .conversation-controls {
@@ -988,7 +1014,7 @@ body.resizing-sidebar * {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 24px;
+  gap: 22px;
   padding: 10px 0 22px;
 }
 
@@ -1022,9 +1048,9 @@ body.resizing-sidebar * {
 .chat-assistant .chat-speaker {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: var(--text-main);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 760;
   line-height: 1.2;
 }
@@ -1039,15 +1065,15 @@ body.resizing-sidebar * {
 }
 
 .assistant-mark {
-  width: 24px;
-  height: 24px;
+  width: 25px;
+  height: 25px;
   display: inline-grid;
   place-items: center;
 }
 
 .assistant-mark svg {
-  width: 24px;
-  height: 24px;
+  width: 25px;
+  height: 25px;
 }
 
 .assistant-mark-route {
@@ -1161,27 +1187,27 @@ body.resizing-sidebar * {
 
 .markdown-body {
   color: #30302f;
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.68;
 }
 
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3 {
-  margin-top: 1.05em;
-  margin-bottom: 0.55em;
+  margin-top: 0.95em;
+  margin-bottom: 0.45em;
   color: #242424;
   letter-spacing: 0;
 }
 
 .markdown-body h1 {
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.35;
   font-weight: 700;
 }
 
 .markdown-body h2 {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.35;
   font-weight: 680;
 }
@@ -1195,7 +1221,7 @@ body.resizing-sidebar * {
 .markdown-body p,
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0.65em 0;
+  margin: 0.55em 0;
 }
 
 .markdown-body li {
@@ -1203,13 +1229,16 @@ body.resizing-sidebar * {
 }
 
 .markdown-body table {
-  font-size: 14px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
   line-height: 1.55;
 }
 
 .markdown-body th,
 .markdown-body td {
-  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 5px 12px 5px 0;
   vertical-align: top;
 }
 
@@ -1379,18 +1408,15 @@ body.resizing-sidebar * {
 
 .progress-detail {
   display: grid;
-  gap: 8px;
-  margin: 5px 0 8px 28px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: #ffffff;
-  padding: 10px 12px;
+  gap: 5px;
+  margin: 5px 0 7px 28px;
+  padding: 0;
 }
 
 .progress-detail-row {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .progress-detail-row dt {

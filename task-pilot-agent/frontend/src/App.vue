@@ -6,8 +6,8 @@ import { marked } from 'marked'
 marked.setOptions({ breaks: true, gfm: true })
 
 const navBase = [
-  { id: 'home', labelKey: 'nav.newTask', icon: '✎' },
-  { id: 'agents', labelKey: 'nav.agents', icon: '◌' },
+  { id: 'home', labelKey: 'nav.newTask', icon: 'compose' },
+  { id: 'agents', labelKey: 'nav.agents', icon: 'agent' },
 ]
 
 const messages = {
@@ -1555,10 +1555,10 @@ onBeforeUnmount(() => {
     <aside class="sidebar" :class="{ open: sidebarOpen }">
       <div class="brand-row">
         <div class="brand-mark" aria-label="TaskPilot">
-          <svg viewBox="0 0 32 32" focusable="false" aria-hidden="true">
-            <path class="brand-mark-route" d="M7 23c4-8 9-12 18-14" />
-            <path class="brand-mark-plane" d="M7 24 25 6l-5 18-5-7-8 7Z" />
-            <circle class="brand-mark-dot" cx="10" cy="22" r="2.2" />
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path class="brand-mark-route" d="M3.8 17.2c3.2-6 7.5-9.6 16-12" />
+            <path class="brand-mark-plane" d="M4 19 21 4l-4.4 16.6-4.5-6.4L4 19Z" />
+            <circle class="brand-mark-dot" cx="6.8" cy="17.3" r="1.7" />
           </svg>
         </div>
         <div>
@@ -1583,7 +1583,17 @@ onBeforeUnmount(() => {
           :class="{ active: activeView === item.id }"
           @click="item.id === 'home' ? newTask() : switchView(item.id)"
         >
-          <span class="nav-icon">{{ item.icon }}</span>
+          <span class="nav-icon" aria-hidden="true">
+            <svg v-if="item.icon === 'compose'" viewBox="0 0 24 24" focusable="false">
+              <path d="M4 20h4.5L20 8.5a2.1 2.1 0 0 0-3-3L5.5 17 4 20Z" />
+              <path d="M14.5 7.5 17 10" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" focusable="false">
+              <path d="M12 4v2.2M12 17.8V20M4 12h2.2M17.8 12H20" />
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M7.3 7.3 5.7 5.7M16.7 16.7l1.6 1.6M16.7 7.3l1.6-1.6M7.3 16.7l-1.6 1.6" />
+            </svg>
+          </span>
           <span>{{ item.label }}</span>
         </button>
       </nav>
@@ -1776,7 +1786,14 @@ onBeforeUnmount(() => {
               <div class="left-actions">
                 <button type="button" class="icon-button" :title="t('common.upload')" @click="fileInputRef?.click()">＋</button>
                 <input ref="fileInputRef" class="sr-only" type="file" multiple @change="onFileChange" />
-                <button type="button" class="tool-button" @click="switchView('tools')">◇ {{ t('nav.tools') }}</button>
+                <button type="button" class="tool-button" @click="switchView('tools')">
+                  <span class="button-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <path d="M12 3 21 12 12 21 3 12Z" />
+                    </svg>
+                  </span>
+                  <span>{{ t('nav.tools') }}</span>
+                </button>
                 <select v-model="selectedAgentId" class="agent-picker" :title="t('common.agent')">
                   <option value="">{{ t('common.defaultAgent') }}</option>
                   <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name || agent.id }}</option>
@@ -1856,10 +1873,10 @@ onBeforeUnmount(() => {
               <div class="chat-speaker">
                 <template v-if="message.role === 'assistant'">
                   <span class="assistant-mark" aria-hidden="true">
-                    <svg viewBox="0 0 32 32" focusable="false">
-                      <path class="assistant-mark-route" d="M7 23c4-8 9-12 18-14" />
-                      <path class="assistant-mark-plane" d="M7 24 25 6l-5 18-5-7-8 7Z" />
-                      <circle class="assistant-mark-dot" cx="10" cy="22" r="2.2" />
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <path class="assistant-mark-route" d="M3.8 17.2c3.2-6 7.5-9.6 16-12" />
+                      <path class="assistant-mark-plane" d="M4 19 21 4l-4.4 16.6-4.5-6.4L4 19Z" />
+                      <circle class="assistant-mark-dot" cx="6.8" cy="17.3" r="1.7" />
                     </svg>
                   </span>
                   <span>TaskPilot</span>
