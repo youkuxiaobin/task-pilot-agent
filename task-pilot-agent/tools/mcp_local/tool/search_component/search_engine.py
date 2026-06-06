@@ -163,6 +163,7 @@ class JinaSearch(BingSearch):
 		if not self._api_key:
 			logger.warning("JinaSearch skipped: missing JINA_SEARCH_API_KEY")
 			return []
+		fetch_content = bool(kwargs.get("fetch_content", True))
 		headers = {
 			"Accept": "application/json",
 			"Authorization": f"Bearer {self._api_key}",
@@ -188,6 +189,19 @@ class JinaSearch(BingSearch):
 						logger.warning(f"JinaSearch data payload is not a list: {items}")
 						return []
 					items = items[: self._count]
+					if not fetch_content:
+						return [
+							Doc(
+								doc_type="web_page",
+								content=item.get("content") or item.get("description") or "",
+								title=item.get("title", ""),
+								link=item.get("url", ""),
+								data={
+									"search_engine": self._engine,
+								},
+							)
+							for item in items
+						]
 					reader_headers = {
 						"Authorization": f"Bearer {self._api_key}",
 						"X-Engine": "browser",
@@ -340,6 +354,7 @@ class SerperSearch(SearchBase):
 		if not self._api_key:
 			logger.warning("SerperSearch skipped: missing SERPER_SEARCH_API_KEY")
 			return []
+		fetch_content = bool(kwargs.get("fetch_content", True))
 		body = self.construct_body(query, request_id)
 		try:
 			async with aiohttp.ClientSession() as session:
@@ -369,7 +384,8 @@ class SerperSearch(SearchBase):
 							data={"search_engine": self._engine},
 						) for item in organic[: self._count]
 					]
-					docs = await self.parser(docs=docs, proxy=self._proxy or None)
+					if fetch_content:
+						docs = await self.parser(docs=docs, proxy=self._proxy or None)
 					return docs
 		except Exception as exc:  # noqa: BLE001 - surface as warning
 			logger.warning(f"SerperSearch request exception: query={query} error={exc}")
@@ -404,7 +420,7 @@ class MixSearch(BingSearch):
 			engines.append(self._bocha_engine)
 		async def _run_engine(engine: SearchBase) -> List[Doc]:
 			try:
-				return await engine.search_and_dedup(query=query, request_id=request_id)
+				return await engine.search_and_dedup(query, request_id, *args, **kwargs)
 			except Exception as exc:  # noqa: BLE001 - log and continue
 				logger.warning(
 					f"MixSearch engine {getattr(engine, '_engine', engine.__class__.__name__)} failed: {exc}"

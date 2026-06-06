@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -13,22 +14,41 @@ from urllib.parse import urlparse
 
 from brain.core.sanitization import sanitize_payload
 from config.config import agentSettings
-from sqlalchemy import BigInteger, Column, Integer, String, Text, and_, func, or_
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Integer,
+    String,
+    Text,
+    and_,
+    func,
+    inspect as sa_inspect,
+    or_,
+    text,
+)
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from file.db_engine import get_engine
 
+logger = logging.getLogger(__name__)
+
 Base = declarative_base()
 
 ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
 LONG_TEXT = Text().with_variant(mysql.LONGTEXT, "mysql")
+LEGACY_TASK_TABLE_RENAMES = (
+    ("meta_agent_task", "magent_task"),
+    ("meta_agent_task_event", "magent_task_event"),
+    ("meta_agent_task_artifact", "magent_task_artifact"),
+)
 
 
 class AgentTaskStatus:
     QUEUED = "queued"
     RUNNING = "running"
     WAITING_INPUT = "waiting_input"
+    WAITING_APPROVAL = "waiting_approval"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -43,7 +63,7 @@ FINAL_STATUSES = {
 TASK_ID_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_.-]+")
 
 class AgentTaskRecord(Base):
-    __tablename__ = "meta_agent_task"
+    __tablename__ = "magent_task"
 
     id = Column(ID_TYPE, primary_key=True, autoincrement=True)
     task_id = Column(String(128), nullable=False, unique=True, index=True)
@@ -65,7 +85,7 @@ class AgentTaskRecord(Base):
 
 
 class AgentTaskEventRecord(Base):
-    __tablename__ = "meta_agent_task_event"
+    __tablename__ = "magent_task_event"
 
     id = Column(ID_TYPE, primary_key=True, autoincrement=True)
     task_id = Column(String(128), nullable=False, index=True)
@@ -78,7 +98,7 @@ class AgentTaskEventRecord(Base):
 
 
 class AgentTaskArtifactRecord(Base):
-    __tablename__ = "meta_agent_task_artifact"
+    __tablename__ = "magent_task_artifact"
 
     id = Column(ID_TYPE, primary_key=True, autoincrement=True)
     artifact_id = Column(String(128), nullable=False, unique=True, index=True)
@@ -150,9 +170,32 @@ def prepare_task_workspace(task_id: str) -> Path:
     return work_dir
 
 
+def migrate_legacy_task_tables(engine: Any) -> None:
+    existing_tables = set(sa_inspect(engine).get_table_names())
+    pending_renames = [
+        (legacy_name, current_name)
+        for legacy_name, current_name in LEGACY_TASK_TABLE_RENAMES
+        if legacy_name in existing_tables and current_name not in existing_tables
+    ]
+    if not pending_renames:
+        return
+
+    preparer = engine.dialect.identifier_preparer
+    with engine.begin() as connection:
+        for legacy_name, current_name in pending_renames:
+            quoted_legacy_name = preparer.quote(legacy_name)
+            quoted_current_name = preparer.quote(current_name)
+            if engine.dialect.name == "mysql":
+                sql = f"RENAME TABLE {quoted_legacy_name} TO {quoted_current_name}"
+            else:
+                sql = f"ALTER TABLE {quoted_legacy_name} RENAME TO {quoted_current_name}"
+            connection.execute(text(sql))
+
+
 class TaskStore:
     def __init__(self) -> None:
         self._engine = get_engine()
+        migrate_legacy_task_tables(self._engine)
         Base.metadata.create_all(self._engine)
         self._session_maker = sessionmaker(
             bind=self._engine,
@@ -231,10 +274,73 @@ class TaskStore:
         finally:
             session.close()
 
+    def _query_tasks(
+        self,
+        session: Session,
+        *,
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        status: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        keyword: Optional[str] = None,
+        created_from_ms: Optional[int] = None,
+        created_to_ms: Optional[int] = None,
+        min_duration_ms: Optional[int] = None,
+        max_duration_ms: Optional[int] = None,
+        has_error: Optional[bool] = None,
+    ) -> Any:
+        query = session.query(AgentTaskRecord)
+        if user_id:
+            query = query.filter(AgentTaskRecord.user_id == user_id)
+        if conversation_id:
+            query = query.filter(AgentTaskRecord.conversation_id == conversation_id)
+        if status:
+            query = query.filter(AgentTaskRecord.status == status)
+        if agent_id:
+            query = query.filter(AgentTaskRecord.agent_id == agent_id)
+        if created_from_ms is not None:
+            query = query.filter(AgentTaskRecord.created_at >= int(created_from_ms))
+        if created_to_ms is not None:
+            query = query.filter(AgentTaskRecord.created_at <= int(created_to_ms))
+        duration_expr = func.coalesce(AgentTaskRecord.ended_at, AgentTaskRecord.updated_at) - func.coalesce(
+            AgentTaskRecord.started_at,
+            AgentTaskRecord.created_at,
+        )
+        if min_duration_ms is not None or max_duration_ms is not None:
+            query = query.filter(AgentTaskRecord.started_at.isnot(None))
+        if min_duration_ms is not None:
+            query = query.filter(duration_expr >= int(min_duration_ms))
+        if max_duration_ms is not None:
+            query = query.filter(duration_expr <= int(max_duration_ms))
+        error_filter = or_(
+            AgentTaskRecord.status == AgentTaskStatus.FAILED,
+            and_(AgentTaskRecord.error_message.isnot(None), AgentTaskRecord.error_message != ""),
+        )
+        if has_error is True:
+            query = query.filter(error_filter)
+        elif has_error is False:
+            query = query.filter(
+                AgentTaskRecord.status != AgentTaskStatus.FAILED,
+                or_(AgentTaskRecord.error_message.is_(None), AgentTaskRecord.error_message == ""),
+            )
+        normalized_keyword = keyword.strip() if keyword else ""
+        if normalized_keyword:
+            pattern = f"%{normalized_keyword}%"
+            query = query.filter(
+                or_(
+                    AgentTaskRecord.task_id.like(pattern),
+                    AgentTaskRecord.input_text.like(pattern),
+                    AgentTaskRecord.output_text.like(pattern),
+                    AgentTaskRecord.error_message.like(pattern),
+                )
+            )
+        return query
+
     def list_tasks(
         self,
         *,
         user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
         status: Optional[str] = None,
         agent_id: Optional[str] = None,
         keyword: Optional[str] = None,
@@ -248,53 +354,23 @@ class TaskStore:
     ) -> List[AgentTaskRecord]:
         session = self._session_maker()
         try:
-            query = session.query(AgentTaskRecord)
-            if user_id:
-                query = query.filter(AgentTaskRecord.user_id == user_id)
-            if status:
-                query = query.filter(AgentTaskRecord.status == status)
-            if agent_id:
-                query = query.filter(AgentTaskRecord.agent_id == agent_id)
-            if created_from_ms is not None:
-                query = query.filter(AgentTaskRecord.created_at >= int(created_from_ms))
-            if created_to_ms is not None:
-                query = query.filter(AgentTaskRecord.created_at <= int(created_to_ms))
-            duration_expr = func.coalesce(AgentTaskRecord.ended_at, AgentTaskRecord.updated_at) - func.coalesce(
-                AgentTaskRecord.started_at,
-                AgentTaskRecord.created_at,
+            query = self._query_tasks(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                status=status,
+                agent_id=agent_id,
+                keyword=keyword,
+                created_from_ms=created_from_ms,
+                created_to_ms=created_to_ms,
+                min_duration_ms=min_duration_ms,
+                max_duration_ms=max_duration_ms,
+                has_error=has_error,
             )
-            if min_duration_ms is not None or max_duration_ms is not None:
-                query = query.filter(AgentTaskRecord.started_at.isnot(None))
-            if min_duration_ms is not None:
-                query = query.filter(duration_expr >= int(min_duration_ms))
-            if max_duration_ms is not None:
-                query = query.filter(duration_expr <= int(max_duration_ms))
-            error_filter = or_(
-                AgentTaskRecord.status == AgentTaskStatus.FAILED,
-                and_(AgentTaskRecord.error_message.isnot(None), AgentTaskRecord.error_message != ""),
-            )
-            if has_error is True:
-                query = query.filter(error_filter)
-            elif has_error is False:
-                query = query.filter(
-                    AgentTaskRecord.status != AgentTaskStatus.FAILED,
-                    or_(AgentTaskRecord.error_message.is_(None), AgentTaskRecord.error_message == ""),
-                )
-            normalized_keyword = keyword.strip() if keyword else ""
-            if normalized_keyword:
-                pattern = f"%{normalized_keyword}%"
-                query = query.filter(
-                    or_(
-                        AgentTaskRecord.task_id.like(pattern),
-                        AgentTaskRecord.input_text.like(pattern),
-                        AgentTaskRecord.output_text.like(pattern),
-                        AgentTaskRecord.error_message.like(pattern),
-                    )
-                )
             records = (
                 query.order_by(AgentTaskRecord.created_at.desc())
                 .offset(max(offset, 0))
-                .limit(max(min(limit, 200), 1))
+                .limit(max(min(limit, 2000), 1))
                 .all()
             )
             _detach_records(session, records)
@@ -302,9 +378,43 @@ class TaskStore:
         finally:
             session.close()
 
+    def count_tasks(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        status: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        keyword: Optional[str] = None,
+        created_from_ms: Optional[int] = None,
+        created_to_ms: Optional[int] = None,
+        min_duration_ms: Optional[int] = None,
+        max_duration_ms: Optional[int] = None,
+        has_error: Optional[bool] = None,
+    ) -> int:
+        session = self._session_maker()
+        try:
+            query = self._query_tasks(
+                session,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                status=status,
+                agent_id=agent_id,
+                keyword=keyword,
+                created_from_ms=created_from_ms,
+                created_to_ms=created_to_ms,
+                min_duration_ms=min_duration_ms,
+                max_duration_ms=max_duration_ms,
+                has_error=has_error,
+            )
+            return int(query.count())
+        finally:
+            session.close()
+
     def delete_task(self, task_id: str) -> bool:
         session = self._session_maker()
         work_dir: Optional[Path] = None
+        conversation_id = ""
         try:
             record = (
                 session.query(AgentTaskRecord)
@@ -315,6 +425,7 @@ class TaskStore:
                 return False
 
             work_dir = _task_work_dir_from_record(record)
+            conversation_id = record.conversation_id or ""
             session.query(AgentTaskArtifactRecord).filter(AgentTaskArtifactRecord.task_id == task_id).delete(
                 synchronize_session=False
             )
@@ -334,6 +445,7 @@ class TaskStore:
             resolved_work_dir = work_dir.expanduser().resolve()
             if resolved_work_dir.is_relative_to(root) and resolved_work_dir.is_dir():
                 shutil.rmtree(resolved_work_dir, ignore_errors=True)
+        self._delete_mirrored_run_artifacts(conversation_id, task_id)
         return True
 
     def update_status(
@@ -467,7 +579,13 @@ class TaskStore:
     ) -> AgentTaskEventRecord:
         timestamp = now_ms()
         session = self._session_maker()
+        task_record: Optional[AgentTaskRecord] = None
         try:
+            task_record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
             record = AgentTaskEventRecord(
                 task_id=task_id,
                 trace_id=trace_id or "",
@@ -481,12 +599,48 @@ class TaskStore:
             session.commit()
             session.refresh(record)
             session.expunge(record)
+            if task_record:
+                session.expunge(task_record)
+            self._mirror_run_event(record, task_record, payload)
             return record
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def _mirror_run_event(
+        self,
+        event_record: AgentTaskEventRecord,
+        task_record: Optional[AgentTaskRecord],
+        raw_payload: Any,
+    ) -> None:
+        if not task_record or not task_record.conversation_id:
+            return
+        try:
+            from brain.core.sessions import SessionStore
+
+            payload = sanitize_payload(raw_payload)
+            seq: Optional[int] = None
+            if isinstance(payload, dict):
+                try:
+                    seq = int(payload.get("seq") or payload.get("sequence") or 0) or None
+                except (TypeError, ValueError):
+                    seq = None
+            SessionStore().add_run_event(
+                session_id=task_record.conversation_id,
+                run_id=task_record.task_id,
+                user_id=task_record.user_id,
+                seq=seq,
+                event_id=f"evt_{event_record.id}",
+                event_type=event_record.event_type,
+                source=event_record.source,
+                message_id=event_record.message_id,
+                payload=payload,
+                created_at=event_record.created_at,
+            )
+        except Exception:
+            logger.debug("failed to mirror task event %s into run event table", event_record.id, exc_info=True)
 
     def list_events(
         self,
@@ -558,6 +712,7 @@ class TaskStore:
             session.commit()
             session.refresh(record)
             session.expunge(record)
+            self._mirror_run_artifact(record, task)
             return record
         except Exception:
             session.rollback()
@@ -606,6 +761,7 @@ class TaskStore:
             session.commit()
             session.refresh(record)
             session.expunge(record)
+            self._mirror_run_artifact(record, task)
             return record
         except Exception:
             session.rollback()
@@ -644,6 +800,46 @@ class TaskStore:
         finally:
             session.close()
 
+    def _mirror_run_artifact(
+        self,
+        artifact_record: AgentTaskArtifactRecord,
+        task_record: Optional[AgentTaskRecord],
+    ) -> None:
+        if not task_record or not task_record.conversation_id:
+            return
+        try:
+            from brain.core.sessions import SessionStore
+
+            SessionStore().add_artifact(
+                session_id=task_record.conversation_id,
+                run_id=task_record.task_id,
+                user_id=task_record.user_id,
+                artifact_id=artifact_record.artifact_id,
+                file_path=artifact_record.file_path,
+                filename=artifact_record.filename,
+                description=artifact_record.description,
+                mime_type=artifact_record.mime_type,
+                file_size=artifact_record.file_size,
+                metadata=_json_loads(artifact_record.metadata_json, {}),
+                created_at=artifact_record.created_at,
+            )
+        except Exception:
+            logger.debug(
+                "failed to mirror task artifact %s into session artifact table",
+                artifact_record.artifact_id,
+                exc_info=True,
+            )
+
+    def _delete_mirrored_run_artifacts(self, session_id: str, run_id: str) -> None:
+        if not session_id:
+            return
+        try:
+            from brain.core.sessions import SessionStore
+
+            SessionStore().delete_artifacts(session_id, run_id=run_id)
+        except Exception:
+            logger.debug("failed to delete mirrored session artifacts for run %s", run_id, exc_info=True)
+
 
 def _task_work_dir_from_record(record: AgentTaskRecord) -> Path:
     expected_work_dir = prepare_task_workspace(record.task_id)
@@ -668,10 +864,14 @@ def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
         "id": record.id,
         "task_id": record.task_id,
         "taskId": record.task_id,
+        "run_id": record.task_id,
+        "runId": record.task_id,
         "trace_id": record.trace_id,
         "traceId": record.trace_id,
         "conversation_id": record.conversation_id,
         "conversationId": record.conversation_id,
+        "session_id": record.conversation_id,
+        "sessionId": record.conversation_id,
         "user_id": record.user_id,
         "userId": record.user_id,
         "agent_id": record.agent_id,
@@ -695,8 +895,11 @@ def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
 
 
 def serialize_event(record: AgentTaskEventRecord) -> Dict[str, Any]:
+    event_id = f"evt_{record.id}"
     return {
         "id": record.id,
+        "event_id": event_id,
+        "eventId": event_id,
         "task_id": record.task_id,
         "taskId": record.task_id,
         "trace_id": record.trace_id,

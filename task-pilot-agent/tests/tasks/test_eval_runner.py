@@ -24,7 +24,7 @@ def test_build_eval_run_turns_case_into_task_spec():
         case,
         user_id="tester",
         conversation_id="conversation-1",
-        output_style="gaia",
+        output_style="markdown",
     )
 
     assert eval_run.task_id
@@ -35,7 +35,7 @@ def test_build_eval_run_turns_case_into_task_spec():
     assert eval_run.case_id == "search_case"
     assert eval_run.input_text == "Find and summarize current info."
     assert eval_run.mode == "react"
-    assert eval_run.output_style == "gaia"
+    assert eval_run.output_style == "markdown"
     assert eval_run.metadata["source"] == "eval"
     assert eval_run.metadata["agentSnapshot"]["id"] == "research_agent"
     assert eval_run.metadata["agentSnapshot"]["name"] == "Research Agent"

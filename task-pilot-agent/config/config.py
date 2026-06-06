@@ -135,7 +135,6 @@ class CoreSettings(BaseModel):
         "markdown": ", 最后以 markdown 展示最终结果",
         "table": ", 最后以excel 展示最终结果",
         "ppt": ", 最后以 ppt 展示最终结果",
-        "gaia": ""
     })
     default_output_style: str = Field("markdown", description="默认输出样式")
     default_run_environment: str = Field("local", description="默认运行环境：local 或 sandbox")

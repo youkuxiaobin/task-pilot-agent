@@ -32,6 +32,7 @@ from config.config import agentSettings
 from utils.logger import configure_log_context, clear_log_context
 
 from tools.mcp_local.tool.weather import get_current_weather_run, get_weather_forecast_run
+from tools.mcp_local.tool.simple_search import WebReader, WebSearch
 
 old__received_request = ServerSession._received_request
 
@@ -382,14 +383,19 @@ async def _accumulate_report_stream(
 
 
 
-#@mcp.tool(name="report", description="只做生成报告。生成markdown、html、ppt格式报告")
+@mcp.tool(
+    name="report",
+    description=(
+        "生成报告类产物，支持 markdown、html、ppt。适合把搜索、文件或分析结果整理成可交付报告。"
+    ),
+)
 async def report(
 	task: str,
 	request_id: str,
+	ctx: Context[ServerSession, None],
 	file_type: str = "markdown",
 	stream: bool = True,
 	stream_mode: Optional[Dict[str, Any]] = None,
-	ctx: Optional[Context[ServerSession, None]] = None,
 ) -> Dict[str, Any]:
 	with request_trace_context(request_id):
 		return await _accumulate_report_stream(
@@ -432,6 +438,67 @@ async def deepsearch(
             await ctx.info("深度搜索完成")
         
         return acc
+
+
+@mcp.tool(
+    name="web_search",
+    description=(
+        "轻量网页搜索工具：搜索网页，对返回页面做渲染/正文抓取，不做查询扩展、深度推理或最终答案生成。"
+    ),
+)
+async def web_search(
+    query: str,
+    request_id: Optional[str] = None,
+    max_results: int = 5,
+    content_max_chars: int = 500,
+    fetch_content: bool = True,
+) -> Dict[str, Any]:
+    with request_trace_context(request_id):
+        return await WebSearch().run(
+            query=query,
+            request_id=request_id,
+            max_results=max_results,
+            content_max_chars=content_max_chars,
+            fetch_content=fetch_content,
+        )
+
+
+@mcp.tool(
+    name="fetch_url",
+    description=(
+        "读取指定 URL 的页面正文：优先使用浏览器渲染读取，失败时退回普通 HTTP 页面解析。"
+    ),
+)
+async def fetch_url(
+    url: str,
+    request_id: Optional[str] = None,
+    content_max_chars: int = 4000,
+) -> Dict[str, Any]:
+    with request_trace_context(request_id):
+        return await WebReader().run(
+            url=url,
+            request_id=request_id,
+            content_max_chars=content_max_chars,
+        )
+
+
+@mcp.tool(
+    name="web_reader",
+    description=(
+        "读取已知网页 URL 的正文内容，等同于 fetch_url。适合搜索后继续打开来源页面。"
+    ),
+)
+async def web_reader(
+    url: str,
+    request_id: Optional[str] = None,
+    content_max_chars: int = 4000,
+) -> Dict[str, Any]:
+    with request_trace_context(request_id):
+        return await WebReader().run(
+            url=url,
+            request_id=request_id,
+            content_max_chars=content_max_chars,
+        )
 
 
 @mcp.tool(name="get_current_weather", description="获取指定城市的实时天气")

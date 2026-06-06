@@ -13,6 +13,8 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+PLAN_TOOL_NAME = "builtin:plan_tool"
+
 
 class ReActAgentImp(ReActAgent):
     """Concrete ReAct agent that decides on tool usage and executes them."""
@@ -264,29 +266,37 @@ class ReActAgentImp(ReActAgent):
         )
 
     def _has_tool(self, name: str) -> bool:
-        return bool(getattr(self.context, "toolCollection", None) and name in self.context.toolCollection.tool_map)
+        tool_collection = getattr(self.context, "toolCollection", None)
+        if not tool_collection:
+            return False
+        if hasattr(tool_collection, "get_tool"):
+            return bool(tool_collection.get_tool(name))
+        return name in getattr(tool_collection, "tool_map", {})
 
     async def _invoke_tool(self, name: str, arguments: Dict[str, Any]) -> str:
         payload = await self._execute_tool(name, arguments)
         self.context.printer.send(None, payload["message_type"], payload["payload"], None, True)
+        await self._sync_plan_step_from_tool_result(name, arguments, payload)
         return payload["observation"]
 
-    async def _execute_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, str]:
+    async def _execute_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_name = self._resolve_tool_name(name)
         try:
-            raw = await self.context.toolCollection.execute(name, arguments) if getattr(self.context, "toolCollection", None) else None
+            raw = await self.context.toolCollection.execute(resolved_name, arguments) if getattr(self.context, "toolCollection", None) else None
             message_type = "tool_result"
             payload = {
-                "tool": name,
+                "tool": resolved_name,
+                "requestedTool": name,
                 "arguments": arguments,
                 "result": raw,
-                **self._tool_execution_metadata(name),
+                **self._tool_execution_metadata(resolved_name),
             }
             observation = self._stringify(raw)
-            evidence = f"工具 `{name}` 输出：{observation}"
+            evidence = f"工具 `{resolved_name}` 输出：{observation}"
         except Exception as exc:
             logger.exception("Tool %s execution failed", name)
             message_type = "notifications"
-            payload = {"process_message": f"工具 `{name}` 调用失败：{exc}"}
+            payload = {"process_message": f"工具 `{resolved_name}` 调用失败：{exc}", "tool": resolved_name}
             observation = f"调用失败：{exc}"
             evidence = observation
         return {
@@ -295,6 +305,111 @@ class ReActAgentImp(ReActAgent):
             "observation": observation,
             "evidence": evidence,
         }
+
+    async def _sync_plan_step_from_tool_result(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        tool_payload: Dict[str, Any],
+    ) -> None:
+        resolved_tool_name = self._resolve_tool_name(tool_name)
+        if resolved_tool_name == PLAN_TOOL_NAME:
+            return
+        plan_tool = self._get_plan_tool()
+        if plan_tool is None or not hasattr(plan_tool, "plan_dict") or not hasattr(plan_tool, "execute"):
+            return
+        plan = plan_tool.plan_dict()
+        if not isinstance(plan, dict):
+            return
+
+        statuses = plan.get("step_status")
+        if not isinstance(statuses, list):
+            return
+        running_index = next(
+            (index for index, status in enumerate(statuses, start=1) if status == "running"),
+            None,
+        )
+        if running_index is None:
+            return
+
+        payload = tool_payload.get("payload") if isinstance(tool_payload.get("payload"), dict) else {}
+        failed = bool(payload.get("failed")) or tool_payload.get("message_type") == "notifications"
+        summary = self._tool_result_summary(tool_payload)
+        evidence = [
+            {
+                "tool": resolved_tool_name,
+                "summary": summary,
+                "argumentsSummary": self._summarize_arguments(arguments),
+                "failed": failed,
+            }
+        ]
+        if payload.get("error"):
+            evidence[0]["error"] = str(payload.get("error"))
+
+        try:
+            await plan_tool.execute(
+                {
+                    "command": "mark_step",
+                    "step_index": running_index,
+                    "status": "failed" if failed else "completed",
+                    "note": summary,
+                    "evidence": evidence,
+                }
+            )
+            if not failed:
+                await self._mark_next_plan_step_running(plan_tool)
+        except Exception:
+            logger.exception("failed to sync plan step for tool %s", resolved_tool_name)
+
+    async def _mark_next_plan_step_running(self, plan_tool: Any) -> None:
+        plan = plan_tool.plan_dict()
+        if not isinstance(plan, dict):
+            return
+        statuses = plan.get("step_status")
+        if not isinstance(statuses, list):
+            return
+        next_index = next(
+            (index for index, status in enumerate(statuses, start=1) if status == "not_started"),
+            None,
+        )
+        if next_index is None:
+            return
+        await plan_tool.execute(
+            {
+                "command": "mark_step",
+                "step_index": next_index,
+                "status": "running",
+                "note": "继续执行下一步",
+            }
+        )
+
+    def _get_plan_tool(self) -> Any:
+        tool_collection = getattr(self.context, "toolCollection", None)
+        if not tool_collection:
+            return None
+        if hasattr(tool_collection, "get_tool"):
+            return tool_collection.get_tool(PLAN_TOOL_NAME)
+        return getattr(tool_collection, "tool_map", {}).get(PLAN_TOOL_NAME)
+
+    def _resolve_tool_name(self, name: str) -> str:
+        tool_collection = getattr(self.context, "toolCollection", None)
+        if tool_collection is not None and hasattr(tool_collection, "resolve_tool_name"):
+            return tool_collection.resolve_tool_name(name)
+        return name
+
+    def _tool_result_summary(self, tool_payload: Dict[str, Any]) -> str:
+        payload = tool_payload.get("payload") if isinstance(tool_payload.get("payload"), dict) else {}
+        summary = (
+            payload.get("resultSummary")
+            or payload.get("summary")
+            or payload.get("error")
+            or tool_payload.get("observation")
+            or ""
+        )
+        return self._truncate_text(str(summary), 500)
+
+    def _summarize_arguments(self, arguments: Dict[str, Any]) -> str:
+        return self._truncate_text(self._stringify(arguments), 500)
 
     def _tool_execution_metadata(self, tool_name: str) -> Dict[str, Any]:
         meta = getattr(self.context.toolCollection, "last_execution", None)
@@ -333,3 +448,10 @@ class ReActAgentImp(ReActAgent):
             return json.dumps(value, ensure_ascii=False)
         except Exception:
             return str(value)
+
+    @staticmethod
+    def _truncate_text(value: str, limit: int) -> str:
+        text = value.strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."

@@ -11,6 +11,10 @@ capabilities:
   - writing
   - artifact
 tools:
+  - name: mcp_local:web_search
+    description: 搜索报告需要的公开资料和来源。
+  - name: mcp_local:fetch_url
+    description: 读取报告引用来源的网页正文。
   - name: mcp_local:report
     description: 生成报告类产物。
   - name: mcp_local:*report*

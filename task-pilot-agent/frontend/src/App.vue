@@ -6,16 +6,19 @@ import { marked } from 'marked'
 marked.setOptions({ breaks: true, gfm: true })
 
 const navBase = [
-  { id: 'home', labelKey: 'nav.newTask', icon: 'compose' },
+  { id: 'home', labelKey: 'nav.newSession', icon: 'compose' },
+  { id: 'tasks', labelKey: 'nav.allSessions', icon: 'agent' },
   { id: 'agents', labelKey: 'nav.agents', icon: 'agent' },
 ]
 
 const messages = {
   zh: {
     'nav.newTask': '新建任务',
+    'nav.newSession': '新会话',
     'nav.agents': 'Agent',
     'nav.tools': '工具',
     'nav.allTasks': '所有任务',
+    'nav.allSessions': '所有会话',
     'common.refresh': '刷新',
     'common.defaultAgent': '默认 Agent',
     'common.ready': '就绪',
@@ -28,6 +31,8 @@ const messages = {
     'common.retry': '重试',
     'common.stop': '停止',
     'common.submit': '提交',
+    'common.approve': '允许',
+    'common.reject': '拒绝',
     'common.language': '语言',
     'common.upload': '上传文件',
     'common.hideSidebar': '隐藏侧边栏',
@@ -50,9 +55,14 @@ const messages = {
     'task.deleteConfirm': '确定删除这个会话吗？删除后无法在任务列表中查看。',
     'task.deleted': '会话已删除',
     'task.deleteFailed': '删除会话失败',
-    'sidebar.recent': '最近任务',
+    'sidebar.recent': '最近会话',
+    'sessions.eyebrow': '所有会话',
+    'sessions.title': '会话历史',
+    'sessions.desc': '打开会话、继续追问，并查看每次运行的过程和产物。',
+    'sessions.empty': '暂无会话记录。',
+    'sessions.search': '搜索会话',
     'home.title': '我能为你做什么？',
-    'home.placeholder': '分配一个任务或提出任何问题',
+    'home.placeholder': '发起一个会话或提出任何问题',
     'advanced.output': '输出格式',
     'advanced.mode': '运行模式',
     'advanced.followAgent': '跟随 Agent 配置',
@@ -67,12 +77,24 @@ const messages = {
     'task.needInput': '需要补充信息',
     'task.inputPlaceholder': '补充任务需要的信息',
     'task.submitInput': '提交补充',
+    'task.needApproval': '需要先处理工具审批',
     'chat.title': '对话',
-    'chat.empty': '继续输入问题，Agent 会在这里连续回复。',
+    'chat.empty': '选择一个会话或发送第一条消息，Agent 会在这里连续回复。',
     'chat.placeholder': '继续追问或补充任务要求',
     'chat.user': '你',
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent 正在处理...',
+    'chat.loadEarlier': '加载更早消息',
+    'chat.loadingEarlier': '正在加载...',
+    'chat.overview': '会话概览',
+    'chat.messages': '消息',
+    'chat.runs': '运行',
+    'chat.artifacts': '产物',
+    'chat.currentAction': '当前动作',
+    'plan.title': '计划',
+    'plan.evidence': '证据',
+    'plan.notStarted': '未开始',
+    'plan.skipped': '已跳过',
     'progress.current': '当前进度',
     'progress.latest': '当前动作',
     'progress.events': '过程',
@@ -82,6 +104,12 @@ const messages = {
     'progress.running': '进行中',
     'progress.completed': '完成',
     'progress.failed': '失败',
+    'progress.waiting': '等待',
+    'approval.requested': '需要审批',
+    'approval.approved': '已允许',
+    'approval.rejected': '已拒绝',
+    'approval.processing': '处理中',
+    'approval.none': '暂无待处理审批',
     'tasks.eyebrow': '所有任务',
     'tasks.title': '任务历史',
     'tasks.desc': '查看任务状态、结果、失败原因和历史过程。',
@@ -115,9 +143,20 @@ const messages = {
     'tools.empty': '当前没有可展示的工具。',
     'tools.noDesc': '暂无说明',
     'tools.reason': '原因',
+    'tools.source': '来源',
+    'tools.server': '服务',
+    'tools.risk': '风险',
+    'tools.mcpTitle': 'MCP 服务',
+    'tools.mcpDesc': '查看工具来源服务是否可用，以及当前已加载的工具数量。',
+    'tools.mcpEmpty': '暂无 MCP 服务配置。',
+    'tools.refreshMcp': '刷新 MCP',
+    'tools.toolCount': '工具数',
+    'tools.checkedAt': '检查时间',
     'status.queued': '排队中',
+    'status.idle': '就绪',
     'status.running': '运行中',
     'status.waiting_input': '等待输入',
+    'status.waiting_approval': '等待审批',
     'status.completed': '已完成',
     'status.failed': '失败',
     'status.cancelled': '已取消',
@@ -133,9 +172,11 @@ const messages = {
   },
   en: {
     'nav.newTask': 'New Task',
+    'nav.newSession': 'New Chat',
     'nav.agents': 'Agents',
     'nav.tools': 'Tools',
     'nav.allTasks': 'All Tasks',
+    'nav.allSessions': 'All Chats',
     'common.refresh': 'Refresh',
     'common.defaultAgent': 'Default Agent',
     'common.ready': 'Ready',
@@ -148,6 +189,8 @@ const messages = {
     'common.retry': 'Retry',
     'common.stop': 'Stop',
     'common.submit': 'Submit',
+    'common.approve': 'Allow',
+    'common.reject': 'Deny',
     'common.language': 'Language',
     'common.upload': 'Upload files',
     'common.hideSidebar': 'Hide sidebar',
@@ -170,9 +213,14 @@ const messages = {
     'task.deleteConfirm': 'Delete this conversation? It will be removed from the task list.',
     'task.deleted': 'Conversation deleted',
     'task.deleteFailed': 'Delete failed',
-    'sidebar.recent': 'Recent Tasks',
+    'sidebar.recent': 'Recent Chats',
+    'sessions.eyebrow': 'All Chats',
+    'sessions.title': 'Chat History',
+    'sessions.desc': 'Open conversations, continue asking, and review each run with events and artifacts.',
+    'sessions.empty': 'No conversations yet.',
+    'sessions.search': 'Search conversations',
     'home.title': 'What can I do for you?',
-    'home.placeholder': 'Assign a task or ask anything',
+    'home.placeholder': 'Start a chat or ask anything',
     'advanced.output': 'Output format',
     'advanced.mode': 'Run mode',
     'advanced.followAgent': 'Follow Agent config',
@@ -187,12 +235,24 @@ const messages = {
     'task.needInput': 'More input needed',
     'task.inputPlaceholder': 'Add the information needed for this task',
     'task.submitInput': 'Submit input',
+    'task.needApproval': 'Resolve the tool approval first',
     'chat.title': 'Conversation',
-    'chat.empty': 'Ask follow-up questions here and the Agent will keep replying in this thread.',
+    'chat.empty': 'Select a chat or send the first message. The Agent will keep replying in this thread.',
     'chat.placeholder': 'Ask a follow-up or add more requirements',
     'chat.user': 'You',
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent is working...',
+    'chat.loadEarlier': 'Load earlier messages',
+    'chat.loadingEarlier': 'Loading...',
+    'chat.overview': 'Chat overview',
+    'chat.messages': 'Messages',
+    'chat.runs': 'Runs',
+    'chat.artifacts': 'Artifacts',
+    'chat.currentAction': 'Current action',
+    'plan.title': 'Plan',
+    'plan.evidence': 'Evidence',
+    'plan.notStarted': 'Not started',
+    'plan.skipped': 'Skipped',
     'progress.current': 'Current progress',
     'progress.latest': 'Current action',
     'progress.events': 'Events',
@@ -202,6 +262,12 @@ const messages = {
     'progress.running': 'Running',
     'progress.completed': 'Done',
     'progress.failed': 'Failed',
+    'progress.waiting': 'Waiting',
+    'approval.requested': 'Approval needed',
+    'approval.approved': 'Allowed',
+    'approval.rejected': 'Denied',
+    'approval.processing': 'Processing',
+    'approval.none': 'No pending approval',
     'tasks.eyebrow': 'All Tasks',
     'tasks.title': 'Task History',
     'tasks.desc': 'Review task status, results, failures, and process history.',
@@ -235,9 +301,20 @@ const messages = {
     'tools.empty': 'No tools to display.',
     'tools.noDesc': 'No description',
     'tools.reason': 'Reason',
+    'tools.source': 'Source',
+    'tools.server': 'Server',
+    'tools.risk': 'Risk',
+    'tools.mcpTitle': 'MCP Servers',
+    'tools.mcpDesc': 'Check whether tool source servers are available and how many tools are loaded.',
+    'tools.mcpEmpty': 'No MCP servers configured.',
+    'tools.refreshMcp': 'Refresh MCP',
+    'tools.toolCount': 'Tools',
+    'tools.checkedAt': 'Checked',
     'status.queued': 'Queued',
+    'status.idle': 'Ready',
     'status.running': 'Running',
     'status.waiting_input': 'Waiting for input',
+    'status.waiting_approval': 'Waiting for approval',
     'status.completed': 'Completed',
     'status.failed': 'Failed',
     'status.cancelled': 'Cancelled',
@@ -290,8 +367,12 @@ const fileInputRef = ref(null)
 const scrollRef = ref(null)
 const chatInput = ref('')
 const chatMessages = ref([])
+const chatMessageTotal = ref(0)
+const chatHasMore = ref(false)
+const chatHistoryLoading = ref(false)
 const activeAssistantMessageId = ref('')
 const currentSessionId = ref(createSessionId())
+const currentSession = ref(null)
 const currentTaskId = ref('')
 const currentTask = ref(null)
 const currentEvents = ref([])
@@ -302,9 +383,20 @@ const taskInputText = ref('')
 const agents = ref([])
 const agentDiagnostics = ref(null)
 const toolCatalog = ref([])
+const mcpServers = ref([])
+const mcpToolCount = ref(0)
+const mcpSource = ref('')
+const mcpRefreshing = ref(false)
 const selectedToolNames = ref(new Set())
 const approvedToolNames = ref(new Set())
 const toolSelectionTouched = ref(false)
+const sessions = ref([])
+const sessionWebSocket = ref(null)
+const sessionEventSource = ref(null)
+const sessionPollTimer = ref(null)
+const approvalBusyKey = ref('')
+let sessionPollInFlight = false
+let sessionStreamExpectedClose = false
 const tasks = ref([])
 const notifications = ref([])
 const NOTIFICATION_TTL_MS = 2800
@@ -317,6 +409,10 @@ const taskFilters = reactive({
   created: '',
   duration: '',
   hasError: '',
+})
+const sessionFilters = reactive({
+  keyword: '',
+  status: '',
 })
 
 const t = (key) => messages[language.value]?.[key] || messages.zh[key] || key
@@ -363,10 +459,12 @@ const defaultAgentId = computed(() => {
   return general?.id || agents.value[0]?.id || ''
 })
 
-const recentTasks = computed(() => tasks.value.slice(0, 5))
+const recentSessions = computed(() => sessions.value.slice(0, 8))
 const agentTypes = computed(() => [...new Set(agents.value.map((agent) => agent.type).filter(Boolean))].sort())
 const taskCanRetry = computed(() => ['completed', 'failed', 'cancelled'].includes(currentTask.value?.status || ''))
 const taskWaitingInput = computed(() => currentTask.value?.status === 'waiting_input')
+const taskWaitingApproval = computed(() => currentTask.value?.status === 'waiting_approval')
+const chatInputDisabled = computed(() => running.value || taskWaitingApproval.value)
 const taskMeta = computed(() => {
   if (!currentTask.value) return ''
   const parts = [
@@ -427,6 +525,46 @@ const currentProgressItem = computed(() => {
   return running.value && active ? active : items[items.length - 1]
 })
 
+const conversationStatusValue = computed(() => (
+  currentSession.value?.status
+  || currentTask.value?.status
+  || (running.value ? 'running' : 'idle')
+))
+
+const conversationStatusText = computed(() => statusLabel(conversationStatusValue.value))
+
+const conversationAgentName = computed(() => (
+  agentName(currentTask.value?.agentId || currentSession.value?.agentId || selectedAgentId.value || defaultAgentId.value)
+  || t('common.defaultAgent')
+))
+
+const conversationMessageCount = computed(() => {
+  const declared = Number(currentSession.value?.messageCount ?? chatMessageTotal.value)
+  const localCount = chatMessages.value.length
+  return Number.isFinite(declared) ? Math.max(declared, localCount) : localCount
+})
+
+const conversationRunCount = computed(() => {
+  const declared = Number(currentSession.value?.runCount)
+  if (Number.isFinite(declared)) return declared
+  const runs = Array.isArray(currentSession.value?.runs) ? currentSession.value.runs.length : 0
+  return runs || (currentTaskId.value ? 1 : 0)
+})
+
+const conversationOverviewStats = computed(() => [
+  { label: t('chat.messages'), value: conversationMessageCount.value },
+  { label: t('chat.runs'), value: conversationRunCount.value },
+  { label: t('chat.artifacts'), value: currentArtifacts.value.length },
+])
+
+const currentPlanPanel = computed(() => {
+  const plans = mergedTimeline.value
+    .filter((item) => item && isPlanEvent(item.type))
+    .map((item) => planSnapshotFromEvent(item.type, item.raw || {}))
+    .filter(Boolean)
+  return plans.length ? plans[plans.length - 1] : null
+})
+
 watch(selectedAgentId, async () => {
   await refreshToolCatalog()
 })
@@ -437,9 +575,12 @@ function switchView(view) {
   openTaskMenuId.value = ''
   activeView.value = view
   sidebarOpen.value = false
-  if (view === 'tasks') refreshTasks()
+  if (view === 'tasks') refreshSessions()
   if (view === 'agents') refreshAgents()
-  if (view === 'tools') refreshToolCatalog()
+  if (view === 'tools') {
+    refreshToolCatalog()
+    refreshMcpServers()
+  }
   if (view === 'account') loadAccountProfile()
 }
 
@@ -455,8 +596,20 @@ function taskRecordId(task) {
   return task?.taskId || task?.task_id || ''
 }
 
+function sessionRecordId(session) {
+  return session?.sessionId || session?.session_id || ''
+}
+
+function sessionTitle(session) {
+  return session?.title || session?.lastMessagePreview || sessionRecordId(session)
+}
+
 function removeTaskFromLists(taskId) {
   tasks.value = tasks.value.filter((item) => taskRecordId(item) !== taskId)
+}
+
+function removeSessionFromLists(sessionId) {
+  sessions.value = sessions.value.filter((item) => sessionRecordId(item) !== sessionId)
 }
 
 function clampSidebarWidth(value) {
@@ -504,7 +657,10 @@ function createSessionId() {
 }
 
 function resetConversationState(options = {}) {
+  stopSessionStream()
+  stopSessionPolling()
   currentSessionId.value = createSessionId()
+  currentSession.value = null
   currentTaskId.value = ''
   currentTask.value = null
   currentEvents.value = []
@@ -514,6 +670,9 @@ function resetConversationState(options = {}) {
   taskInputText.value = ''
   chatInput.value = ''
   chatMessages.value = []
+  chatMessageTotal.value = 0
+  chatHasMore.value = false
+  chatHistoryLoading.value = false
   activeAssistantMessageId.value = ''
   statusText.value = t('common.ready')
   if (options.resetQuery) query.value = ''
@@ -625,7 +784,7 @@ function seedChatFromTask(task, output) {
       status: task?.status || '',
     })
   }
-  if (answer || task?.status === 'running' || task?.status === 'waiting_input') {
+  if (answer || ['running', 'waiting_input', 'waiting_approval'].includes(task?.status || '')) {
     nextMessages.push({
       id: chatMessageId('assistant'),
       role: 'assistant',
@@ -638,11 +797,459 @@ function seedChatFromTask(task, output) {
   activeAssistantMessageId.value = ''
 }
 
+function mapBackendMessage(message, fallbackStatus = '') {
+  const role = String(message?.role || '').trim().toLowerCase()
+  if (!['user', 'assistant'].includes(role)) return null
+  return {
+    id: message.messageId || chatMessageId(message.role || 'message'),
+    role,
+    content: String(message.content || ''),
+    taskId: message.runId || '',
+    status: message.status || fallbackStatus || '',
+    time: message.createdAt || Date.now(),
+    processOnly: false,
+    backend: true,
+  }
+}
+
+function seedChatFromSession(session, options = {}) {
+  const backendMessages = Array.isArray(session?.messages) ? session.messages : []
+  const nextMessages = backendMessages
+    .map((message) => mapBackendMessage(message, session?.status || ''))
+    .filter(Boolean)
+  chatMessageTotal.value = Number(session?.messageCount || backendMessages.length || 0)
+  chatHasMore.value = chatMessageTotal.value > nextMessages.length
+  const latestRun = sessionRunFromPayload(session)
+  const processRunId = sessionProcessRunId(session, latestRun)
+  const hasAssistantForProcessRun = nextMessages.some((message) => (
+    message.role === 'assistant'
+    && (!processRunId || message.taskId === processRunId)
+  ))
+  const processOutput = String(latestRun?.output || '').trim()
+  if (!hasAssistantForProcessRun && (processOutput || sessionHasVisibleProgressEvents())) {
+    nextMessages.push({
+      id: `process-${processRunId || chatMessageId('assistant')}`,
+      role: 'assistant',
+      content: processOutput,
+      taskId: processRunId,
+      status: latestRun?.status || session?.status || '',
+      time: sessionLatestEventTime() || latestRun?.updatedAt || Date.now(),
+      processOnly: !processOutput,
+    })
+  }
+  const activeRunId = session?.currentRunId || currentTaskId.value
+  const hasAssistantForActiveRun = nextMessages.some((message) => message.role === 'assistant' && message.taskId === activeRunId)
+  if (activeRunId && ['running', 'waiting_input', 'waiting_approval'].includes(session?.status || '') && !hasAssistantForActiveRun) {
+    nextMessages.push({
+      id: activeAssistantMessageId.value || chatMessageId('assistant'),
+      role: 'assistant',
+      content: '',
+      taskId: activeRunId,
+      status: session.status,
+      time: Date.now(),
+      processOnly: false,
+    })
+  }
+  if (!options.keepLocal || nextMessages.length) {
+    chatMessages.value = nextMessages
+  }
+  let latestAssistantId = ''
+  for (let index = chatMessages.value.length - 1; index >= 0; index -= 1) {
+    if (chatMessages.value[index]?.role === 'assistant') {
+      latestAssistantId = chatMessages.value[index].id
+      break
+    }
+  }
+  activeAssistantMessageId.value = ['running', 'waiting_input', 'waiting_approval'].includes(session?.status || '')
+    ? latestAssistantId
+    : ''
+}
+
+function earliestBackendMessageId() {
+  const firstMessage = chatMessages.value.find((message) => message.backend && message.id)
+  return firstMessage?.id || ''
+}
+
+function backendMessageCount() {
+  return chatMessages.value.filter((message) => message.backend).length
+}
+
+async function loadOlderMessages() {
+  const sessionId = currentSessionId.value
+  const before = earliestBackendMessageId()
+  if (!sessionId || !before || chatHistoryLoading.value || !chatHasMore.value) return
+  const scrollEl = scrollRef.value
+  const previousHeight = scrollEl?.scrollHeight || 0
+  chatHistoryLoading.value = true
+  try {
+    const params = new URLSearchParams({ limit: '50', before })
+    const response = await fetch(`/agent/sessions/${encodeURIComponent(sessionId)}/messages?${params}`)
+    if (!response.ok) throw new Error(withDetail('历史消息加载失败', 'Earlier messages failed to load', response.status))
+    const data = await response.json()
+    const existingIds = new Set(chatMessages.value.map((message) => message.id))
+    const olderMessages = (Array.isArray(data.items) ? data.items : [])
+      .map((message) => mapBackendMessage(message, currentSession.value?.status || ''))
+      .filter(Boolean)
+      .filter((message) => !existingIds.has(message.id))
+    chatMessages.value = [...olderMessages, ...chatMessages.value]
+    chatMessageTotal.value = Number(data.totalCount || data.count || chatMessageTotal.value || 0)
+    chatHasMore.value = Boolean(data.hasMore)
+    await nextTick()
+    if (scrollEl) scrollEl.scrollTop += Math.max((scrollEl.scrollHeight || 0) - previousHeight, 0)
+  } catch (error) {
+    addNotification(error.message, 'failed')
+  } finally {
+    chatHistoryLoading.value = false
+  }
+}
+
+function sessionLatestEventTime() {
+  return currentEvents.value.reduce((latest, event) => Math.max(latest, Number(event.createdAt || 0)), 0)
+}
+
+function sessionLatestEventRunId() {
+  for (let index = currentEvents.value.length - 1; index >= 0; index -= 1) {
+    const event = currentEvents.value[index]
+    const payload = event?.payload || {}
+    const runId = event?.runId || payload.runId || payload.taskId
+    if (runId) return runId
+  }
+  return ''
+}
+
+function sessionProcessRunId(session, latestRun) {
+  return session?.currentRunId
+    || latestRun?.runId
+    || latestRun?.taskId
+    || sessionLatestEventRunId()
+    || currentTaskId.value
+    || ''
+}
+
+function sessionHasVisibleProgressEvents() {
+  return currentEvents.value.some((event) => {
+    const item = normalizeTimelineEvent(event)
+    return item && shouldShowProgressItem(item)
+  })
+}
+
+function sessionRunFromPayload(session) {
+  const runs = Array.isArray(session?.runs) ? session.runs : []
+  const currentRunId = session?.currentRunId
+  if (currentRunId) {
+    const current = runs.find((run) => (run.runId || run.taskId) === currentRunId)
+    if (current) return current
+  }
+  return runs[0] || null
+}
+
+function applySessionPayload(session, events = [], artifacts = [], options = {}) {
+  currentSession.value = session
+  currentSessionId.value = session?.sessionId || currentSessionId.value
+  if (session?.agentId) selectedAgentId.value = session.agentId
+  const run = sessionRunFromPayload(session)
+  currentTask.value = run || {
+    taskId: session?.currentRunId || '',
+    status: session?.status || 'idle',
+    agentId: session?.agentId || selectedAgentId.value || defaultAgentId.value,
+    input: session?.lastMessagePreview || session?.title || '',
+  }
+  currentTaskId.value = currentTask.value?.taskId || currentTask.value?.runId || session?.currentRunId || ''
+  currentEvents.value = Array.isArray(events) ? events : []
+  currentArtifacts.value = Array.isArray(artifacts) ? artifacts : []
+  if (Number.isFinite(Number(session?.messageCount))) {
+    chatMessageTotal.value = Number(session.messageCount || 0)
+    chatHasMore.value = chatMessageTotal.value > backendMessageCount()
+  }
+  finalAnswer.value = latestAssistantText(session)
+  if (!options.keepChat) seedChatFromSession(session, options)
+  liveTimeline.value = []
+  running.value = session?.status === 'running'
+  statusText.value = running.value ? t('common.running') : t('common.ready')
+}
+
+function latestAssistantText(session) {
+  const backendMessages = Array.isArray(session?.messages) ? session.messages : []
+  for (let index = backendMessages.length - 1; index >= 0; index -= 1) {
+    const message = backendMessages[index]
+    if (message?.role === 'assistant' && String(message.content || '').trim()) {
+      return String(message.content || '')
+    }
+  }
+  return ''
+}
+
+async function ensureCurrentSession(titleText = '') {
+  const sessionId = currentSessionId.value || createSessionId()
+  currentSessionId.value = sessionId
+  const response = await fetch('/agent/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      title: titleText.trim().slice(0, 40) || undefined,
+      agent_id: selectedAgentId.value || defaultAgentId.value || undefined,
+    }),
+  })
+  if (!response.ok) throw new Error(withDetail('会话创建失败', 'Chat creation failed', response.status))
+  currentSession.value = await response.json()
+  await refreshSessions()
+  return currentSession.value
+}
+
+async function refreshSessions() {
+  if (needsLogin.value) {
+    sessions.value = []
+    return
+  }
+  const params = new URLSearchParams({ limit: '50' })
+  if (sessionFilters.keyword) params.set('keyword', sessionFilters.keyword)
+  if (sessionFilters.status) params.set('status', sessionFilters.status)
+  try {
+    const response = await fetch(`/agent/sessions?${params}`)
+    if (!response.ok) throw new Error(serviceError(response.status))
+    const data = await response.json()
+    sessions.value = Array.isArray(data.items) ? data.items : []
+  } catch (error) {
+    addNotification(withDetail('会话列表加载失败', 'Chat list failed to load', error.message), 'failed')
+  }
+}
+
+async function loadSession(sessionId, options = {}) {
+  if (!sessionId) return
+  openTaskMenuId.value = ''
+  try {
+    const eventParams = new URLSearchParams({ limit: '2000' })
+    const [sessionResponse, eventsResponse, artifactsResponse] = await Promise.all([
+      fetch(`/agent/sessions/${encodeURIComponent(sessionId)}`),
+      fetch(`/agent/sessions/${encodeURIComponent(sessionId)}/events?${eventParams}`),
+      fetch(`/agent/sessions/${encodeURIComponent(sessionId)}/artifacts`),
+    ])
+    if (!sessionResponse.ok) throw new Error(withDetail('会话加载失败', 'Chat failed to load', sessionResponse.status))
+    if (!eventsResponse.ok) throw new Error(withDetail('会话过程加载失败', 'Chat events failed to load', eventsResponse.status))
+    if (!artifactsResponse.ok) throw new Error(withDetail('会话产物加载失败', 'Chat artifacts failed to load', artifactsResponse.status))
+    const session = await sessionResponse.json()
+    const eventsData = await eventsResponse.json()
+    const artifactsData = await artifactsResponse.json()
+    applySessionPayload(
+      session,
+      Array.isArray(eventsData.items) ? eventsData.items : [],
+      Array.isArray(artifactsData.items) ? artifactsData.items : [],
+      options,
+    )
+    activeView.value = 'taskDetail'
+    sidebarOpen.value = false
+    if (session.status === 'running') {
+      if (!options.noStream) startSessionStream(sessionId)
+    } else {
+      stopSessionStream()
+      stopSessionPolling()
+    }
+    await nextTick()
+    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+  } catch (error) {
+    if (!options.silent) addNotification(error.message, 'failed')
+  }
+}
+
+function maxSessionSeq() {
+  return currentEvents.value.reduce((max, event) => Math.max(max, Number(event.seq || 0)), 0)
+}
+
+function mergeSessionEvent(event) {
+  if (!event) return
+  const seq = Number(event.seq || 0)
+  if (seq && currentEvents.value.some((item) => Number(item.seq || 0) === seq)) return
+  currentEvents.value = [...currentEvents.value, event].sort((left, right) => {
+    const leftSeq = Number(left.seq || 0)
+    const rightSeq = Number(right.seq || 0)
+    if (leftSeq || rightSeq) return leftSeq - rightSeq
+    return Number(left.createdAt || 0) - Number(right.createdAt || 0)
+  })
+
+  const eventType = event.eventType || event.type
+  const payload = event.payload || {}
+  if (payload.taskId || event.runId) {
+    currentTaskId.value = payload.taskId || event.runId || currentTaskId.value
+    currentTask.value = {
+      ...(currentTask.value || {}),
+      taskId: currentTaskId.value,
+      status: currentTask.value?.status || 'running',
+    }
+    updateActiveAssistant({ taskId: currentTaskId.value, status: 'running' })
+  }
+  if (eventType === 'result' || eventType === 'agent_stream') {
+    const text = payload.result || ''
+    finalAnswer.value += text
+    appendAssistantContent(text)
+  }
+  if (eventType === 'waiting_input') {
+    if (currentTask.value) currentTask.value.status = 'waiting_input'
+    running.value = false
+    statusText.value = t('common.ready')
+  }
+  if (eventType === 'approval_requested' || eventType === 'task_waiting_approval') {
+    if (currentTask.value) currentTask.value.status = 'waiting_approval'
+    updateActiveAssistant({ status: 'waiting_approval' })
+    running.value = false
+    statusText.value = t('approval.requested')
+  }
+  if (eventType === 'task_completed') {
+    if (currentTask.value) currentTask.value.status = 'completed'
+    updateActiveAssistant({ status: 'completed' })
+  }
+  if (eventType === 'task_failed') {
+    if (currentTask.value) currentTask.value.status = 'failed'
+    updateActiveAssistant({ status: 'failed' })
+  }
+}
+
+function sessionWebSocketUrl(sessionId, afterSeq) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const params = new URLSearchParams({ afterSeq: String(afterSeq) })
+  return `${protocol}//${window.location.host}/agent/ws/sessions/${encodeURIComponent(sessionId)}?${params}`
+}
+
+async function handleSessionTransportPayload(payload, sessionId) {
+  if (!payload || currentSessionId.value !== sessionId) return
+  if (payload.type === 'session_event') {
+    mergeSessionEvent(payload.event)
+    return
+  }
+  if (payload.type === 'session_status') {
+    if (currentSession.value) currentSession.value.status = payload.status
+    if (currentTask.value) currentTask.value.status = payload.status === 'running' ? 'running' : currentTask.value.status
+    running.value = payload.status === 'running'
+    statusText.value = running.value ? t('common.running') : t('common.ready')
+    if (payload.status && payload.status !== 'running') {
+      sessionStreamExpectedClose = true
+      stopSessionStream()
+      await loadSession(sessionId, { silent: true, keepChat: true })
+      await refreshSessions()
+    }
+    return
+  }
+  if (payload.type === 'done') {
+    sessionStreamExpectedClose = true
+    stopSessionStream()
+    await loadSession(sessionId, { silent: true, keepChat: true })
+    await refreshSessions()
+  }
+}
+
+function startSessionStream(sessionId = currentSessionId.value) {
+  stopSessionStream()
+  stopSessionPolling()
+  if (!sessionId) return
+  const afterSeq = maxSessionSeq()
+  sessionStreamExpectedClose = false
+  if (typeof WebSocket !== 'undefined') {
+    try {
+      startSessionWebSocket(sessionId, afterSeq)
+      return
+    } catch {
+      stopSessionStream()
+    }
+  }
+  startSessionEventSource(sessionId, afterSeq)
+}
+
+function startSessionWebSocket(sessionId, afterSeq) {
+  const socket = new WebSocket(sessionWebSocketUrl(sessionId, afterSeq))
+  sessionWebSocket.value = socket
+  socket.onmessage = async (message) => {
+    let payload = null
+    try {
+      payload = JSON.parse(message.data || '{}')
+    } catch {
+      return
+    }
+    await handleSessionTransportPayload(payload, sessionId)
+  }
+  socket.onerror = () => {
+    if (sessionWebSocket.value === socket) {
+      stopSessionStream()
+      if (!sessionStreamExpectedClose && currentSessionId.value === sessionId && running.value) {
+        startSessionEventSource(sessionId, maxSessionSeq())
+      }
+    }
+  }
+  socket.onclose = () => {
+    if (sessionWebSocket.value === socket) sessionWebSocket.value = null
+    if (!sessionStreamExpectedClose && currentSessionId.value === sessionId && running.value) {
+      startSessionEventSource(sessionId, maxSessionSeq())
+    }
+  }
+}
+
+function startSessionEventSource(sessionId, afterSeq = maxSessionSeq()) {
+  stopSessionStream()
+  stopSessionPolling()
+  if (!sessionId) return
+  if (typeof EventSource === 'undefined') {
+    startSessionPolling(sessionId)
+    return
+  }
+  const source = new EventSource(`/agent/sessions/${encodeURIComponent(sessionId)}/stream?afterSeq=${afterSeq}`)
+  sessionEventSource.value = source
+  source.onmessage = async (message) => {
+    let payload = null
+    try {
+      payload = JSON.parse(message.data || '{}')
+    } catch {
+      return
+    }
+    await handleSessionTransportPayload(payload, sessionId)
+  }
+  source.onerror = () => {
+    stopSessionStream()
+    if (!sessionStreamExpectedClose && currentSessionId.value === sessionId && running.value) {
+      startSessionPolling(sessionId)
+    }
+  }
+}
+
+function stopSessionStream() {
+  if (sessionWebSocket.value) {
+    sessionWebSocket.value.close()
+    sessionWebSocket.value = null
+  }
+  if (sessionEventSource.value) {
+    sessionEventSource.value.close()
+    sessionEventSource.value = null
+  }
+}
+
+function startSessionPolling(sessionId = currentSessionId.value) {
+  stopSessionStream()
+  stopSessionPolling()
+  sessionPollTimer.value = window.setInterval(async () => {
+    if (sessionPollInFlight) return
+    sessionPollInFlight = true
+    try {
+      await loadSession(sessionId, { silent: true, noStream: true })
+      await refreshSessions()
+    } finally {
+      sessionPollInFlight = false
+    }
+  }, 1500)
+}
+
+function stopSessionPolling() {
+  if (sessionPollTimer.value) {
+    window.clearInterval(sessionPollTimer.value)
+    sessionPollTimer.value = null
+  }
+}
+
 async function submitConversationMessage(text, source) {
   if (!text || running.value) return
+  if (taskWaitingApproval.value && source === 'chat') {
+    addNotification(t('task.needApproval'), 'waiting')
+    return
+  }
 
   if (source === 'home') resetConversationState()
-  const priorMessages = source === 'chat' ? buildPriorConversationMessages() : []
   const userMessage = {
     id: chatMessageId('user'),
     role: 'user',
@@ -675,52 +1282,62 @@ async function submitConversationMessage(text, source) {
   switchView('taskDetail')
   await nextTick()
 
-  const traceId = `web-${Date.now().toString(36)}`
-  const uploadedFiles = selectedFiles.value.length ? await uploadSelectedFiles(traceId) : []
-  const payload = {
-    messages: [...priorMessages, { role: 'user', content: text, uploadFile: uploadedFiles }],
-    conversation_id: currentSessionId.value,
-    agent_id: selectedAgentId.value || undefined,
-    language: language.value === 'en' ? 'en' : 'ch',
-  }
-  if (advancedOpen.value) {
-    payload.outputStyle = outputStyle.value || undefined
-    payload.mode = runMode.value || undefined
-    payload.run_environment = runEnvironment.value || undefined
-    const selected = [...selectedToolNames.value]
-    const approved = [...approvedToolNames.value]
-    if (toolSelectionTouched.value && selected.length) payload.selected_tools = selected
-    if (approved.length) payload.approved_tools = approved
-  }
-
-  if (source === 'chat') chatInput.value = ''
-  else query.value = ''
-  selectedFiles.value = []
-  if (fileInputRef.value) fileInputRef.value.value = ''
-
   streamController.value = new AbortController()
   try {
-    const response = await fetch('/agent/autoagent', {
+    await ensureCurrentSession(text)
+    const uploadRequestId = currentSessionId.value || `web-${Date.now().toString(36)}`
+    const uploadedFiles = selectedFiles.value.length ? await uploadSelectedFiles(uploadRequestId) : []
+    const payload = {
+      content: text,
+      uploadFile: uploadedFiles,
+      agent_id: selectedAgentId.value || undefined,
+      language: language.value === 'en' ? 'en' : 'ch',
+    }
+    if (advancedOpen.value) {
+      payload.outputStyle = outputStyle.value || undefined
+      payload.mode = runMode.value || undefined
+      payload.run_environment = runEnvironment.value || undefined
+      const selected = [...selectedToolNames.value]
+      const approved = [...approvedToolNames.value]
+      if (toolSelectionTouched.value && selected.length) payload.selected_tools = selected
+      if (approved.length) payload.approved_tools = approved
+    }
+
+    if (source === 'chat') chatInput.value = ''
+    else query.value = ''
+    selectedFiles.value = []
+    if (fileInputRef.value) fileInputRef.value.value = ''
+
+    const response = await fetch(`/agent/sessions/${encodeURIComponent(currentSessionId.value)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal: streamController.value.signal,
     })
     if (!response.ok) throw new Error(serviceError(response.status))
-    await readSse(response)
+    const data = await response.json()
+    currentTaskId.value = data.runId || ''
+    currentTask.value = {
+      ...(currentTask.value || {}),
+      taskId: currentTaskId.value,
+      status: data.status || 'running',
+      agentId: payload.agent_id || defaultAgentId.value,
+    }
+    updateActiveAssistant({ taskId: currentTaskId.value, status: 'running' })
+    startSessionStream(currentSessionId.value)
   } catch (error) {
     if (error.name !== 'AbortError') {
       addNotification(withDetail('任务执行失败', 'Task failed', error.message), 'failed')
       liveTimeline.value.push({ type: 'error', title: lt('任务执行失败', 'Task failed'), summary: error.message, time: Date.now(), open: true })
       updateActiveAssistant({ content: error.message, status: 'failed' })
       if (currentTask.value) currentTask.value.status = 'failed'
+      running.value = false
+      statusText.value = t('common.ready')
     }
   } finally {
-    running.value = false
     streamController.value = null
-    statusText.value = t('common.ready')
-    await refreshTasks()
-    if (currentTaskId.value) await loadTask(currentTaskId.value, { stayOnDetail: true, keepChat: true })
+    await refreshSessions()
+    if (currentSessionId.value) await loadSession(currentSessionId.value, { keepChat: true, silent: true })
   }
 }
 
@@ -792,12 +1409,15 @@ function handleStreamEvent(event) {
 }
 
 async function stopTask() {
-  if (currentTaskId.value) {
+  if (currentSessionId.value && currentTaskId.value) {
     try {
-      await fetch(`/agent/tasks/${encodeURIComponent(currentTaskId.value)}/cancel`, { method: 'POST' })
+      await fetch(
+        `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/runs/${encodeURIComponent(currentTaskId.value)}/cancel`,
+        { method: 'POST' },
+      )
       addNotification(language.value === 'en' ? 'Cancel request sent' : '任务取消请求已发送', 'cancelled')
       if (currentTask.value) currentTask.value.status = 'cancelled'
-      await refreshTasks()
+      await refreshSessions()
     } catch (error) {
       addNotification(withDetail('取消失败', 'Cancel failed', error.message), 'failed')
     }
@@ -809,16 +1429,23 @@ async function stopTask() {
 }
 
 async function retryTask() {
-  if (!currentTaskId.value || running.value) return
+  if (!currentSessionId.value || !currentTaskId.value || running.value) return
   statusText.value = lt('任务重试中', 'Retrying task')
   try {
-    const response = await fetch(`/agent/tasks/${encodeURIComponent(currentTaskId.value)}/retry`, { method: 'POST' })
+    const response = await fetch(
+      `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/runs/${encodeURIComponent(currentTaskId.value)}/retry`,
+      { method: 'POST' },
+    )
     if (!response.ok) throw new Error(serviceError(response.status))
     const task = await response.json()
-    const retryTaskId = task.taskId || task.task_id
+    const retryTaskId = task.runId || task.taskId || task.task_id
     addNotification(language.value === 'en' ? 'Task retried' : '任务已重试', 'running')
-    await refreshTasks()
-    if (retryTaskId) await loadTask(retryTaskId)
+    await refreshSessions()
+    if (retryTaskId) {
+      currentTaskId.value = retryTaskId
+      startSessionPolling(currentSessionId.value)
+      await loadSession(currentSessionId.value)
+    }
   } catch (error) {
     addNotification(withDetail('重试任务失败', 'Retry failed', error.message), 'failed')
   } finally {
@@ -826,19 +1453,117 @@ async function retryTask() {
   }
 }
 
+function approvalToolNames(data = {}) {
+  if (Array.isArray(data.requests)) {
+    return data.requests
+      .map((item) => compactToolName(item?.tool || item?.name || ''))
+      .filter(Boolean)
+  }
+  if (Array.isArray(data.requestedTools) && data.requestedTools.length) {
+    return data.requestedTools.map((item) => compactToolName(item)).filter(Boolean)
+  }
+  if (Array.isArray(data.approvedTools)) {
+    return data.approvedTools.map((item) => compactToolName(item)).filter(Boolean)
+  }
+  return []
+}
+
+function rawApprovalToolNames(data = {}) {
+  if (Array.isArray(data.requests)) {
+    return data.requests
+      .map((item) => String(item?.tool || item?.name || '').trim())
+      .filter(Boolean)
+  }
+  if (Array.isArray(data.requestedTools)) {
+    return data.requestedTools.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+  return []
+}
+
+function approvalResolvedFor(item) {
+  const requestEventId = Number(item?.eventId || 0)
+  if (!requestEventId) return false
+  return currentEvents.value.some((event) => {
+    const payload = event.payload || {}
+    return (event.eventType || event.type) === 'approval_resolved'
+      && Number(payload.approvalRequestEventId || 0) === requestEventId
+  })
+}
+
+function approvalStatusText(item) {
+  const requestEventId = Number(item?.eventId || 0)
+  const resolved = currentEvents.value.find((event) => {
+    const payload = event.payload || {}
+    return (event.eventType || event.type) === 'approval_resolved'
+      && Number(payload.approvalRequestEventId || 0) === requestEventId
+  })
+  if (!resolved) return t('approval.none')
+  return resolved.payload?.approved ? t('approval.approved') : t('approval.rejected')
+}
+
+function approvalBusyFor(item, approved) {
+  return approvalBusyKey.value === `${item.runId}:${item.eventId}:${approved ? 'approve' : 'reject'}`
+}
+
+function approvalPending(item) {
+  return item?.type === 'approval_requested'
+    && item.runId
+    && !running.value
+    && !approvalResolvedFor(item)
+}
+
+function canResolveApproval(item) {
+  return approvalPending(item) && !approvalBusyKey.value
+}
+
+async function resolveApproval(item, approved) {
+  if (!canResolveApproval(item)) return
+  const sessionId = currentSessionId.value
+  const runId = item?.runId
+  if (!sessionId || !runId) return
+  const actionKey = `${runId}:${item.eventId}:${approved ? 'approve' : 'reject'}`
+  approvalBusyKey.value = actionKey
+  statusText.value = t('approval.processing')
+  try {
+    const requestedTools = rawApprovalToolNames(item.raw || {})
+    const response = await fetch(
+      `/agent/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(runId)}/approval`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approved,
+          approvedTools: approved ? requestedTools : [],
+          approvalType: item.raw?.approvalType || 'high_risk_tools',
+          rerun: approved,
+        }),
+      },
+    )
+    if (!response.ok) throw new Error(serviceError(response.status))
+    const payload = await response.json()
+    addNotification(approved ? t('approval.approved') : t('approval.rejected'), approved ? 'running' : 'cancelled')
+    await refreshSessions()
+    const nextRunId = payload.runId || payload.taskId || ''
+    if (approved && nextRunId) {
+      currentTaskId.value = nextRunId
+      startSessionPolling(sessionId)
+    }
+    await loadSession(sessionId, { silent: true, keepChat: true })
+  } catch (error) {
+    addNotification(withDetail('审批处理失败', 'Approval failed', error.message), 'failed')
+  } finally {
+    approvalBusyKey.value = ''
+    statusText.value = running.value ? t('common.running') : t('common.ready')
+  }
+}
+
 async function sendTaskInput() {
   const content = taskInputText.value.trim()
-  if (!currentTaskId.value || !content) return
+  if (!currentSessionId.value || !content) return
   try {
-    const response = await fetch(`/agent/tasks/${encodeURIComponent(currentTaskId.value)}/input`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, language: language.value === 'en' ? 'en' : 'ch' }),
-    })
-    if (!response.ok) throw new Error(serviceError(response.status))
     taskInputText.value = ''
+    await submitConversationMessage(content, 'chat')
     addNotification(language.value === 'en' ? 'Input submitted' : '补充信息已提交', 'running')
-    await loadTask(currentTaskId.value)
   } catch (error) {
     addNotification(withDetail('提交补充失败', 'Submit input failed', error.message), 'failed')
   }
@@ -977,6 +1702,7 @@ async function logout() {
   accountIdentities.value = []
   newTask()
   await refreshAuth()
+  await refreshSessions()
   await refreshTasks()
 }
 
@@ -1034,6 +1760,22 @@ async function deleteTask(task) {
   }
 }
 
+async function archiveSession(session) {
+  const sessionId = sessionRecordId(session)
+  if (!sessionId) return
+  openTaskMenuId.value = ''
+  try {
+    const response = await fetch(`/agent/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+    if (!response.ok && response.status !== 404) throw new Error(serviceError(response.status))
+    removeSessionFromLists(sessionId)
+    if (sessionId === currentSessionId.value) newTask()
+    addNotification(t('task.deleted'), 'running')
+    await refreshSessions()
+  } catch (error) {
+    addNotification(`${t('task.deleteFailed')}${detailSep()}${error.message}`, 'failed')
+  }
+}
+
 async function refreshAgents() {
   try {
     const [agentResponse, diagnosticsResponse] = await Promise.all([
@@ -1054,7 +1796,10 @@ async function refreshToolCatalog() {
   const agentId = selectedAgentId.value || defaultAgentId.value
   if (!agentId) return
   try {
-    const response = await fetch(`/agent/tools?agent_id=${encodeURIComponent(agentId)}`)
+    const url = currentSession.value
+      ? `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/tools?agent_id=${encodeURIComponent(agentId)}`
+      : `/agent/tools?agent_id=${encodeURIComponent(agentId)}`
+    const response = await fetch(url)
     if (!response.ok) throw new Error(withDetail('工具列表加载失败', 'Tool list failed to load', response.status))
     const data = await response.json()
     toolCatalog.value = [
@@ -1067,6 +1812,35 @@ async function refreshToolCatalog() {
   } catch (error) {
     toolCatalog.value = []
     addNotification(error.message, 'failed')
+  }
+}
+
+async function refreshMcpServers(options = {}) {
+  if (needsLogin.value) {
+    mcpServers.value = []
+    mcpToolCount.value = 0
+    mcpSource.value = ''
+    return
+  }
+  const force = Boolean(options.force)
+  mcpRefreshing.value = force
+  try {
+    const response = await fetch(force ? '/agent/mcp/tools/refresh' : '/agent/mcp/servers', {
+      method: force ? 'POST' : 'GET',
+    })
+    if (!response.ok) throw new Error(withDetail('MCP 状态加载失败', 'MCP status failed to load', response.status))
+    const data = await response.json()
+    mcpServers.value = Array.isArray(data.items) ? data.items : []
+    mcpToolCount.value = Number(data.toolCount || 0)
+    mcpSource.value = data.source || ''
+    if (force) {
+      await refreshToolCatalog()
+      addNotification(lt('MCP 工具已刷新', 'MCP tools refreshed'), 'running')
+    }
+  } catch (error) {
+    addNotification(error.message, 'failed')
+  } finally {
+    mcpRefreshing.value = false
   }
 }
 
@@ -1084,16 +1858,41 @@ function toggleTool(tool) {
 }
 
 function toolRequiresApproval(tool) {
-  return tool.blockReason === 'high_risk_requires_enable' || tool.blockReason === 'high_risk_requires_approval'
+  return Boolean(tool.requiresApproval) || tool.blockReason === 'high_risk_requires_enable' || tool.blockReason === 'high_risk_requires_approval'
 }
 
 function toolRiskText(tool) {
-  const risk = String(tool.policy?.risk || '').toLowerCase()
+  const risk = String(tool.riskLevel || tool.policy?.risk || '').toLowerCase()
   if (risk === 'critical') return lt('高风险', 'High risk')
   if (risk === 'high') return lt('高风险', 'High risk')
+  if (risk === 'medium') return lt('中风险', 'Medium risk')
+  if (risk === 'low') return lt('低风险', 'Low risk')
   if (toolRequiresApproval(tool)) return lt('需授权', 'Needs approval')
   if (tool.allowed === false) return lt('不可用', 'Unavailable')
   return lt('可用', 'Available')
+}
+
+function toolSourceText(tool) {
+  const source = String(tool.source || '').toLowerCase()
+  if (source === 'mcp') return 'MCP'
+  if (source === 'builtin') return lt('内置', 'Built-in')
+  if (source === 'browser') return lt('浏览器', 'Browser')
+  if (source === 'plugin') return lt('插件', 'Plugin')
+  return source || lt('未知', 'Unknown')
+}
+
+function toolServerText(tool) {
+  return tool.mcpServerId || tool.serverId || tool.toolPrefix || ''
+}
+
+function toolMetaRows(tool) {
+  const rows = [
+    { label: t('tools.source'), value: toolSourceText(tool) },
+    { label: t('tools.risk'), value: toolRiskText(tool) },
+  ]
+  const server = toolServerText(tool)
+  if (server) rows.push({ label: t('tools.server'), value: server })
+  return rows
 }
 
 function normalizeTimelineEvent(event) {
@@ -1104,6 +1903,9 @@ function normalizeTimelineEvent(event) {
   if (!summary && !['tool_call', 'tool_result'].includes(eventType)) return null
   const failed = Boolean(payload.error || resultMap.error || resultMap.failed)
   return {
+    eventId: event.id || payload.id || '',
+    seq: event.seq || '',
+    runId: event.runId || payload.runId || payload.taskId || '',
     type: eventType,
     title: timelineTitle(eventType, resultMap, failed, payload),
     summary,
@@ -1119,7 +1921,7 @@ function timelineTitle(type, resultMap = {}, failed = false, payload = {}) {
   if (type === 'tool_result') {
     return toolResultTitle(toolName, toolInput(resultMap), failed)
   }
-  if (type === 'plan') return t('timeline.plan')
+  if (isPlanEvent(type)) return planEventTitle(type, payload.plan || resultMap || payload)
   if (type === 'tool_thought') return toolThoughtTitle(payload)
   if (type === 'plan_thought') return lt('规划任务', 'Planning task')
   if (type === 'agent_selected') return t('timeline.agentSelected')
@@ -1135,6 +1937,7 @@ function eventSummary(type, payload = {}) {
   if (type === 'tool_result') return stringify(data.resultSummary || data.result || data.output || data.error || data.chunk)
   if (type === 'tool_thought') return toolThoughtSummary(payload)
   if (type === 'plan_thought') return planThoughtSummary(payload)
+  if (isPlanEvent(type)) return planEventSummary(type, data)
   if (type === 'result' || type === 'agent_stream') return ''
   if (type === 'task_created') return withDetail('任务已创建', 'Task created', data.mode)
   if (type === 'task_queued') return withDetail('任务排队中', 'Task queued', data.mode)
@@ -1145,8 +1948,14 @@ function eventSummary(type, payload = {}) {
   if (type === 'task_cancelled') return lt('任务已取消', 'Task cancelled')
   if (type === 'task_retry_requested') return withDetail('任务已重试', 'Task retried', data.retryTaskId || '')
   if (type === 'waiting_input') return withDetail('等待补充输入', 'Waiting for input', data.prompt || '')
+  if (type === 'task_waiting_approval') return lt('等待工具审批', 'Waiting for tool approval')
   if (type === 'user_input') return withDetail('用户补充', 'User input', data.content || '')
   if (type === 'task_resume_requested') return lt('任务恢复请求已发送', 'Resume request sent')
+  if (type === 'approval_requested') return withDetail('需要审批工具', 'Approval needed', approvalToolNames(data).join(', '))
+  if (type === 'approval_resolved') return data.approved
+    ? withDetail('已允许工具', 'Tools allowed', approvalToolNames(data).join(', '))
+    : withDetail('已拒绝工具', 'Tools denied', approvalToolNames(data).join(', '))
+  if (type === 'todo_list_updated') return todoListSummary(data)
   if (type === 'memory_context_loaded') return lt('上下文已检索', 'Context loaded')
   if (type === 'runtime_boundary_applied') return withDetail('运行环境', 'Runtime', data.runEnvironment || 'local')
   if (type === 'tool_policy_applied') return lt(`工具策略已应用：可用 ${(data.availableTools || []).length} 个，拦截 ${(data.blockedTools || []).length} 个`, `Tool policy applied: ${(data.availableTools || []).length} available, ${(data.blockedTools || []).length} blocked`)
@@ -1240,6 +2049,103 @@ function planThoughtSummary(payload = {}) {
   return stringify(thought.current_step || thought.step || thought.plan || thought.message || thought)
 }
 
+function isPlanEvent(type) {
+  return [
+    'plan',
+    'plan_created',
+    'plan_updated',
+    'plan_step_started',
+    'plan_step_completed',
+    'plan_step_failed',
+    'plan_step_updated',
+    'plan_completed',
+  ].includes(type)
+}
+
+function planEventTitle(type, data = {}) {
+  if (type === 'plan_created') return withDetail('创建计划', 'Plan created', data.title || '')
+  if (type === 'plan_updated') return withDetail('更新计划', 'Plan updated', data.title || '')
+  if (type === 'plan_step_started') return withDetail('开始步骤', 'Step started', data.step || data.currentStep || '')
+  if (type === 'plan_step_completed') return withDetail('完成步骤', 'Step completed', data.step || data.currentStep || '')
+  if (type === 'plan_step_failed') return withDetail('步骤失败', 'Step failed', data.step || data.currentStep || '')
+  if (type === 'plan_completed') return withDetail('计划完成', 'Plan completed', data.title || '')
+  return t('timeline.plan')
+}
+
+function planEventSummary(_type, data = {}) {
+  const status = Array.isArray(data.step_status) ? data.step_status : []
+  const steps = Array.isArray(data.steps) ? data.steps : []
+  const completed = status.filter((item) => item === 'completed').length
+  const note = data.note || data.finishReason || data.tool_result || ''
+  return [
+    steps.length ? withDetail('步骤', 'Steps', `${completed}/${steps.length}`) : '',
+    note ? compactSummary(note, 160) : '',
+  ].filter(Boolean).join(' · ')
+}
+
+function planSnapshotFromEvent(type, payload = {}) {
+  const resultMap = payload.resultMap && typeof payload.resultMap === 'object' ? payload.resultMap : {}
+  const plan = payload.plan || resultMap.plan || (Array.isArray(payload.steps) ? payload : null) || (Array.isArray(resultMap.steps) ? resultMap : null)
+  if (!plan || !Array.isArray(plan.steps) || !plan.steps.length) return null
+  const statuses = Array.isArray(plan.step_status) ? plan.step_status : []
+  const notes = Array.isArray(plan.notes) ? plan.notes : []
+  const evidence = Array.isArray(plan.evidence) ? plan.evidence : []
+  const steps = plan.steps.map((step, index) => {
+    const status = String(statuses[index] || 'not_started')
+    return {
+      index: index + 1,
+      title: typeof step === 'string' ? step : stringify(step),
+      status,
+      note: compactSummary(notes[index] || '', 160),
+      evidence: planEvidenceSummary(evidence[index]),
+    }
+  })
+  return {
+    title: plan.title || t('timeline.plan'),
+    status: type === 'plan_completed' ? 'completed' : currentTask.value?.status || '',
+    steps,
+    completed: steps.filter((step) => ['completed', 'skipped'].includes(step.status)).length,
+  }
+}
+
+function planEvidenceSummary(items) {
+  const list = Array.isArray(items) ? items : (items ? [items] : [])
+  return list
+    .slice(0, 3)
+    .map((item) => {
+      if (!item || typeof item !== 'object') return compactSummary(item, 120)
+      return compactSummary(item.summary || item.url || item.content || item.tool || item.name || item, 120)
+    })
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function planStepStatusClass(status) {
+  const value = String(status || '')
+  if (value === 'completed' || value === 'skipped') return 'completed'
+  if (value === 'failed') return 'failed'
+  if (['running', 'in_progress', 'started'].includes(value)) return 'running'
+  if (['waiting', 'waiting_input', 'blocked'].includes(value)) return 'waiting'
+  return 'waiting'
+}
+
+function planStepStatusLabel(status) {
+  const value = String(status || '')
+  if (value === 'not_started' || value === 'pending') return t('plan.notStarted')
+  if (value === 'skipped') return t('plan.skipped')
+  return progressStatusLabel(planStepStatusClass(value))
+}
+
+function todoListSummary(data = {}) {
+  const items = Array.isArray(data.items) ? data.items : Array.isArray(data.todos) ? data.todos : []
+  const completed = items.filter((item) => item?.status === 'completed').length
+  const running = items.find((item) => ['running', 'waiting', 'blocked'].includes(item?.status))
+  return [
+    withDetail('TODO', 'Todo', `${completed}/${items.length}`),
+    running?.title || data.summary || '',
+  ].filter(Boolean).join(' · ')
+}
+
 function enrichProgressItem(item, index) {
   return {
     ...item,
@@ -1255,10 +2161,19 @@ function shouldShowProgressItem(item) {
   if (item.type === 'notifications') return !isNoisyProgressNotification(item.summary || item.title)
   const visibleTypes = new Set([
     'plan',
+    'plan_created',
+    'plan_updated',
+    'plan_step_started',
+    'plan_step_completed',
+    'plan_step_failed',
+    'plan_step_updated',
+    'plan_completed',
+    'todo_list_updated',
     'plan_thought',
     'tool_call',
     'tool_result',
     'waiting_input',
+    'task_waiting_approval',
     'user_input',
     'task_artifact_added',
     'task_completed',
@@ -1266,6 +2181,8 @@ function shouldShowProgressItem(item) {
     'task_cancelled',
     'agent_failed',
     'task_handoff_requested',
+    'approval_requested',
+    'approval_resolved',
   ])
   if (visibleTypes.has(item.type)) return true
   if (item.status === 'failed') return true
@@ -1300,8 +2217,19 @@ function progressStatus(item) {
   const raw = item.raw || {}
   const resultMap = raw.resultMap || {}
   if (raw.error || resultMap.error || resultMap.failed || item.type.includes('failed')) return 'failed'
+  if (item.type === 'approval_requested') return approvalResolvedFor(item) ? 'completed' : 'waiting'
+  if (item.type === 'approval_resolved') return 'completed'
   if (item.type === 'tool_call') return 'started'
   if (item.type === 'tool_result' || item.type === 'task_completed' || item.type === 'agent_completed') return 'completed'
+  if (item.type === 'plan_step_completed' || item.type === 'plan_completed') return 'completed'
+  if (item.type === 'plan_step_failed') return 'failed'
+  if (item.type === 'plan_step_started') return 'running'
+  if (item.type === 'todo_list_updated') {
+    const items = Array.isArray(resultMap.items) ? resultMap.items : Array.isArray(resultMap.todos) ? resultMap.todos : []
+    if (items.some((todo) => todo?.status === 'failed')) return 'failed'
+    if (items.some((todo) => ['running', 'waiting', 'blocked'].includes(todo?.status))) return 'running'
+    return 'completed'
+  }
   if (item.type === 'tool_thought' || item.type === 'plan_thought') return currentTask.value?.status === 'running' ? 'running' : 'completed'
   if (item.type === 'task_running' || item.type === 'agent_started') return 'running'
   return currentTask.value?.status === 'running' ? 'running' : 'completed'
@@ -1390,11 +2318,15 @@ function eventTypeName(type) {
     tool_result: 'Tool result',
     tool_thought: 'Preparing tool',
     plan_thought: 'Planning task',
+    todo_list_updated: 'Todo list',
     agent_phase: 'Agent phase',
     memory_context_loaded: 'Context retrieval',
     runtime_boundary_applied: 'Runtime boundary',
     tool_policy_applied: 'Tool policy',
     task_artifact_added: 'Artifact',
+    task_waiting_approval: 'Waiting for approval',
+    approval_requested: 'Approval needed',
+    approval_resolved: 'Approval resolved',
   } : {
     task_created: '任务创建',
     task_queued: '任务排队',
@@ -1405,11 +2337,15 @@ function eventTypeName(type) {
     tool_result: '工具结果',
     tool_thought: '准备调用工具',
     plan_thought: '规划任务',
+    todo_list_updated: 'TODO 更新',
     agent_phase: 'Agent 阶段',
     memory_context_loaded: '上下文检索',
     runtime_boundary_applied: '运行边界',
     tool_policy_applied: '工具策略',
     task_artifact_added: '任务产物',
+    task_waiting_approval: '等待审批',
+    approval_requested: '需要审批',
+    approval_resolved: '审批结果',
   }
   return names[type] || type || t('timeline.default')
 }
@@ -1450,6 +2386,21 @@ function statusLabel(status) {
 
 function statusClass(status) {
   return `status-${status || 'unknown'}`
+}
+
+function mcpStatusLabel(status) {
+  const normalized = String(status || 'unknown')
+  if (normalized === 'ok') return lt('可用', 'Available')
+  if (normalized === 'error') return lt('异常', 'Error')
+  if (normalized === 'configured') return lt('已配置', 'Configured')
+  return t('status.unknown')
+}
+
+function formatMcpCheckedAt(value) {
+  if (!value) return '-'
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return '-'
+  return formatDate(numeric < 1000000000000 ? numeric * 1000 : numeric)
 }
 
 function formatDate(timestamp) {
@@ -1532,18 +2483,32 @@ function renderMarkdown(text) {
 }
 
 function artifactHref(item) {
-  return `/agent/tasks/${encodeURIComponent(currentTaskId.value)}/artifacts/${encodeURIComponent(item.artifactId)}`
+  return `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/artifacts/${encodeURIComponent(item.artifactId)}`
+}
+
+function initialSessionIdFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search || '').get('sessionId') || ''
+  } catch {
+    return ''
+  }
 }
 
 onMounted(async () => {
   await refreshAuth()
   if (needsLogin.value) return
   await refreshAgents()
+  await refreshSessions()
   await refreshTasks()
   await refreshToolCatalog()
+  await refreshMcpServers()
+  const initialSessionId = initialSessionIdFromUrl()
+  if (initialSessionId) await loadSession(initialSessionId, { silent: true })
 })
 
 onBeforeUnmount(() => {
+  stopSessionStream()
+  stopSessionPolling()
   stopSidebarResize()
   notificationTimers.forEach((timer) => clearTimeout(timer))
   notificationTimers.clear()
@@ -1601,28 +2566,28 @@ onBeforeUnmount(() => {
       <section class="side-section">
         <div class="side-title">
           <span>{{ t('sidebar.recent') }}</span>
-          <button type="button" class="ghost-button small" @click="refreshTasks">{{ t('common.refresh') }}</button>
+          <button type="button" class="ghost-button small" @click="refreshSessions">{{ t('common.refresh') }}</button>
         </div>
-        <div v-if="!recentTasks.length" class="empty-side">{{ t('tasks.empty') }}</div>
+        <div v-if="!recentSessions.length" class="empty-side">{{ t('sessions.empty') }}</div>
         <div
-          v-for="task in recentTasks"
-          :key="task.taskId"
+          v-for="session in recentSessions"
+          :key="session.sessionId"
           class="recent-task-row"
-          :class="{ active: task.taskId === currentTaskId }"
+          :class="{ active: session.sessionId === currentSessionId }"
         >
-          <button type="button" class="recent-task" @click="loadTask(task.taskId)">
-            <span class="recent-title">{{ task.input || task.taskId }}</span>
+          <button type="button" class="recent-task" @click="loadSession(session.sessionId)">
+            <span class="recent-title">{{ sessionTitle(session) }}</span>
           </button>
           <button
             type="button"
             class="task-menu-button"
             :title="t('common.moreOptions')"
-            @click.stop.prevent="toggleTaskMenu(task.taskId)"
+            @click.stop.prevent="toggleTaskMenu(session.sessionId)"
           >
             ⋯
           </button>
-          <div v-if="openTaskMenuId === task.taskId" class="task-menu-popover" @click.stop>
-            <button type="button" class="task-menu-danger" @click.stop.prevent="deleteTask(task)">{{ t('task.delete') }}</button>
+          <div v-if="openTaskMenuId === session.sessionId" class="task-menu-popover" @click.stop>
+            <button type="button" class="task-menu-danger" @click.stop.prevent="archiveSession(session)">{{ t('task.delete') }}</button>
           </div>
         </div>
       </section>
@@ -1820,15 +2785,14 @@ onBeforeUnmount(() => {
                   <option value="html">HTML</option>
                   <option value="table">Table</option>
                   <option value="ppt">PPT</option>
-                  <option value="gaia">Gaia</option>
                 </select>
               </label>
               <label>
                 {{ t('advanced.mode') }}
                 <select v-model="runMode">
                   <option value="">{{ t('advanced.followAgent') }}</option>
-                  <option value="plans_executor">Plans Executor</option>
                   <option value="react">ReAct</option>
+                  <option value="plans_executor">Legacy Plan Executor</option>
                 </select>
               </label>
               <label>
@@ -1862,7 +2826,62 @@ onBeforeUnmount(() => {
           <div v-if="running" class="conversation-controls">
             <button type="button" class="ghost-button small" @click="stopTask">{{ t('common.stop') }}</button>
           </div>
+          <div class="conversation-overview">
+            <div class="conversation-overview-main">
+              <div>
+                <span class="overview-eyebrow">{{ t('chat.overview') }}</span>
+                <strong>{{ conversationAgentName }}</strong>
+              </div>
+              <span class="status-pill" :class="statusClass(conversationStatusValue)">{{ conversationStatusText }}</span>
+            </div>
+            <div class="conversation-overview-grid">
+              <div v-for="item in conversationOverviewStats" :key="item.label" class="overview-stat">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+            <div v-if="currentProgressItem" class="conversation-overview-action">
+              <span>{{ t('chat.currentAction') }}</span>
+              <strong>{{ currentProgressItem.title }}</strong>
+              <small v-if="currentProgressItem.brief">{{ currentProgressItem.brief }}</small>
+            </div>
+          </div>
+          <div v-if="currentPlanPanel" class="conversation-plan-panel">
+            <div class="conversation-plan-head">
+              <div>
+                <span class="overview-eyebrow">{{ t('plan.title') }}</span>
+                <strong>{{ currentPlanPanel.title }}</strong>
+              </div>
+              <span>{{ currentPlanPanel.completed }}/{{ currentPlanPanel.steps.length }}</span>
+            </div>
+            <ol class="conversation-plan-list">
+              <li
+                v-for="step in currentPlanPanel.steps"
+                :key="`${step.index}-${step.title}`"
+                class="plan-step"
+                :class="`plan-step-${planStepStatusClass(step.status)}`"
+              >
+                <span class="timeline-dot" :class="`dot-${planStepStatusClass(step.status)}`"></span>
+                <div>
+                  <strong>{{ step.index }}. {{ step.title }}</strong>
+                  <small>{{ planStepStatusLabel(step.status) }}</small>
+                  <p v-if="step.note">{{ step.note }}</p>
+                  <p v-if="step.evidence">{{ t('plan.evidence') }}{{ detailSep() }}{{ step.evidence }}</p>
+                </div>
+              </li>
+            </ol>
+          </div>
           <div ref="scrollRef" class="conversation-stream">
+            <div v-if="chatHasMore" class="chat-history-control">
+              <button
+                type="button"
+                class="ghost-button small"
+                :disabled="chatHistoryLoading"
+                @click="loadOlderMessages"
+              >
+                {{ chatHistoryLoading ? t('chat.loadingEarlier') : t('chat.loadEarlier') }}
+              </button>
+            </div>
             <div v-if="!chatMessages.length" class="muted-text">{{ t('chat.empty') }}</div>
             <div
               v-for="(message, index) in chatMessages"
@@ -1906,6 +2925,30 @@ onBeforeUnmount(() => {
                             <dt>{{ row.label }}</dt>
                             <dd>{{ row.value }}</dd>
                           </div>
+                          <div v-if="item.type === 'approval_requested'" class="approval-box">
+                            <div class="approval-tool-list">
+                              <span v-for="tool in approvalToolNames(item.raw)" :key="tool">{{ tool }}</span>
+                            </div>
+                            <div v-if="approvalPending(item)" class="approval-actions">
+                              <button
+                                type="button"
+                                class="primary-button small"
+                                :disabled="!!approvalBusyKey"
+                                @click="resolveApproval(item, true)"
+                              >
+                                {{ approvalBusyFor(item, true) ? t('approval.processing') : t('common.approve') }}
+                              </button>
+                              <button
+                                type="button"
+                                class="ghost-button small"
+                                :disabled="!!approvalBusyKey"
+                                @click="resolveApproval(item, false)"
+                              >
+                                {{ approvalBusyFor(item, false) ? t('approval.processing') : t('common.reject') }}
+                              </button>
+                            </div>
+                            <div v-else class="approval-status">{{ approvalStatusText(item) }}</div>
+                          </div>
                         </div>
                       </details>
                     </div>
@@ -1915,7 +2958,7 @@ onBeforeUnmount(() => {
                     class="markdown-body"
                     v-html="renderMarkdown(message.content)"
                   ></div>
-                  <div v-else class="muted-text">{{ t('chat.thinking') }}</div>
+                  <div v-else-if="!message.processOnly" class="muted-text">{{ t('chat.thinking') }}</div>
                 </template>
                 <div
                   v-else-if="message.content"
@@ -1944,6 +2987,9 @@ onBeforeUnmount(() => {
             <textarea v-model="taskInputText" rows="4" :placeholder="t('task.inputPlaceholder')"></textarea>
             <button type="button" class="send-wide" @click="sendTaskInput">{{ t('task.submitInput') }}</button>
           </section>
+          <section v-else-if="taskWaitingApproval" class="conversation-waiting">
+            <p>{{ t('task.needApproval') }}</p>
+          </section>
 
           <form class="chat-composer" @submit.prevent="submitChatMessage">
             <input ref="fileInputRef" class="sr-only" type="file" multiple @change="onFileChange" />
@@ -1951,11 +2997,12 @@ onBeforeUnmount(() => {
               v-model="chatInput"
               rows="2"
               :placeholder="t('chat.placeholder')"
+              :disabled="chatInputDisabled"
               @keydown.enter.exact.prevent="submitChatMessage"
             />
             <div class="chat-actions">
-              <button type="button" class="icon-button" :title="t('common.upload')" @click="fileInputRef?.click()">＋</button>
-              <button type="submit" class="send-button small-send" :disabled="running || !chatInput.trim()">↑</button>
+              <button type="button" class="icon-button" :title="t('common.upload')" :disabled="chatInputDisabled" @click="fileInputRef?.click()">＋</button>
+              <button type="submit" class="send-button small-send" :disabled="chatInputDisabled || !chatInput.trim()">↑</button>
             </div>
             <div v-if="selectedFiles.length" class="file-strip chat-files">
               <span v-for="(file, index) in selectedFiles" :key="`${file.name}-${index}`" class="file-chip">
@@ -1970,56 +3017,28 @@ onBeforeUnmount(() => {
       <section v-else-if="activeView === 'tasks'" class="view list-view">
         <div class="page-heading">
           <div>
-            <div class="eyebrow">{{ t('tasks.eyebrow') }}</div>
-            <h2>{{ t('tasks.title') }}</h2>
-            <p>{{ t('tasks.desc') }}</p>
+            <div class="eyebrow">{{ t('sessions.eyebrow') }}</div>
+            <h2>{{ t('sessions.title') }}</h2>
+            <p>{{ t('sessions.desc') }}</p>
           </div>
-          <button type="button" class="primary-button" @click="newTask">{{ t('nav.newTask') }}</button>
+          <button type="button" class="primary-button" @click="newTask">{{ t('nav.newSession') }}</button>
         </div>
         <div class="filter-bar">
-          <input v-model="taskFilters.keyword" type="search" :placeholder="t('filter.search')" @input="refreshTasks" />
-          <select v-model="taskFilters.status" @change="refreshTasks">
+          <input v-model="sessionFilters.keyword" type="search" :placeholder="t('sessions.search')" @input="refreshSessions" />
+          <select v-model="sessionFilters.status" @change="refreshSessions">
             <option value="">{{ t('filter.allStatus') }}</option>
-            <option value="queued">{{ t('status.queued') }}</option>
+            <option value="idle">{{ t('common.ready') }}</option>
             <option value="running">{{ t('status.running') }}</option>
             <option value="waiting_input">{{ t('status.waiting_input') }}</option>
-            <option value="completed">{{ t('status.completed') }}</option>
-            <option value="failed">{{ t('status.failed') }}</option>
-            <option value="cancelled">{{ t('status.cancelled') }}</option>
-          </select>
-          <select v-model="taskFilters.agentId" @change="refreshTasks">
-            <option value="">{{ t('filter.allAgents') }}</option>
-            <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name || agent.id }}</option>
-          </select>
-          <select v-model="taskFilters.agentType" @change="refreshTasks">
-            <option value="">{{ t('filter.allTypes') }}</option>
-            <option v-for="type in agentTypes" :key="type" :value="type">{{ type }}</option>
-          </select>
-          <select v-model="taskFilters.created" @change="refreshTasks">
-            <option value="">{{ t('filter.allTime') }}</option>
-            <option value="hour">{{ t('filter.hour') }}</option>
-            <option value="today">{{ t('filter.today') }}</option>
-            <option value="week">{{ t('filter.week') }}</option>
-            <option value="month">{{ t('filter.month') }}</option>
-          </select>
-          <select v-model="taskFilters.duration" @change="refreshTasks">
-            <option value="">{{ t('filter.allDuration') }}</option>
-            <option value="short">{{ t('filter.short') }}</option>
-            <option value="medium">{{ t('filter.medium') }}</option>
-            <option value="long">{{ t('filter.long') }}</option>
-            <option value="very-long">{{ t('filter.veryLong') }}</option>
-          </select>
-          <select v-model="taskFilters.hasError" @change="refreshTasks">
-            <option value="">{{ t('filter.allErrors') }}</option>
-            <option value="true">{{ t('filter.hasError') }}</option>
-            <option value="false">{{ t('filter.noError') }}</option>
+            <option value="waiting_approval">{{ t('status.waiting_approval') }}</option>
           </select>
         </div>
         <div class="task-table">
-          <button v-for="task in tasks" :key="task.taskId" type="button" class="task-row" @click="loadTask(task.taskId)">
-            <span class="task-title">{{ task.input || task.taskId }}</span>
+          <button v-for="session in sessions" :key="session.sessionId" type="button" class="task-row" @click="loadSession(session.sessionId)">
+            <span class="task-title">{{ sessionTitle(session) }}</span>
+            <span class="status-pill" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
           </button>
-          <div v-if="!tasks.length" class="empty-main">{{ t('tasks.empty') }}</div>
+          <div v-if="!sessions.length" class="empty-main">{{ t('sessions.empty') }}</div>
         </div>
       </section>
 
@@ -2030,7 +3049,7 @@ onBeforeUnmount(() => {
             <h2>{{ t('agents.title') }}</h2>
             <p>{{ t('agents.desc') }}</p>
           </div>
-          <button type="button" class="primary-button" @click="newTask">{{ t('nav.newTask') }}</button>
+          <button type="button" class="primary-button" @click="newTask">{{ t('nav.newSession') }}</button>
         </div>
         <div v-if="agentDiagnostics?.status && agentDiagnostics.status !== 'ok'" class="warning-banner">
           {{ t('agents.configWarning') }}：{{ agentDiagnostics.invalidCount || 0 }}
@@ -2062,11 +3081,46 @@ onBeforeUnmount(() => {
             <h2>{{ t('tools.title') }}</h2>
             <p>{{ t('tools.desc') }}</p>
           </div>
-          <select v-model="selectedAgentId" class="compact-select">
-            <option value="">{{ t('common.defaultAgent') }}</option>
-            <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name || agent.id }}</option>
-          </select>
+          <div class="heading-actions">
+            <select v-model="selectedAgentId" class="compact-select">
+              <option value="">{{ t('common.defaultAgent') }}</option>
+              <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name || agent.id }}</option>
+            </select>
+            <button type="button" class="ghost-button small" :disabled="mcpRefreshing" @click="refreshMcpServers({ force: true })">
+              {{ mcpRefreshing ? t('common.running') : t('tools.refreshMcp') }}
+            </button>
+          </div>
         </div>
+        <section class="mcp-panel">
+          <div class="mcp-panel-head">
+            <div>
+              <h3>{{ t('tools.mcpTitle') }}</h3>
+              <p>{{ t('tools.mcpDesc') }}</p>
+            </div>
+            <span>{{ t('tools.toolCount') }}：{{ mcpToolCount }}</span>
+          </div>
+          <div v-if="mcpServers.length" class="mcp-server-list">
+            <article v-for="server in mcpServers" :key="`${server.toolPrefix || server.url}-${server.protocol}`" class="mcp-server-card">
+              <div class="mcp-server-main">
+                <strong>{{ server.toolPrefix || server.url }}</strong>
+                <small>{{ server.protocol }} · {{ server.url }}</small>
+              </div>
+              <span class="status-pill" :class="statusClass(server.status)">{{ mcpStatusLabel(server.status) }}</span>
+              <dl>
+                <div>
+                  <dt>{{ t('tools.toolCount') }}</dt>
+                  <dd>{{ server.toolCount || 0 }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t('tools.checkedAt') }}</dt>
+                  <dd>{{ formatMcpCheckedAt(server.lastCheckedAt) }}</dd>
+                </div>
+              </dl>
+              <p v-if="server.error" class="mcp-error">{{ server.error }}</p>
+            </article>
+          </div>
+          <div v-else class="empty-main">{{ t('tools.mcpEmpty') }}</div>
+        </section>
         <div class="tool-grid">
           <article v-for="tool in toolCatalog" :key="tool.name" class="tool-card" :class="{ disabled: tool.allowed === false }">
             <div class="tool-card-head">
@@ -2074,6 +3128,12 @@ onBeforeUnmount(() => {
               <span>{{ toolRiskText(tool) }}</span>
             </div>
             <p>{{ tool.description || tool.purpose || t('tools.noDesc') }}</p>
+            <div class="tool-meta-list">
+              <span v-for="row in toolMetaRows(tool)" :key="row.label">
+                <b>{{ row.label }}</b>
+                {{ row.value }}
+              </span>
+            </div>
             <small v-if="tool.blockReason">{{ t('tools.reason') }}：{{ tool.blockReason }}</small>
           </article>
           <div v-if="!toolCatalog.length" class="empty-main">{{ t('tools.empty') }}</div>

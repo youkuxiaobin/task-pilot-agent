@@ -20,11 +20,14 @@ class PlanFunctionTool:
     def getDescription(self) -> str:
         return (
             "Create/maintain an executable plan via a deterministic state machine. "
-            "Supported commands: create / continue / update / mark_step / finish. "
+            "Supported commands: create / continue / get_plan / update / add_step / mark_step / skip_step / finish. "
             "'create' starts a new plan - provide a title that explains the goal plus steps that describe the workflow. "
             "'update' adjusts the existing plan when it no longer matches the latest user question - explain why and supply the revised title and steps. "
+            "'get_plan' reads the current plan without changing it. "
+            "'add_step' inserts a new step when new work is discovered. "
             "'continue' keeps executing the current plan without structural changes. "
-            "'mark_step' records one step as running, completed, or failed. "
+            "'mark_step' records one step as running, completed, failed, waiting_input, or skipped. "
+            "'skip_step' skips one step while preserving why it was skipped. "
             "'finish' ends planning when the query is solved or no further tool work is needed; gather tool notes if available."
         )
 
@@ -39,7 +42,7 @@ class PlanFunctionTool:
                 },
                 "command": {
                     "type": "string",
-                    "enum": ["create", "continue", "update", "mark_step", "finish"],
+                    "enum": ["create", "continue", "get_plan", "update", "add_step", "mark_step", "skip_step", "finish"],
                     "description": "Command to execute."
                 },
                 "rationale": {
@@ -64,6 +67,15 @@ class PlanFunctionTool:
                     "items": { "type": "string" },
                     "description": "List of steps as strings. Required for create/update; omit for continue/finish. Example: ['Step 1 ...', 'Step 2 ...']"
                 },
+                "step": {
+                    "type": "string",
+                    "description": "New step text for add_step."
+                },
+                "position": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional 1-based insert position for add_step. Defaults to appending after the last step."
+                },
                 "current_step": {
                     "type": "string",
                     "description": "The next step id or description to execute (e.g., 'S1' or 'Step 3 ...')."
@@ -75,12 +87,35 @@ class PlanFunctionTool:
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["running", "completed", "failed"],
+                    "enum": ["running", "completed", "failed", "waiting_input", "skipped"],
                     "description": "Step status for mark_step."
                 },
                 "note": {
                     "type": "string",
                     "description": "Optional result, error, or progress note for mark_step."
+                },
+                "evidence": {
+                    "type": "array",
+                    "description": (
+                        "Optional evidence anchors for mark_step. Use tool results, source URLs, "
+                        "artifact ids, or event ids that prove this step's status."
+                    ),
+                    "items": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "summary": {"type": "string"},
+                                    "tool": {"type": "string"},
+                                    "url": {"type": "string"},
+                                    "artifactId": {"type": "string"},
+                                    "eventId": {"type": "string"},
+                                },
+                            },
+                        ]
+                    },
+                    "maxItems": 10
                 },
                 "finish_reason": {
                     "type": "string",
@@ -100,14 +135,28 @@ class PlanFunctionTool:
                 "required": ["current_step"]
                 },
                 {
+                "title": "GET_PLAN",
+                "properties": { "command": { "const": "get_plan" } }
+                },
+                {
                 "title": "UPDATE",
                 "properties": { "command": { "const": "update" } },
                 "required": ["title", "steps", "current_step"]
                 },
                 {
+                "title": "ADD_STEP",
+                "properties": { "command": { "const": "add_step" } },
+                "required": ["step"]
+                },
+                {
                 "title": "MARK_STEP",
                 "properties": { "command": { "const": "mark_step" } },
                 "required": ["step_index", "status"]
+                },
+                {
+                "title": "SKIP_STEP",
+                "properties": { "command": { "const": "skip_step" } },
+                "required": ["step_index"]
                 },
                 {
                 "title": "FINISH",
@@ -142,16 +191,22 @@ class PlanFunctionTool:
         if not isinstance(params, dict):
             raise ValueError("Tool parameters must be dict")
         command = params.get("command")
-        if command not in {"create", "continue", "update", "mark_step", "finish"}:
-            raise ValueError("command 必须是 create/continue/update/mark_step/finish 之一")
+        if command not in {"create", "continue", "get_plan", "update", "add_step", "mark_step", "skip_step", "finish"}:
+            raise ValueError("command 必须是 create/continue/get_plan/update/add_step/mark_step/skip_step/finish 之一")
         if command == "create":
             return self._create(params)
         if command == "continue":
             return self._continue(params)
+        if command == "get_plan":
+            return self._get_plan()
         if command == "update":
             return self._update(params)
+        if command == "add_step":
+            return self._add_step(params)
         if command == "mark_step":
             return self._mark_step(params)
+        if command == "skip_step":
+            return self._skip_step(params)
         return self._finish()
 
     # --- command handlers -------------------------------------------------
@@ -188,6 +243,32 @@ class PlanFunctionTool:
         self.current_command = "continue"
         return "计划已继续执行"
 
+    def _get_plan(self) -> str:
+        self.current_command = "get_plan"
+        if self._plan is None:
+            return "目前还没有计划"
+        return "当前计划已读取"
+
+    def _add_step(self, params: Dict[str, Any]) -> str:
+        self.current_command = "add_step"
+        if self._plan is None:
+            raise ValueError("尚未创建 plan，无法新增步骤")
+        step = params.get("step")
+        position = params.get("position")
+        if position is not None and not isinstance(position, int):
+            raise ValueError("position 必须是整数")
+        note = params.get("note")
+        evidence = self._normalize_evidence(params.get("evidence"))
+        inserted_index = self._plan.add_step(
+            str(step or ""),
+            position=position,
+            note=str(note) if note is not None else None,
+            evidence=evidence,
+        )
+        params["step_index"] = inserted_index
+        params["status"] = "not_started"
+        return "计划步骤已新增"
+
     def _mark_step(self, params: Dict[str, Any]) -> str:
         self.current_command = "mark_step"
         if self._plan is None:
@@ -197,8 +278,31 @@ class PlanFunctionTool:
             raise ValueError("mark_step 命令需要 step_index")
         status = str(params.get("status") or "")
         note = params.get("note")
-        self._plan.mark_step(step_index, status, str(note) if note is not None else None)
+        evidence = self._normalize_evidence(params.get("evidence"))
+        self._plan.mark_step(
+            step_index,
+            status,
+            str(note) if note is not None else None,
+            evidence=evidence,
+        )
         return "计划步骤已更新"
+
+    def _skip_step(self, params: Dict[str, Any]) -> str:
+        self.current_command = "skip_step"
+        if self._plan is None:
+            raise ValueError("尚未创建 plan，无法跳过步骤")
+        step_index = params.get("step_index")
+        if not isinstance(step_index, int):
+            raise ValueError("skip_step 命令需要 step_index")
+        note = params.get("note")
+        evidence = self._normalize_evidence(params.get("evidence"))
+        self._plan.skip_step(
+            step_index,
+            note=str(note) if note is not None else None,
+            evidence=evidence,
+        )
+        params["status"] = "skipped"
+        return "计划步骤已跳过"
 
     def _finish(self) -> str:
         self.current_command = "finish"
@@ -223,3 +327,18 @@ class PlanFunctionTool:
         payload = self._plan.to_dict()
         payload["command"] = self.current_command
         return payload
+
+    def _normalize_evidence(self, raw_evidence: Any) -> Optional[List[Dict[str, Any]]]:
+        if raw_evidence is None:
+            return None
+        if not isinstance(raw_evidence, list):
+            raise ValueError("evidence 必须是字符串或对象列表")
+        normalized: List[Dict[str, Any]] = []
+        for item in raw_evidence[:10]:
+            if isinstance(item, dict):
+                normalized.append({str(key): value for key, value in item.items() if value not in (None, "")})
+            else:
+                text = str(item).strip()
+                if text:
+                    normalized.append({"summary": text})
+        return normalized

@@ -11,6 +11,8 @@ capabilities:
   - web
   - extraction
 tools:
+  - name: mcp_local:fetch_url
+    description: 读取指定 URL 的页面正文。
   - name: mcp_local:*browser*
     description: 本地浏览器或网页工具。
   - name: mcp_local:*web*

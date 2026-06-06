@@ -14,6 +14,93 @@ capabilities:
   - use_tools
   - summarize
 tools:
+  - name: builtin:plan_tool
+    description: 复杂问题需要拆步骤、跟踪进度或失败后调整时，用它维护计划。
+    input_schema:
+      type: object
+      properties:
+        command:
+          type: string
+          enum:
+            - create
+            - continue
+            - get_plan
+            - update
+            - add_step
+            - mark_step
+            - skip_step
+            - finish
+        steps:
+          type: array
+          items:
+            type: string
+        step:
+          type: string
+        position:
+          type: integer
+        current_step:
+          type: string
+        step_index:
+          type: integer
+        status:
+          type: string
+          enum:
+            - running
+            - completed
+            - failed
+            - waiting_input
+            - skipped
+        note:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: object
+      required:
+        - command
+    output_schema:
+      type: object
+      properties:
+        message:
+          type: string
+        plan:
+          type: object
+  - name: builtin:set_todo_list
+    description: 把当前计划或短期步骤投影成用户可见的 TODO 进度卡片。
+    input_schema:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              status:
+                type: string
+                enum:
+                  - not_started
+                  - running
+                  - waiting
+                  - blocked
+                  - completed
+                  - failed
+            required:
+              - title
+        summary:
+          type: string
+        current_index:
+          type: integer
+      required:
+        - items
+    output_schema:
+      type: object
+      properties:
+        message:
+          type: string
+        todoList:
+          type: object
   - name: mcp_local:file_read
     description: 读取 Linux/macOS/Windows 本机文件内容。
   - name: mcp_local:file_list
@@ -59,6 +146,8 @@ tools:
       requires_explicit_enable: true
   - name: "mcp_*:*"
     description: 允许使用当前工具市场中可用的 MCP 工具。
+denied_tools:
+  - mcp_local:deepsearch
 metadata:
   owner: core
   compatibility: legacy

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from urllib.parse import urlparse
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import yaml
@@ -11,6 +12,7 @@ from utils.logger import get_logger
 from tools.aggre_mcp_market.mcp_clients import MCPClientBase, SSEMCPClient, StreamableHttpMCPClient
 from tools.aggre_mcp_market.models import (
     MCPServerConfig,
+    MCPServerStatus,
     Protocol,
     RegistrySnapshot,
     ToolCallResult,
@@ -34,6 +36,15 @@ class MCPRegistry:
         self._clients: List[MCPClientBase] = [self._make_client(cfg) for cfg in servers]
         self._lock = threading.RLock()
         self._snapshot: RegistrySnapshot = RegistrySnapshot()
+        self._server_statuses: Dict[Tuple[str, str], MCPServerStatus] = {
+            (client.url, client.tool_prefix): MCPServerStatus(
+                url=client.url,
+                protocol=getattr(client, "protocol", Protocol.SSE),
+                tool_prefix=client.tool_prefix,
+                authorization_configured=bool(client.authorization),
+            )
+            for client in self._clients
+        }
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
@@ -69,13 +80,37 @@ class MCPRegistry:
         tools: List[ToolInfo] = []
         errors: List[str] = []
         for client in self._clients:
+            started_at = time.time()
+            client_tools: List[ToolInfo] = []
             try:
-                tools.extend(client.list_tools())
+                client_tools = client.list_tools()
+                tools.extend(client_tools)
+                status = MCPServerStatus(
+                    url=client.url,
+                    protocol=getattr(client, "protocol", Protocol.SSE),
+                    tool_prefix=client.tool_prefix,
+                    authorization_configured=bool(client.authorization),
+                    status="ok",
+                    tool_count=len(client_tools),
+                    last_checked_at=started_at,
+                    duration_ms=max(0, int((time.time() - started_at) * 1000)),
+                )
             except Exception as exc:
                 err_msg = f"{client.__class__.__name__}@{client.url} error: {exc}"
                 errors.append(err_msg)
                 logger.error(f"refresh tools error: {err_msg}")
-                continue
+                status = MCPServerStatus(
+                    url=client.url,
+                    protocol=getattr(client, "protocol", Protocol.SSE),
+                    tool_prefix=client.tool_prefix,
+                    authorization_configured=bool(client.authorization),
+                    status="error",
+                    error=str(exc),
+                    last_checked_at=started_at,
+                    duration_ms=max(0, int((time.time() - started_at) * 1000)),
+                )
+            with self._lock:
+                self._server_statuses[(client.url, client.tool_prefix)] = status
 
         if not tools and keep_last_on_failure and self._snapshot.tools:
             logger.warning(
@@ -87,6 +122,85 @@ class MCPRegistry:
         index = {tool.full_name: tool for tool in tools}
         with self._lock:
             self._snapshot = RegistrySnapshot(tools=tools, index_by_full_name=index)
+
+    @staticmethod
+    def _server_id_for(url: str, tool_prefix: str) -> str:
+        if tool_prefix:
+            return tool_prefix
+        parsed = urlparse(url)
+        candidate = f"{parsed.netloc}{parsed.path}".strip("/") or url
+        return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in candidate)
+
+    def _client_matches_server_id(self, client: MCPClientBase, server_id: str) -> bool:
+        normalized = str(server_id or "").strip()
+        if not normalized:
+            return False
+        return normalized in {
+            client.url,
+            client.tool_prefix,
+            self._server_id_for(client.url, client.tool_prefix),
+        }
+
+    def refresh_server(self, server_id: str, keep_last_on_failure: bool = True) -> bool:
+        matched_clients = [
+            client
+            for client in self._clients
+            if self._client_matches_server_id(client, server_id)
+        ]
+        if not matched_clients:
+            return False
+
+        refreshed_tools: List[ToolInfo] = []
+        successful_keys = set()
+        failed_keys = set()
+        for client in matched_clients:
+            started_at = time.time()
+            key = (client.url, client.tool_prefix)
+            try:
+                client_tools = client.list_tools()
+                refreshed_tools.extend(client_tools)
+                successful_keys.add(key)
+                status = MCPServerStatus(
+                    url=client.url,
+                    protocol=getattr(client, "protocol", Protocol.SSE),
+                    tool_prefix=client.tool_prefix,
+                    authorization_configured=bool(client.authorization),
+                    status="ok",
+                    tool_count=len(client_tools),
+                    last_checked_at=started_at,
+                    duration_ms=max(0, int((time.time() - started_at) * 1000)),
+                )
+            except Exception as exc:
+                failed_keys.add(key)
+                logger.error("refresh server tools error: %s@%s error: %s", client.__class__.__name__, client.url, exc)
+                status = MCPServerStatus(
+                    url=client.url,
+                    protocol=getattr(client, "protocol", Protocol.SSE),
+                    tool_prefix=client.tool_prefix,
+                    authorization_configured=bool(client.authorization),
+                    status="error",
+                    error=str(exc),
+                    last_checked_at=started_at,
+                    duration_ms=max(0, int((time.time() - started_at) * 1000)),
+                )
+            with self._lock:
+                self._server_statuses[key] = status
+
+        replaced_keys = set(successful_keys)
+        if not keep_last_on_failure:
+            replaced_keys.update(failed_keys)
+        with self._lock:
+            kept_tools = [
+                tool
+                for tool in self._snapshot.tools
+                if (tool.server_url, tool.tool_prefix) not in replaced_keys
+            ]
+            tools = kept_tools + refreshed_tools
+            self._snapshot = RegistrySnapshot(
+                tools=tools,
+                index_by_full_name={tool.full_name: tool for tool in tools},
+            )
+        return True
 
     def blocking_refresh(self, timeout_seconds: float = 10, interval_seconds: float = 1.0) -> None:
         """Block until tools are fetched or timeout.
@@ -119,6 +233,10 @@ class MCPRegistry:
     def list_tools(self) -> List[ToolInfo]:
         with self._lock:
             return list(self._snapshot.tools)
+
+    def list_servers(self) -> List[MCPServerStatus]:
+        with self._lock:
+            return list(self._server_statuses.values())
 
     def get_tool(self, full_name: str) -> Optional[ToolInfo]:
         with self._lock:

@@ -247,7 +247,7 @@
     .task-status.completed { background: #e8f7f1; color: #047857; }
     .task-status.failed { background: #fff0ed; color: #c2410c; }
     .task-status.cancelled { background: #f2f4f7; color: #667085; }
-    .task-status.running, .task-status.queued, .task-status.waiting_input { background: #fff7e6; color: #a15c07; }
+    .task-status.running, .task-status.queued, .task-status.waiting_input, .task-status.waiting_approval { background: #fff7e6; color: #a15c07; }
     .task-empty {
       color: var(--text-muted);
       font-size: 0.84rem;
@@ -475,41 +475,6 @@
     .markdown-body td { padding: 0.58rem 0.65rem; border: 1px solid var(--border); }
     .markdown-body tr:nth-child(even) { background: #fafcff; }
     .markdown-body a { color: var(--color-accent); }
-
-    .gaia-container { display: flex; flex-direction: column; gap: 0.75rem; }
-    .gaia-reasoning {
-      background: #f8fafc;
-      padding: 0.9rem;
-      border-radius: 8px;
-      border: 1px solid var(--border-soft);
-      border-left: 3px solid var(--color-thought);
-      font-size: 0.94em;
-      color: var(--text-muted);
-    }
-    .gaia-label {
-      font-size: 0.74rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-weight: 800;
-      margin-bottom: 0.5rem;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      color: var(--text-muted);
-    }
-    .gaia-answer {
-      background: #ecfdf3;
-      padding: 1rem;
-      border-radius: 8px;
-      border: 1px solid #b7e4ce;
-    }
-    .gaia-answer .gaia-label { color: #047857; }
-    .gaia-answer .answer-text {
-      font-size: 1.08em;
-      font-weight: 650;
-      color: var(--text-main);
-      line-height: 1.62;
-    }
 
     details.agent-card {
       background: rgba(255, 255, 255, 0.86);
@@ -889,6 +854,7 @@
           <option value="queued">排队中</option>
           <option value="running">运行中</option>
           <option value="waiting_input">等待输入</option>
+          <option value="waiting_approval">等待审批</option>
           <option value="completed">已完成</option>
           <option value="failed">失败</option>
           <option value="cancelled">已取消</option>
@@ -977,11 +943,10 @@
               <option value="html">HTML</option>
               <option value="table">Table</option>
               <option value="ppt">PPT</option>
-              <option value="gaia">Gaia</option>
             </select>
             <select id="mode" class="select-style" title="运行模式" hidden>
-              <option value="plans_executor">Plans Executor</option>
               <option value="react">ReAct</option>
+              <option value="plans_executor">Legacy Plan Executor</option>
             </select>
             <select id="run-environment" class="select-style" title="运行环境" hidden>
               <option value="local">本地环境</option>
@@ -1857,7 +1822,7 @@
     if(eventType === 'task_failed') return 'notifications';
     if(eventType === 'task_cancel_requested' || eventType === 'task_cancelled') return 'notifications';
     if(eventType === 'agent_phase') return 'agent_phase';
-    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_resumed' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'task_resume_requested' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'task_retry_requested' || eventType === 'eval_run_created' || eventType === 'eval_result' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested') return 'task';
+    if(eventType === 'task_queued' || eventType === 'task_created' || eventType === 'task_resumed' || eventType === 'task_running' || eventType === 'task_completed' || eventType === 'task_waiting_approval' || eventType === 'waiting_input' || eventType === 'user_input' || eventType === 'task_resume_requested' || eventType === 'memory_context_loaded' || eventType === 'runtime_boundary_applied' || eventType === 'tool_policy_applied' || eventType === 'task_artifact_added' || eventType === 'task_retry_requested' || eventType === 'eval_run_created' || eventType === 'eval_result' || eventType === 'agent_selected' || eventType === 'agent_started' || eventType === 'agent_completed' || eventType === 'agent_failed' || eventType === 'agent_cancelled' || eventType === 'task_handoff_requested' || eventType === 'approval_requested' || eventType === 'approval_resolved') return 'task';
     return null;
   }
 
@@ -1891,6 +1856,9 @@
     if(eventType === 'task_cancelled') return '任务已取消';
     if(eventType === 'task_retry_requested') return `任务已重试：${data.retryTaskId || ''}`;
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
+    if(eventType === 'task_waiting_approval') return '等待工具审批';
+    if(eventType === 'approval_requested') return '需要审批工具';
+    if(eventType === 'approval_resolved') return data.approved ? '已允许工具' : '已拒绝工具';
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
     if(eventType === 'task_resume_requested') return '任务恢复请求已发送';
     if(eventType === 'memory_context_loaded') {
@@ -2002,7 +1970,6 @@
           } else {
              const resDiv = document.createElement('div');
              resDiv.className = 'result-content markdown-body'; 
-             // 【核心修改】检测 Gaia/XML 格式并渲染
              const finalHTML = renderFinalResultContent(msg.rendered || msg.content);
              resDiv.innerHTML = finalHTML;
              bubble.appendChild(resDiv);
@@ -2038,57 +2005,9 @@
     state.pendingRender = false;
   }
 
-  // --- Gaia / Result 渲染器 (流式支持) ---
   function renderFinalResultContent(text) {
      if(!text) return '';
-     
-     // 检测是否存在 XML 标签 (loose check for streaming)
-     if(text.includes('<result') || text.includes('<reasoning') || text.includes('<final_answer')) {
-         return renderGaiaXML(text);
-     }
-     // 默认 markdown
      return renderMarkdown(text);
-  }
-
-  function renderGaiaXML(xml) {
-      // 流式正则：即使标签未闭合，也要尝试捕获内容
-      // <tag>... (optional: </tag>)
-      const extract = (tag) => {
-          const re = new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?(?:<\\/${tag}>|$)`, 'i');
-          const match = xml.match(re);
-          return match ? match[1] : null;
-      }
-
-      const reasoning = extract('reasoning');
-      const answer = extract('final_answer');
-      
-      let html = '<div class="gaia-container">';
-      
-      if(reasoning) {
-          html += `
-          <div class="gaia-reasoning">
-              <div class="gaia-label">🧠 推理过程</div>
-              <div class="markdown-body">${renderMarkdown(reasoning)}</div>
-          </div>`;
-      }
-      
-      if(answer) {
-          html += `
-          <div class="gaia-answer">
-              <div class="gaia-label">🎯 最终答案</div>
-              <div class="answer-text markdown-body">${renderMarkdown(answer)}</div>
-          </div>`;
-      }
-      
-      // 如果还没解析出任何结构化内容，但确定是 XML 流的开头
-      if(!reasoning && !answer) {
-         // 尝试直接显示原文（去除外层 result 标签如果存在）
-         const inner = xml.replace(/<\/?result>/g, '');
-         if(inner.trim()) return renderMarkdown(inner);
-      }
-      
-      html += '</div>';
-      return html;
   }
 
 
@@ -2408,7 +2327,7 @@
         streamState.buffer += chunk;
         const msg = session.messages[streamState.messageIndex];
         msg.content = streamState.buffer;
-        // 渲染时交给 renderFinalResultContent 处理 Gaia
+        // 清空渲染缓存，下一帧按最新结果重绘
         msg.rendered = null; // 清空缓存，强制重绘
         if(!state.replaying) renderMessages(true);
         break;

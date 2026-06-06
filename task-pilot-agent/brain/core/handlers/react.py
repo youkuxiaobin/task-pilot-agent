@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+import json
+from typing import Any, Dict, List, Optional, Tuple
 
 from brain.core.agents.ReActAgentImp import ReActAgentImp
 from brain.core.agents.summary_agent import SummaryAgent
@@ -12,6 +13,62 @@ from llm.manager import store as prompt_store
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+PLAN_TOOL_NAME = "builtin:plan_tool"
+
+EXPLICIT_PLAN_TRIGGERS = (
+    "一步步",
+    "分步骤",
+    "详细",
+    "完整",
+    "全面",
+    "调研",
+    "研究",
+    "报告",
+    "方案",
+    "计划",
+    "规划",
+    "实现并测试",
+    "开发并测试",
+    "step by step",
+    "multi-step",
+    "comprehensive",
+    "research",
+    "report",
+    "implementation plan",
+    "plan",
+)
+
+COMPLEX_TASK_SIGNALS = (
+    "搜索",
+    "读取",
+    "对比",
+    "比较",
+    "分析",
+    "总结",
+    "生成",
+    "实现",
+    "开发",
+    "修复",
+    "测试",
+    "文件",
+    "数据",
+    "网页",
+    "浏览器",
+    "search",
+    "read",
+    "compare",
+    "analyze",
+    "summarize",
+    "generate",
+    "implement",
+    "build",
+    "fix",
+    "test",
+    "file",
+    "data",
+    "browser",
+)
 
 
 class ReactHandler(AgentHandlerService):
@@ -32,6 +89,10 @@ class ReactHandler(AgentHandlerService):
         react_agent = ReActAgentImp(ctx, self._prompt, self._max_steps)
 
         self._emit_phase(ctx, "react", "started", agent="react")
+        auto_plan_observation = await self._maybe_create_initial_plan(ctx)
+        if auto_plan_observation:
+            react_agent.history.append(auto_plan_observation)
+            react_agent.evidence.append(str(auto_plan_observation.get("observation") or ""))
         try:
             result = await react_agent.run(ctx.query)
         except Exception as exc:
@@ -83,3 +144,150 @@ class ReactHandler(AgentHandlerService):
             None,
             True,
         )
+
+    async def _maybe_create_initial_plan(self, ctx: AgentContext) -> Optional[Dict[str, Any]]:
+        tool_collection = getattr(ctx, "toolCollection", None)
+        if not tool_collection or PLAN_TOOL_NAME not in getattr(tool_collection, "tool_map", {}):
+            return None
+        if not _query_needs_plan(getattr(ctx, "query", "") or ""):
+            return None
+
+        title, steps = _initial_plan_title_and_steps(ctx)
+        create_payload = {
+            "command": "create",
+            "title": title,
+            "steps": steps,
+            "summary": _truncate(getattr(ctx, "query", "") or "", 240),
+            "rationale": "complex_task_auto_plan",
+        }
+        mark_payload = {
+            "command": "mark_step",
+            "step_index": 1,
+            "status": "running",
+            "note": "开始处理复杂请求",
+        }
+
+        self._emit_phase(ctx, "planning", "started", agent="react", planner="auto")
+        try:
+            create_result = await tool_collection.execute(PLAN_TOOL_NAME, create_payload)
+            mark_result = await tool_collection.execute(PLAN_TOOL_NAME, mark_payload)
+        except Exception as exc:
+            logger.exception("auto plan creation failed for request %s", ctx.requestId)
+            self._emit_phase(ctx, "planning", "failed", agent="react", planner="auto", error=str(exc))
+            return None
+
+        observation = _plan_observation(create_result, mark_result)
+        self._emit_phase(
+            ctx,
+            "planning",
+            "completed",
+            agent="react",
+            planner="auto",
+            stepCount=len(steps),
+        )
+        return {
+            "step": 0,
+            "thought": "任务较复杂，先创建可回放计划。",
+            "action": PLAN_TOOL_NAME,
+            "input": create_payload,
+            "observation": observation,
+        }
+
+
+def _query_needs_plan(query: str) -> bool:
+    text = " ".join(str(query or "").strip().lower().split())
+    if not text:
+        return False
+    if any(trigger in text for trigger in EXPLICIT_PLAN_TRIGGERS):
+        return True
+    signal_count = sum(1 for signal in COMPLEX_TASK_SIGNALS if signal in text)
+    if signal_count >= 2:
+        return True
+    return len(text) >= 120 and signal_count >= 1
+
+
+def _initial_plan_title_and_steps(ctx: AgentContext) -> Tuple[str, List[str]]:
+    query = getattr(ctx, "query", "") or ""
+    language = str(getattr(ctx, "language", "") or "").lower()
+    english = language.startswith("en")
+    lower_query = query.lower()
+    if any(token in lower_query for token in ("实现", "开发", "修复", "测试", "代码", "implement", "build", "fix", "test", "code")):
+        steps = (
+            [
+                "Understand the request and affected area.",
+                "Make focused changes.",
+                "Run meaningful validation.",
+                "Summarize the result and remaining risk.",
+            ]
+            if english
+            else ["明确需求和影响范围", "完成必要改动", "运行有效验证", "总结结果和剩余风险"]
+        )
+    elif any(token in lower_query for token in ("文件", "数据", "表格", "报告", "file", "data", "spreadsheet", "report")):
+        steps = (
+            [
+                "Inspect the available input.",
+                "Process and analyze the material.",
+                "Create the requested output.",
+                "Validate the output and summarize findings.",
+            ]
+            if english
+            else ["检查输入材料", "处理并分析内容", "生成所需结果", "验证结果并总结发现"]
+        )
+    elif any(token in lower_query for token in ("搜索", "网页", "调研", "研究", "对比", "search", "web", "research", "compare")):
+        steps = (
+            [
+                "Clarify the research target.",
+                "Search and read relevant sources.",
+                "Compare evidence and resolve conflicts.",
+                "Answer with sources and uncertainty.",
+            ]
+            if english
+            else ["明确调研目标", "搜索并阅读相关来源", "对比证据并处理冲突", "给出结论、来源和不确定性"]
+        )
+    else:
+        steps = (
+            [
+                "Clarify the goal.",
+                "Gather needed context.",
+                "Work through the solution.",
+                "Review and produce the final answer.",
+            ]
+            if english
+            else ["明确目标", "收集必要上下文", "分步骤完成处理", "复核并给出最终答复"]
+        )
+    title = _truncate(query, 80) or ("Complex request plan" if english else "复杂请求处理计划")
+    return title, steps
+
+
+def _plan_observation(create_result: Any, mark_result: Any) -> str:
+    payload = {
+        "create": _compact_tool_result(create_result),
+        "mark_step": _compact_tool_result(mark_result),
+    }
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _compact_tool_result(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return _truncate(value, 500)
+    if not isinstance(parsed, dict):
+        return parsed
+    message = parsed.get("message")
+    plan = parsed.get("plan") if isinstance(parsed.get("plan"), dict) else {}
+    return {
+        "message": message,
+        "eventType": plan.get("eventType"),
+        "title": plan.get("title"),
+        "step_status": plan.get("step_status"),
+    }
+
+
+def _truncate(value: str, limit: int) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."

@@ -8,7 +8,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from tools.aggre_mcp_market.models import ToolCallResult, ToolInfo
+from tools.aggre_mcp_market.models import MCPServerStatus, ToolCallResult, ToolInfo
 from tools.aggre_mcp_market.service.prompt import assemble_prompt
 from tools.aggre_mcp_market.service.registry import MCPRegistry, load_registry_from_yaml
 from utils.logger import get_logger
@@ -40,6 +40,32 @@ class ToolInfoModel(BaseModel):
             server_url=t.server_url,
             protocol=str(t.protocol.value),
             tool_prefix=t.tool_prefix,
+        )
+
+
+class MCPServerStatusModel(BaseModel):
+    url: str
+    protocol: str
+    tool_prefix: str
+    authorization_configured: bool = False
+    status: str = "unknown"
+    tool_count: int = 0
+    error: str = ""
+    last_checked_at: float | None = None
+    duration_ms: int | None = None
+
+    @staticmethod
+    def from_entity(item: MCPServerStatus) -> "MCPServerStatusModel":
+        return MCPServerStatusModel(
+            url=item.url,
+            protocol=str(item.protocol.value),
+            tool_prefix=item.tool_prefix,
+            authorization_configured=item.authorization_configured,
+            status=item.status,
+            tool_count=item.tool_count,
+            error=item.error,
+            last_checked_at=item.last_checked_at,
+            duration_ms=item.duration_ms,
         )
 
 
@@ -82,6 +108,23 @@ async def init_mcp_market_registry() -> None:
 def get_tools() -> List[ToolInfoModel]:
     tools = registry.list_tools() if registry else []
     return [ToolInfoModel.from_entity(t) for t in tools]
+
+
+@aggre_mcp_market_router.get("/servers", response_model=List[MCPServerStatusModel])
+def get_servers() -> List[MCPServerStatusModel]:
+    servers = registry.list_servers() if registry else []
+    return [MCPServerStatusModel.from_entity(item) for item in servers]
+
+
+@aggre_mcp_market_router.post("/refresh")
+async def refresh_tools() -> Dict[str, Any]:
+    if registry is None:
+        raise HTTPException(status_code=503, detail="MCP registry not initialised")
+    await asyncio.to_thread(registry.refresh, True)
+    return {
+        "toolCount": len(registry.list_tools()),
+        "servers": [MCPServerStatusModel.from_entity(item).model_dump() for item in registry.list_servers()],
+    }
 
 
 @aggre_mcp_market_router.get("/prompt", response_model=str)

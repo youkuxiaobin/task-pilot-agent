@@ -33,6 +33,26 @@ except Exception:  # pragma: no cover - optional logging dependency
 logger = get_logger(__name__)
 
 
+def _tool_name_variants(value: str) -> List[str]:
+    text = str(value or "")
+    variants = [text]
+    if ":" in text:
+        variants.append(text.replace(":", "-", 1))
+    if "-" in text:
+        variants.append(text.replace("-", ":", 1))
+    return list(dict.fromkeys(item for item in variants if item))
+
+
+def _matches_tool_pattern(tool_name: str, pattern: str) -> bool:
+    if pattern in {"*", "all"}:
+        return True
+    return any(
+        fnmatch.fnmatch(tool_candidate, pattern_candidate)
+        for tool_candidate in _tool_name_variants(tool_name)
+        for pattern_candidate in _tool_name_variants(pattern)
+    )
+
+
 @dataclass
 class ToolCollection:
     tool_map: Dict[str, BaseTool] = field(default_factory=dict)
@@ -73,17 +93,21 @@ class ToolCollection:
         if not patterns:
             return False
         for pattern in patterns:
-            if pattern in {"*", "all"}:
-                return True
-            if fnmatch.fnmatch(name, pattern):
+            if _matches_tool_pattern(name, pattern):
                 return True
         return False
 
     def timeout_for_tool(self, name: str) -> Optional[float]:
         for pattern, timeout in self.tool_timeout_patterns.items():
-            if pattern in {"*", "all"} or fnmatch.fnmatch(name, pattern):
+            if _matches_tool_pattern(name, pattern):
                 return timeout
         return None
+
+    def resolve_tool_name(self, name: str) -> str:
+        for candidate in _tool_name_variants(name):
+            if candidate in self.tool_map:
+                return candidate
+        return name
 
     def add_tool(self, tool: BaseTool) -> bool:
         if not self.is_tool_allowed(tool.name):
@@ -96,10 +120,11 @@ class ToolCollection:
     def get_tool(self, name: str) -> Optional[BaseTool]:
         if not self.is_tool_allowed(name):
             return None
-        return self.tool_map.get(name)
+        return self.tool_map.get(self.resolve_tool_name(name))
 
     @observe(name="tool_execute")
     async def execute(self, name: str, input_obj: Dict[str, Any]) -> Optional[str]:
+        name = self.resolve_tool_name(name)
         started_at = time.perf_counter()
         started_at_wall = time.time()
         if not self.is_tool_allowed(name):
@@ -126,6 +151,7 @@ class ToolCollection:
                 failed=True,
                 error="tool not found",
             )
+            self._emit_tool_result(name, input_obj)
             return None
         boundary_error = self._validate_runtime_boundary(input_obj)
         if boundary_error:
@@ -138,6 +164,7 @@ class ToolCollection:
                 error=boundary_error,
             )
             self._emit_tool_call(name, input_obj)
+            self._emit_tool_result(name, input_obj)
             return boundary_error
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
         self._emit_tool_call(name, input_obj)
@@ -148,6 +175,7 @@ class ToolCollection:
             else:
                 result = await tool.execute(input_obj)
             self.last_execution = self._execution_metadata(name, input_obj, started_at, started_at_wall, result=result)
+            self._emit_tool_result(name, input_obj)
             return result
         except asyncio.TimeoutError:
             error = f"tool `{name}` timed out"
@@ -276,12 +304,19 @@ class ToolCollection:
         if printer is None:
             return
         metadata = self.last_execution if isinstance(self.last_execution, dict) else {}
+        failed = bool(metadata.get("failed"))
+        summary = str(metadata.get("error") or metadata.get("resultSummary") or "")
         printer.send(
             None,
             "tool_result",
             {
                 "tool": name,
                 "arguments": input_obj,
+                "type": "tool_call_failed" if failed else "tool_call_completed",
+                "ok": not failed,
+                "summary": summary,
+                "content": summary,
+                "metadata": metadata,
                 **metadata,
             },
             self.getDigitalEmployee(name),

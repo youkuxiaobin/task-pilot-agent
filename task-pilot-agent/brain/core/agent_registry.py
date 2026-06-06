@@ -511,7 +511,10 @@ class AgentRegistry:
                 else []
             ),
             tools=tools,
-            denied_tools=self._parse_denied_tools(raw.get("tools") or []),
+            denied_tools=self._parse_denied_tools(
+                raw.get("tools") or [],
+                raw.get("denied_tools", raw.get("deniedTools")),
+            ),
             handoffs=raw.get("handoffs") if isinstance(raw.get("handoffs"), dict) else {},
             memory=raw.get("memory") if isinstance(raw.get("memory"), dict) else {},
             permissions=raw.get("permissions") if isinstance(raw.get("permissions"), dict) else {},
@@ -559,17 +562,23 @@ class AgentRegistry:
         return tools
 
     @staticmethod
-    def _parse_denied_tools(raw_tools: Any) -> List[str]:
+    def _parse_denied_tools(raw_tools: Any, raw_top_level_denied: Any = None) -> List[str]:
         if isinstance(raw_tools, dict):
             raw_denied = raw_tools.get("denied") or []
         else:
             raw_denied = []
-        if isinstance(raw_denied, str):
-            return [raw_denied]
-        if not isinstance(raw_denied, list):
-            raise ValueError("Agent denied tools must be a list")
+        denied_items: List[Any] = []
+        for value in (raw_denied, raw_top_level_denied):
+            if value in (None, ""):
+                continue
+            if isinstance(value, str):
+                denied_items.append(value)
+                continue
+            if not isinstance(value, list):
+                raise ValueError("Agent denied tools must be a list")
+            denied_items.extend(value)
         denied: List[str] = []
-        for item in raw_denied:
+        for item in denied_items:
             if isinstance(item, str):
                 value = item.strip()
             elif isinstance(item, dict):

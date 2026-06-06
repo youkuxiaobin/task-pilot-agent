@@ -8,6 +8,7 @@ from brain.core.context import AgentContext
 from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool, HandoffStarter
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.builtin_request_input_tool import BuiltinRequestInputTool
+from brain.core.tools.builtin_todo_tool import BuiltinTodoTool
 from brain.core.tools.collection import ToolCollection
 from brain.core.tools.mcp_tool import MCPToolFetcher
 from utils.logger import get_logger
@@ -31,9 +32,23 @@ def matches_tool_selection(selected_patterns: Optional[List[str]], tool_name: st
     if not selected_patterns:
         return False
     for pattern in selected_patterns:
-        if pattern in {"*", "all"} or fnmatch.fnmatch(tool_name, pattern):
+        if pattern in {"*", "all"}:
             return True
+        for tool_candidate in _tool_name_variants(tool_name):
+            for pattern_candidate in _tool_name_variants(pattern):
+                if fnmatch.fnmatch(tool_candidate, pattern_candidate):
+                    return True
     return False
+
+
+def _tool_name_variants(value: str) -> List[str]:
+    text = str(value or "")
+    variants = [text]
+    if ":" in text:
+        variants.append(text.replace(":", "-", 1))
+    if "-" in text:
+        variants.append(text.replace("-", ":", 1))
+    return list(dict.fromkeys(item for item in variants if item))
 
 
 class ToolGateway:
@@ -75,6 +90,8 @@ class ToolGateway:
             )
             if agent_config.allows_tool("builtin:plan_tool", approved_tools=approved_tools):
                 tc.add_tool(BuiltinPlanTool(ctx))
+            if agent_config.allows_tool("builtin:set_todo_list", approved_tools=approved_tools):
+                tc.add_tool(BuiltinTodoTool(ctx))
             if self.handoff_starter and agent_config.allows_tool("builtin:handoff", approved_tools=approved_tools):
                 tc.add_tool(BuiltinHandoffTool(ctx, self.handoff_starter))
             if agent_config.allows_tool("builtin:request_input", approved_tools=approved_tools):

@@ -80,6 +80,23 @@ def test_tool_collection_blocks_tools_outside_allowed_patterns():
     assert openai_tool_names == ["mcp_local:deepsearch", "mcp_world:browser"]
 
 
+def test_tool_collection_matches_colon_and_hyphen_tool_aliases():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["mcp_local:web_search"])
+    collection.set_tool_timeout_patterns({"mcp_local:web_search": 3})
+    tool = DummyTool("mcp_local-web_search")
+
+    assert collection.add_tool(tool) is True
+    assert collection.get_tool("mcp_local:web_search") is tool
+    assert collection.get_tool("mcp_local-web_search") is tool
+    assert collection.timeout_for_tool("mcp_local-web_search") == 3
+
+    result = asyncio.run(collection.execute("mcp_local:web_search", {"value": "query"}))
+
+    assert result == "ok:mcp_local-web_search:query"
+    assert collection.last_execution["tool"] == "mcp_local-web_search"
+
+
 def test_tool_collection_checker_overrides_patterns_and_blocks_add():
     collection = ToolCollection()
     collection.set_allowed_tool_patterns(["*"])
@@ -116,7 +133,7 @@ def test_tool_collection_refuses_manual_bypass_at_execution_time():
     assert printer.events[-1]["message"]["tool"] == "mcp_local:code_interpreter"
 
 
-def test_tool_collection_allows_matching_tool_execution_and_emits_call():
+def test_tool_collection_allows_matching_tool_execution_and_emits_call_and_result():
     collection = ToolCollection()
     collection.set_allowed_tool_patterns(["mcp_local:deepsearch"])
     allowed_tool = DummyTool("mcp_local:deepsearch")
@@ -128,8 +145,15 @@ def test_tool_collection_allows_matching_tool_execution_and_emits_call():
 
     assert result == "ok:mcp_local:deepsearch:query"
     assert allowed_tool.called is True
-    assert printer.events[-1]["message_type"] == "tool_call"
+    assert [event["message_type"] for event in printer.events] == ["tool_call", "tool_result"]
+    assert printer.events[0]["message"]["tool"] == "mcp_local:deepsearch"
     assert printer.events[-1]["message"]["tool"] == "mcp_local:deepsearch"
+    assert printer.events[-1]["message"]["failed"] is False
+    assert printer.events[-1]["message"]["ok"] is True
+    assert printer.events[-1]["message"]["type"] == "tool_call_completed"
+    assert printer.events[-1]["message"]["summary"] == "ok:mcp_local:deepsearch:query"
+    assert printer.events[-1]["message"]["content"] == "ok:mcp_local:deepsearch:query"
+    assert printer.events[-1]["message"]["resultSummary"] == "ok:mcp_local:deepsearch:query"
 
 
 def test_tool_collection_records_execution_metadata_for_success_and_failure():
@@ -164,6 +188,10 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
     assert printer.events[-1]["message_type"] == "tool_result"
     assert printer.events[-1]["message"]["tool"] == "mcp_local:broken"
     assert printer.events[-1]["message"]["failed"] is True
+    assert printer.events[-1]["message"]["ok"] is False
+    assert printer.events[-1]["message"]["type"] == "tool_call_failed"
+    assert printer.events[-1]["message"]["summary"] == "boom"
+    assert printer.events[-1]["message"]["content"] == "boom"
     assert printer.events[-1]["message"]["error"] == "boom"
 
 
@@ -189,8 +217,9 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
 
     assert result == "ok:mcp_local:deepsearch:query"
     assert collection.last_execution is not None
-    assert printer.events[-1]["message_type"] == "tool_call"
-    assert printer.events[-1]["message"]["argumentsSummary"] == '{"value": "query"}'
+    assert [event["message_type"] for event in printer.events] == ["tool_call", "tool_result"]
+    assert printer.events[0]["message"]["argumentsSummary"] == '{"value": "query"}'
+    assert printer.events[-1]["message"]["resultSummary"] == "ok:mcp_local:deepsearch:query"
     for key, expected in {
         "userId": "user-1",
         "agentId": "agent-1",
@@ -202,6 +231,7 @@ def test_tool_collection_records_audit_context_in_events_and_metadata():
         "workDir": "/tmp/task-work",
     }.items():
         assert collection.last_execution[key] == expected
+        assert printer.events[0]["message"][key] == expected
         assert printer.events[-1]["message"][key] == expected
     assert collection.last_execution["argumentsSummary"] == '{"value": "query"}'
     assert collection.last_execution["startedAt"]
@@ -230,7 +260,11 @@ def test_tool_collection_blocks_sandbox_paths_outside_task_workspace(tmp_path):
     assert collection.last_execution is not None
     assert collection.last_execution["failed"] is True
     assert collection.last_execution["error"] == result
-    assert printer.events[-1]["message_type"] == "tool_call"
+    assert [event["message_type"] for event in printer.events] == ["tool_call", "tool_result"]
+    assert printer.events[-1]["message"]["failed"] is True
+    assert printer.events[-1]["message"]["ok"] is False
+    assert printer.events[-1]["message"]["type"] == "tool_call_failed"
+    assert printer.events[-1]["message"]["error"] == result
 
 
 def test_tool_collection_allows_sandbox_paths_inside_task_workspace(tmp_path):
@@ -307,4 +341,6 @@ def test_tool_collection_enforces_configured_tool_timeout():
     assert collection.last_execution["error"] == "tool `mcp_local:slow` timed out"
     assert printer.events[-1]["message_type"] == "tool_result"
     assert printer.events[-1]["message"]["failed"] is True
+    assert printer.events[-1]["message"]["ok"] is False
+    assert printer.events[-1]["message"]["type"] == "tool_call_failed"
     assert printer.events[-1]["message"]["error"] == "tool `mcp_local:slow` timed out"

@@ -57,6 +57,7 @@ def test_tool_gateway_builds_policy_filtered_collection(monkeypatch):
         name="Gateway Agent",
         tools=[
             AgentToolSpec(name="builtin:plan_tool"),
+            AgentToolSpec(name="builtin:set_todo_list"),
             AgentToolSpec(name="builtin:handoff"),
             AgentToolSpec(name="mcp_local:deepsearch"),
             AgentToolSpec(name="mcp_local:code_interpreter", policy={"risk": "high"}),
@@ -72,6 +73,7 @@ def test_tool_gateway_builds_policy_filtered_collection(monkeypatch):
     blocked_collection = asyncio.run(gateway.build_collection(make_context()))
 
     assert "builtin:plan_tool" in blocked_collection.tool_map
+    assert "builtin:set_todo_list" in blocked_collection.tool_map
     assert "builtin:handoff" in blocked_collection.tool_map
     assert "mcp_local:deepsearch" in blocked_collection.tool_map
     assert "mcp_local:code_interpreter" not in blocked_collection.tool_map

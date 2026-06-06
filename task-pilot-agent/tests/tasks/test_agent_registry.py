@@ -332,6 +332,33 @@ def test_agent_registry_matches_mcp_colon_patterns_to_hyphen_tool_names(tmp_path
     assert not agent.allows_tool("mcp_local-shell_exec")
 
 
+def test_agent_registry_top_level_denied_tools_override_wildcard(tmp_path):
+    agent_dir = tmp_path / "agents" / "compat_agent"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        textwrap.dedent(
+            """
+            id: compat_agent
+            name: Compat Agent
+            tools:
+              - name: mcp_local:web_search
+              - name: mcp_*:*
+            denied_tools:
+              - mcp_local:deepsearch
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    agent = AgentRegistry(tmp_path / "agents").get("compat_agent")
+
+    assert agent is not None
+    assert agent.allows_tool("mcp_local:web_search")
+    assert not agent.allows_tool("mcp_local:deepsearch")
+    assert not agent.allows_tool("mcp_local-deepsearch")
+    assert agent.tool_block_reason("mcp_local:deepsearch") == "denied_tools"
+
+
 def test_agent_registry_rejects_missing_handoff_target(tmp_path):
     agent_dir = tmp_path / "agents" / "router_agent"
     agent_dir.mkdir(parents=True)
@@ -534,6 +561,8 @@ def test_default_eval_cases_cover_core_task_categories():
 
     tags = {tag for case in registry.list_evals() for tag in case.tags}
     supervisor = registry.get("supervisor_agent")
+    default_agent = registry.get("task-pilot-agent")
+    search_agent = registry.get("search_agent")
     agent_ids = {agent.id for agent in registry.list_agents()}
     specialist_ids = {"search_agent", "browser_agent", "data_agent", "code_agent", "report_agent"}
 
@@ -545,5 +574,13 @@ def test_default_eval_cases_cover_core_task_categories():
     assert registry.select_agent_for_task("supervisor_agent", "分析表格数据并找出异常").agent_id == "data_agent"
     assert supervisor.allows_tool("builtin:handoff")
     assert supervisor.allows_tool("builtin:request_input")
+    assert default_agent is not None
+    assert search_agent is not None
+    assert default_agent.allows_tool("mcp_local:web_search")
+    assert not default_agent.allows_tool("mcp_local:deepsearch")
+    assert search_agent.allows_tool("mcp_local:web_search")
+    assert search_agent.allows_tool("mcp_local:fetch_url")
+    assert search_agent.allows_tool("mcp_local:web_reader")
+    assert not search_agent.allows_tool("mcp_local:deepsearch")
     handoff = next(tool for tool in supervisor.tools if tool.name == "builtin:handoff")
     assert handoff.input_schema["required"] == ["target_agent_id", "task"]

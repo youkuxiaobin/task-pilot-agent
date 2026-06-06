@@ -25,14 +25,38 @@ tools:
           enum:
             - create
             - continue
+            - get_plan
             - update
+            - add_step
+            - mark_step
+            - skip_step
             - finish
         steps:
           type: array
           items:
             type: string
+        step:
+          type: string
+        position:
+          type: integer
         current_step:
           type: string
+        step_index:
+          type: integer
+        status:
+          type: string
+          enum:
+            - running
+            - completed
+            - failed
+            - waiting_input
+            - skipped
+        note:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: object
       required:
         - command
     output_schema:
@@ -41,6 +65,42 @@ tools:
         message:
           type: string
         plan:
+          type: object
+  - name: builtin:set_todo_list
+    description: 把当前计划或短期步骤投影成用户可见的 TODO 进度卡片。
+    input_schema:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              status:
+                type: string
+                enum:
+                  - not_started
+                  - running
+                  - waiting
+                  - blocked
+                  - completed
+                  - failed
+            required:
+              - title
+        summary:
+          type: string
+        current_index:
+          type: integer
+      required:
+        - items
+    output_schema:
+      type: object
+      properties:
+        message:
+          type: string
+        todoList:
           type: object
   - name: builtin:handoff
     description: 把子任务交给 handoffs.allowed 中声明的目标 Agent。

@@ -69,6 +69,7 @@ class BuiltinRequestInputTool(BaseTool):
         )
         self.context.waiting_for_input = True
         self.context.waiting_input_prompt = prompt
+        await self._sync_running_plan_step(prompt, reason)
         self._emit_waiting_task(prompt)
         return json.dumps(
             {
@@ -79,6 +80,49 @@ class BuiltinRequestInputTool(BaseTool):
             },
             ensure_ascii=False,
         )
+
+    async def _sync_running_plan_step(self, prompt: str, reason: str) -> None:
+        plan_tool = self._get_plan_tool()
+        if plan_tool is None or not hasattr(plan_tool, "plan_dict") or not hasattr(plan_tool, "execute"):
+            return
+        plan = plan_tool.plan_dict()
+        if not isinstance(plan, dict):
+            return
+        statuses = plan.get("step_status")
+        if not isinstance(statuses, list):
+            return
+        running_index = next(
+            (index for index, status in enumerate(statuses, start=1) if status == "running"),
+            None,
+        )
+        if running_index is None:
+            return
+        evidence = [
+            {
+                "tool": self.name,
+                "summary": prompt,
+                "status": "waiting_input",
+            }
+        ]
+        if reason:
+            evidence[0]["reason"] = reason
+        await plan_tool.execute(
+            {
+                "command": "mark_step",
+                "step_index": running_index,
+                "status": "waiting_input",
+                "note": reason or prompt,
+                "evidence": evidence,
+            }
+        )
+
+    def _get_plan_tool(self) -> Any:
+        tool_collection = getattr(self.context, "toolCollection", None) if self.context else None
+        if not tool_collection:
+            return None
+        if hasattr(tool_collection, "get_tool"):
+            return tool_collection.get_tool("builtin:plan_tool")
+        return getattr(tool_collection, "tool_map", {}).get("builtin:plan_tool")
 
     def _emit_waiting_task(self, prompt: str) -> None:
         printer = getattr(self.context, "printer", None) if self.context else None

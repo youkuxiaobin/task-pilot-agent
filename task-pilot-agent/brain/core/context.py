@@ -35,7 +35,7 @@ class AgentContext:
     isStream: bool = True
     streamMessageType: Optional[str] = None
     taskProductFiles: List[FileItem] = field(default_factory=list)
-    mode: str = "plans_executor"
+    mode: str = "react"
     outputStyle: str = "markdown"
     task_id: Optional[str] = None
     work_dir: Optional[str] = None

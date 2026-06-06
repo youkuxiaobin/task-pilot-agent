@@ -23,10 +23,10 @@ def test_vue_frontend_has_product_navigation_and_core_views():
     nav_block = source.split("const navBase = [", 1)[1].split("]", 1)[0]
 
     for marker in [
-        "新建任务",
+        "新会话",
         "Agent",
         "工具",
-        "所有任务",
+        "所有会话",
         "我能为你做什么？",
         "任务详情",
         "activeView === 'home'",
@@ -37,8 +37,9 @@ def test_vue_frontend_has_product_navigation_and_core_views():
     ]:
         assert marker in source
 
-    assert "nav.newTask" in nav_block
+    assert "nav.newSession" in nav_block
     assert "nav.agents" in nav_block
+    assert "nav.allSessions" in nav_block
     assert "nav.allTasks" not in nav_block
     assert "nav.tools" not in nav_block
 
@@ -75,20 +76,25 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         "async function refreshAgents",
         "async function refreshToolCatalog",
         "async function uploadSelectedFiles",
-        "/agent/autoagent",
+        "/agent/sessions",
+        "/messages",
+        "/stream",
+        "/agent/ws/sessions",
         "/agent/tasks",
         "/events",
         "/artifacts",
         "/cancel",
         "method: 'DELETE'",
         "/retry",
-        "/input",
+        "task.inputPlaceholder",
         "/agent/agents",
         "/agent/agents/diagnostics",
         "/agent/tools",
         "/file/v1/upload_file_form",
         "工具调用",
         "waiting_input",
+        "waiting_approval",
+        "task.needApproval",
         "用户补充",
         "task_retry_requested",
         "任务已重试",
@@ -100,6 +106,9 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         "上下文已检索",
         "runtime_boundary_applied",
         "运行环境",
+        "todo_list_updated",
+        "TODO 更新",
+        "todoListSummary",
         "task_artifact_added",
         "任务产物已登记",
         "agent_selected",
@@ -108,17 +117,17 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         assert marker in source
 
 
-def test_task_lists_are_compact_title_only():
+def test_session_lists_are_compact_with_status_only():
     source = APP_VUE_PATH.read_text(encoding="utf-8")
     styles = STYLE_PATH.read_text(encoding="utf-8")
-    task_row_block = source.split('<button v-for="task in tasks"', 1)[1].split("</button>", 1)[0]
+    task_row_block = source.split('<button v-for="session in sessions"', 1)[1].split("</button>", 1)[0]
 
     assert '<span class="recent-meta">' not in source
     assert "recent-meta" not in styles
-    assert '<span class="task-title">{{ task.input || task.taskId }}</span>' in task_row_block
-    assert "status-pill" not in task_row_block
-    assert "formatDate(task.createdAt)" not in task_row_block
-    assert "formatDuration(task.durationMs)" not in task_row_block
+    assert '<span class="task-title">{{ sessionTitle(session) }}</span>' in task_row_block
+    assert "status-pill" in task_row_block
+    assert "formatDate(session.createdAt)" not in task_row_block
+    assert "formatDuration(session.durationMs)" not in task_row_block
     assert "display: flex;" in styles.split(".task-row", 1)[1].split("}", 1)[0]
 
 
@@ -129,26 +138,52 @@ def test_task_detail_is_continuous_chat_window():
 
     for marker in [
         "const chatMessages = ref([])",
+        "const chatHasMore = ref(false)",
+        "const chatHistoryLoading = ref(false)",
         "function createSessionId",
         "function resetConversationState",
         "async function submitChatMessage",
+        "async function loadOlderMessages",
+        "function earliestBackendMessageId",
+        "function backendMessageCount",
         "function appendAssistantContent",
         "function seedChatFromTask",
+        "if (!['user', 'assistant'].includes(role)) return null",
+        ".filter(Boolean)",
         "chatMessages.value.push(userMessage, assistantMessage)",
         "v-for=\"(message, index) in chatMessages\"",
+        "class=\"chat-history-control\"",
+        "@click=\"loadOlderMessages\"",
         "class=\"chat-composer\"",
         "@keydown.enter.exact.prevent=\"submitChatMessage\"",
         "appendAssistantContent(payload.result || '')",
         "const progressItems = computed",
         "const currentProgressItem = computed",
+        "const conversationOverviewStats = computed",
+        "const conversationMessageCount = computed",
+        "const conversationRunCount = computed",
+        "const currentPlanPanel = computed",
+        "function planSnapshotFromEvent",
+        "function planEvidenceSummary",
+        "function planStepStatusLabel",
         "function toolThoughtSummary",
         "function toolActionTitle",
         "function progressDetailRows",
         "function shouldShowProgressItem",
+        "function sessionHasVisibleProgressEvents",
+        "function sessionProcessRunId",
+        "function sessionLatestEventRunId",
         "function isNoisyProgressNotification",
         "function isProgressMessage",
+        "processOnly: !processOutput",
         "conversation-thread",
+        "conversation-overview",
+        "conversation-overview-grid",
+        "conversation-overview-action",
+        "conversation-plan-panel",
+        "conversation-plan-list",
         "conversation-stream",
+        "chat-history-control",
         "conversation-progress",
         "progress-action-list",
         "progress-detail-row",
@@ -158,19 +193,33 @@ def test_task_detail_is_continuous_chat_window():
         assert marker in source
 
     assert "if (source === 'home') resetConversationState()" in submit_block
-    assert "const priorMessages = source === 'chat' ? buildPriorConversationMessages() : []" in submit_block
-    assert "messages: [...priorMessages, { role: 'user', content: text, uploadFile: uploadedFiles }]" in submit_block
+    assert "await ensureCurrentSession(text)" in submit_block
+    assert "content: text" in submit_block
+    assert "uploadFile: uploadedFiles" in submit_block
+    assert "/messages" in submit_block
+    assert "/messages?${params}" in source
+    assert "const params = new URLSearchParams({ limit: '50', before })" in source
+    assert "chatMessages.value = [...olderMessages, ...chatMessages.value]" in source
     assert "keepChat: true" in source
     assert '@click="item.id === \'home\' ? newTask() : switchView(item.id)"' in source
     detail_block = source.split('<section v-else-if="activeView === \'taskDetail\'"', 1)[1].split(
         '<section v-else-if="activeView === \'tasks\'"', 1
     )[0]
     assert 'class="conversation-thread"' in detail_block
+    assert 'class="conversation-overview"' in detail_block
+    assert "{{ conversationAgentName }}" in detail_block
+    assert "conversationOverviewStats" in detail_block
+    assert "currentProgressItem.title" in detail_block
+    assert 'class="conversation-plan-panel"' in detail_block
+    assert "currentPlanPanel.steps" in detail_block
+    assert "planStepStatusLabel(step.status)" in detail_block
+    assert "step.evidence" in detail_block
     assert 'class="detail-header"' not in detail_block
     assert "currentTask?.input || t('task.current')" not in detail_block
     assert "{{ taskMeta }}" not in detail_block
     assert 'v-for="(message, index) in chatMessages"' in detail_block
     assert "isProgressMessage(message, index) && progressItems.length" in detail_block
+    assert 'v-else-if="!message.processOnly"' in detail_block
     assert 'class="timeline-card"' not in detail_block
     assert 'class="chat-card"' not in detail_block
     assert "t('task.final')" not in detail_block
@@ -178,7 +227,14 @@ def test_task_detail_is_continuous_chat_window():
     assert "eventFilters.source" not in detail_block
     assert "retryTask" not in detail_block
     assert ".conversation-thread" in styles
+    assert ".conversation-overview" in styles
+    assert ".conversation-overview-grid" in styles
+    assert ".conversation-overview-action" in styles
+    assert ".conversation-plan-panel" in styles
+    assert ".conversation-plan-list" in styles
+    assert ".plan-step" in styles
     assert ".conversation-stream" in styles
+    assert ".chat-history-control" in styles
     assert ".conversation-progress" in styles
     assert ".chat-bubble" in styles
     assert ".progress-action-list" in styles
@@ -263,13 +319,16 @@ def test_vue_recent_tasks_have_more_menu_and_delete_action():
         "function taskRecordId",
         "function removeTaskFromLists",
         "async function deleteTask",
+        "function sessionRecordId",
+        "function removeSessionFromLists",
+        "async function archiveSession",
         "class=\"task-menu-button\"",
         "class=\"task-menu-popover\"",
         "t('task.delete')",
         "response.status !== 404",
-        "removeTaskFromLists(taskId)",
+        "removeSessionFromLists(sessionId)",
         "method: 'DELETE'",
-        "@click.stop.prevent=\"deleteTask(task)\"",
+        "@click.stop.prevent=\"archiveSession(session)\"",
     ]:
         assert marker in source
 
@@ -315,7 +374,7 @@ def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     submit_block = source.split("async function submitTask", 1)[1].split("async function readSse", 1)[0]
 
     assert "agent_id: selectedAgentId.value || undefined" in submit_block
-    assert "conversation_id: currentSessionId.value" in submit_block
+    assert "await ensureCurrentSession(text)" in submit_block
     assert "language: language.value === 'en' ? 'en' : 'ch'" in submit_block
     assert "uploadFile: uploadedFiles" in submit_block
     assert "if (advancedOpen.value)" in submit_block
@@ -324,6 +383,8 @@ def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     assert "payload.run_environment = runEnvironment.value || undefined" in submit_block
     assert "payload.selected_tools = selected" in submit_block
     assert "payload.approved_tools = approved" in submit_block
+    mode_select = source.split("<select v-model=\"runMode\">", 1)[1].split("</select>", 1)[0]
+    assert mode_select.index("<option value=\"react\">ReAct</option>") < mode_select.index("Legacy Plan Executor")
 
 
 def test_vue_frontend_supports_chinese_and_english_switching():
@@ -336,7 +397,7 @@ def test_vue_frontend_supports_chinese_and_english_switching():
         "<option value=\"en\">English</option>",
         "'home.title': '我能为你做什么？'",
         "'home.title': 'What can I do for you?'",
-        "body: JSON.stringify({ content, language: language.value === 'en' ? 'en' : 'ch' })",
+        "language: language.value === 'en' ? 'en' : 'ch'",
         "const lt = (zh, en)",
         "const serviceError = (status)",
         "document.documentElement.lang = next === 'en' ? 'en' : 'zh-CN'",
@@ -363,6 +424,35 @@ def test_vue_frontend_exposes_file_upload_agent_picker_and_advanced_settings():
         "toolRequiresApproval(tool)",
     ]:
         assert marker in source
+
+
+def test_vue_tools_panel_shows_tool_source_risk_and_server():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+    styles = STYLE_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        "'tools.source': '来源'",
+        "'tools.server': '服务'",
+        "'tools.risk': '风险'",
+        "'tools.source': 'Source'",
+        "'tools.server': 'Server'",
+        "'tools.risk': 'Risk'",
+        "function toolSourceText(tool)",
+        "function toolServerText(tool)",
+        "function toolMetaRows(tool)",
+        "tool.riskLevel || tool.policy?.risk",
+        "tool.requiresApproval",
+        "class=\"tool-meta-list\"",
+        "toolMetaRows(tool)",
+    ]:
+        assert marker in source
+
+    for marker in [
+        ".tool-meta-list",
+        ".tool-meta-list span",
+        ".tool-meta-list b",
+    ]:
+        assert marker in styles
 
 
 def test_vue_styles_are_workspace_not_debug_console():

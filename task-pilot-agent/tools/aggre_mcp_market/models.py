@@ -49,3 +49,16 @@ class RegistrySnapshot:
     tools: List[ToolInfo] = field(default_factory=list)
     # Maps full tool name -> internal lookup key
     index_by_full_name: Dict[str, ToolInfo] = field(default_factory=dict)
+
+
+@dataclass
+class MCPServerStatus:
+    url: str
+    protocol: Protocol
+    tool_prefix: str
+    authorization_configured: bool = False
+    status: str = "unknown"
+    tool_count: int = 0
+    error: str = ""
+    last_checked_at: Optional[float] = None
+    duration_ms: Optional[int] = None
