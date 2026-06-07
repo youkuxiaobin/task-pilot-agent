@@ -127,3 +127,59 @@ def test_summary_agent_skips_message_write_when_agent_disallows_memory(monkeypat
 
     assert result == "answer"
     assert memory.messages == []
+
+
+def test_summary_agent_splits_large_stream_chunks(monkeypatch):
+    from brain.core.agents import summary_agent as summary_module
+    from brain.core.context import AgentContext
+
+    class FakePromptStore:
+        def get_prompt(self, _key):
+            return "task={task}\nhistory={tool_call_history}\ntime={current_time}"
+
+    class FakeLLM:
+        async def stream_generate_async(self, messages, *, chunk_callback, **_kwargs):
+            self.messages = messages
+            chunk_callback("abcdefghijkl")
+            return SimpleNamespace(text="")
+
+    class FakePrinter:
+        def __init__(self):
+            self.events = []
+
+        def send(self, message_id, message_type, message, digital_employee, is_final):
+            self.events.append(
+                {
+                    "message_id": message_id,
+                    "message_type": message_type,
+                    "message": message,
+                    "digital_employee": digital_employee,
+                    "is_final": is_final,
+                }
+            )
+
+    monkeypatch.setattr(summary_module, "prompt_store", FakePromptStore())
+    printer = FakePrinter()
+    ctx = AgentContext(
+        requestId="summary-split",
+        sessionId="summary-session",
+        user_id="user-1",
+        agent_id="agent-1",
+        run_id="conversation-1",
+        query="question",
+        task=None,
+        printer=printer,
+        toolCollection=None,
+        dateInfo="2026-05-30",
+        outputStyle="markdown",
+        agent_memory={"write": []},
+    )
+
+    agent = summary_module.SummaryAgent(ctx)
+    agent.llm = FakeLLM()
+
+    result = asyncio.run(agent.summarize("question", [], ["evidence"]))
+
+    result_events = [event for event in printer.events if event["message_type"] == "result"]
+    assert result == "abcdefghijkl"
+    assert [event["message"] for event in result_events] == ["abcdefgh", "ijkl"]

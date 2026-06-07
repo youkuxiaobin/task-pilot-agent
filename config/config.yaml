@@ -33,6 +33,7 @@ logging:
 summary_agent:
   enable_thinking: true
   discard_reasoning_content: true
+  max_tokens: 2200
 
 db:
   host: "CHANGE_ME"

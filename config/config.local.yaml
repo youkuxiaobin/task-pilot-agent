@@ -72,12 +72,16 @@ db:
 summary_agent:
   enable_thinking: false
   discard_reasoning_content: true
+  max_tokens: 2200
 
 memory:
   search_memory: false
   search_rag: false
 
-search: []
+search:
+  - provider: "serper"
+    api_key: "02cd7e54ce8b6f9d164df97908696fb20f73921f"
+    proxy: "http://127.0.0.1:7897"
 
 llm:
   provider: "openai"

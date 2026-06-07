@@ -621,17 +621,10 @@ class TaskStore:
             from brain.core.sessions import SessionStore
 
             payload = sanitize_payload(raw_payload)
-            seq: Optional[int] = None
-            if isinstance(payload, dict):
-                try:
-                    seq = int(payload.get("seq") or payload.get("sequence") or 0) or None
-                except (TypeError, ValueError):
-                    seq = None
             SessionStore().add_run_event(
                 session_id=task_record.conversation_id,
                 run_id=task_record.task_id,
                 user_id=task_record.user_id,
-                seq=seq,
                 event_id=f"evt_{event_record.id}",
                 event_type=event_record.event_type,
                 source=event_record.source,
@@ -663,7 +656,7 @@ class TaskStore:
             records = (
                 query.order_by(AgentTaskEventRecord.id.asc())
                 .offset(max(offset, 0))
-                .limit(max(min(limit, 2000), 1))
+                .limit(max(min(limit, 10000), 1))
                 .all()
             )
             _detach_records(session, records)

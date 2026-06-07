@@ -203,7 +203,7 @@ def test_builtin_plan_tool_is_visible_as_openai_tool_when_allowed():
     specs = collection.to_openai_tools()
 
     assert len(specs) == 1
-    assert specs[0]["function"]["name"] == "builtin:plan_tool"
+    assert specs[0]["function"]["name"] == "builtin-plan_tool"
     assert specs[0]["function"]["parameters"]["properties"]["command"]["enum"] == [
         "create",
         "continue",
@@ -258,7 +258,7 @@ def test_builtin_todo_tool_is_visible_as_openai_tool_when_allowed():
     specs = collection.to_openai_tools()
 
     assert len(specs) == 1
-    assert specs[0]["function"]["name"] == "builtin:set_todo_list"
+    assert specs[0]["function"]["name"] == "builtin-set_todo_list"
     assert specs[0]["function"]["parameters"]["required"] == ["items"]
     assert "current_index" in specs[0]["function"]["parameters"]["properties"]
 
@@ -274,7 +274,7 @@ def test_builtin_handoff_tool_is_visible_as_openai_tool_when_allowed():
     specs = collection.to_openai_tools()
 
     assert len(specs) == 1
-    assert specs[0]["function"]["name"] == "builtin:handoff"
+    assert specs[0]["function"]["name"] == "builtin-handoff"
     assert "target_agent_id" in specs[0]["function"]["parameters"]["properties"]
     assert "task" in specs[0]["function"]["parameters"]["required"]
 
@@ -355,7 +355,7 @@ def test_builtin_request_input_tool_is_visible_as_openai_tool_when_allowed():
     specs = collection.to_openai_tools()
 
     assert len(specs) == 1
-    assert specs[0]["function"]["name"] == "builtin:request_input"
+    assert specs[0]["function"]["name"] == "builtin-request_input"
     assert specs[0]["function"]["parameters"]["required"] == ["prompt"]
 
 

@@ -5,6 +5,8 @@ import { marked } from 'marked'
 
 marked.setOptions({ breaks: true, gfm: true })
 
+const EVENT_REPLAY_LIMIT = '10000'
+
 const navBase = [
   { id: 'home', labelKey: 'nav.newSession', icon: 'compose' },
   { id: 'tasks', labelKey: 'nav.allSessions', icon: 'agent' },
@@ -13,11 +15,11 @@ const navBase = [
 
 const messages = {
   zh: {
-    'nav.newTask': '新建任务',
+    'nav.newTask': '新会话',
     'nav.newSession': '新会话',
     'nav.agents': 'Agent',
     'nav.tools': '工具',
-    'nav.allTasks': '所有任务',
+    'nav.allTasks': '所有会话',
     'nav.allSessions': '所有会话',
     'common.refresh': '刷新',
     'common.defaultAgent': '默认 Agent',
@@ -42,7 +44,7 @@ const messages = {
     'auth.noProviders': '暂无可用登录方式',
     'auth.logout': '退出',
     'auth.requiredTitle': '登录后使用 TaskPilot',
-    'auth.requiredDesc': '任务、文件和历史记录会绑定到当前账号。',
+    'auth.requiredDesc': '会话、文件和历史记录会绑定到当前账号。',
     'auth.currentUser': '当前用户',
     'auth.account': '账号',
     'auth.profile': '账号信息',
@@ -50,9 +52,9 @@ const messages = {
     'auth.linkProvider': '绑定登录方式',
     'auth.unlink': '解绑',
     'auth.noIdentities': '暂无绑定的第三方登录方式。',
-    'task.current': '当前任务',
+    'task.current': '当前运行',
     'task.delete': '删除',
-    'task.deleteConfirm': '确定删除这个会话吗？删除后无法在任务列表中查看。',
+    'task.deleteConfirm': '确定删除这个会话吗？删除后无法在会话列表中查看。',
     'task.deleted': '会话已删除',
     'task.deleteFailed': '删除会话失败',
     'sidebar.recent': '最近会话',
@@ -71,26 +73,21 @@ const messages = {
     'advanced.sandbox': '沙箱环境',
     'advanced.tools': '本次工具',
     'advanced.noTools': '当前 Agent 暂无工具配置',
-    'task.detail': '任务详情',
-    'task.artifacts': '任务产物',
+    'task.detail': '运行详情',
+    'task.artifacts': '产物',
     'task.noArtifacts': '暂无产物。',
     'task.needInput': '需要补充信息',
-    'task.inputPlaceholder': '补充任务需要的信息',
+    'task.inputPlaceholder': '补充会话需要的信息',
     'task.submitInput': '提交补充',
     'task.needApproval': '需要先处理工具审批',
     'chat.title': '对话',
     'chat.empty': '选择一个会话或发送第一条消息，Agent 会在这里连续回复。',
-    'chat.placeholder': '继续追问或补充任务要求',
+    'chat.placeholder': '继续追问或补充要求',
     'chat.user': '你',
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent 正在处理...',
     'chat.loadEarlier': '加载更早消息',
     'chat.loadingEarlier': '正在加载...',
-    'chat.overview': '会话概览',
-    'chat.messages': '消息',
-    'chat.runs': '运行',
-    'chat.artifacts': '产物',
-    'chat.currentAction': '当前动作',
     'plan.title': '计划',
     'plan.evidence': '证据',
     'plan.notStarted': '未开始',
@@ -99,7 +96,7 @@ const messages = {
     'progress.latest': '当前动作',
     'progress.events': '过程',
     'progress.tools': '工具调用',
-    'progress.none': '任务开始后会显示当前动作、工具调用和简短结果。',
+    'progress.none': '会话开始后会显示当前动作、工具调用和简短结果。',
     'progress.started': '开始',
     'progress.running': '进行中',
     'progress.completed': '完成',
@@ -110,11 +107,11 @@ const messages = {
     'approval.rejected': '已拒绝',
     'approval.processing': '处理中',
     'approval.none': '暂无待处理审批',
-    'tasks.eyebrow': '所有任务',
-    'tasks.title': '任务历史',
-    'tasks.desc': '查看任务状态、结果、失败原因和历史过程。',
-    'tasks.empty': '暂无任务记录。',
-    'filter.search': '搜索任务',
+    'tasks.eyebrow': '所有会话',
+    'tasks.title': '会话历史',
+    'tasks.desc': '查看会话状态、结果、失败原因和历史过程。',
+    'tasks.empty': '暂无会话记录。',
+    'filter.search': '搜索会话',
     'filter.allStatus': '全部状态',
     'filter.allAgents': '全部 Agent',
     'filter.allTypes': '全部类型',
@@ -134,7 +131,7 @@ const messages = {
     'agents.eyebrow': 'Agent',
     'agents.title': '选择适合的 Agent',
     'agents.desc': '每个 Agent 都有自己的能力、工具和边界。',
-    'agents.use': '用它新建任务',
+    'agents.use': '用它新建会话',
     'agents.tools': '查看工具',
     'agents.configWarning': '配置检查异常',
     'tools.eyebrow': '工具',
@@ -164,18 +161,18 @@ const messages = {
     'timeline.toolCall': '调用工具',
     'timeline.toolDone': '工具完成',
     'timeline.toolFailed': '工具失败',
-    'timeline.plan': '任务计划',
+    'timeline.plan': '计划',
     'timeline.agentSelected': 'Agent 选择',
-    'timeline.handoff': '任务交接',
+    'timeline.handoff': 'Agent 交接',
     'timeline.failed': '失败事件',
-    'timeline.default': '任务事件',
+    'timeline.default': '运行事件',
   },
   en: {
-    'nav.newTask': 'New Task',
+    'nav.newTask': 'New Chat',
     'nav.newSession': 'New Chat',
     'nav.agents': 'Agents',
     'nav.tools': 'Tools',
-    'nav.allTasks': 'All Tasks',
+    'nav.allTasks': 'All Chats',
     'nav.allSessions': 'All Chats',
     'common.refresh': 'Refresh',
     'common.defaultAgent': 'Default Agent',
@@ -200,7 +197,7 @@ const messages = {
     'auth.noProviders': 'No sign-in providers available',
     'auth.logout': 'Log out',
     'auth.requiredTitle': 'Sign in to use TaskPilot',
-    'auth.requiredDesc': 'Tasks, files, and history are tied to the current account.',
+    'auth.requiredDesc': 'Chats, files, and history are tied to the current account.',
     'auth.currentUser': 'Current user',
     'auth.account': 'Account',
     'auth.profile': 'Profile',
@@ -208,9 +205,9 @@ const messages = {
     'auth.linkProvider': 'Link sign-in method',
     'auth.unlink': 'Unlink',
     'auth.noIdentities': 'No third-party sign-in methods linked.',
-    'task.current': 'Current task',
+    'task.current': 'Current run',
     'task.delete': 'Delete',
-    'task.deleteConfirm': 'Delete this conversation? It will be removed from the task list.',
+    'task.deleteConfirm': 'Delete this conversation? It will be removed from the chat list.',
     'task.deleted': 'Conversation deleted',
     'task.deleteFailed': 'Delete failed',
     'sidebar.recent': 'Recent Chats',
@@ -227,13 +224,13 @@ const messages = {
     'advanced.environment': 'Runtime',
     'advanced.local': 'Local',
     'advanced.sandbox': 'Sandbox',
-    'advanced.tools': 'Tools for this task',
+    'advanced.tools': 'Tools for this run',
     'advanced.noTools': 'No tools configured for this Agent',
-    'task.detail': 'Task Detail',
+    'task.detail': 'Run Detail',
     'task.artifacts': 'Artifacts',
     'task.noArtifacts': 'No artifacts yet.',
     'task.needInput': 'More input needed',
-    'task.inputPlaceholder': 'Add the information needed for this task',
+    'task.inputPlaceholder': 'Add the information needed for this chat',
     'task.submitInput': 'Submit input',
     'task.needApproval': 'Resolve the tool approval first',
     'chat.title': 'Conversation',
@@ -244,11 +241,6 @@ const messages = {
     'chat.thinking': 'Agent is working...',
     'chat.loadEarlier': 'Load earlier messages',
     'chat.loadingEarlier': 'Loading...',
-    'chat.overview': 'Chat overview',
-    'chat.messages': 'Messages',
-    'chat.runs': 'Runs',
-    'chat.artifacts': 'Artifacts',
-    'chat.currentAction': 'Current action',
     'plan.title': 'Plan',
     'plan.evidence': 'Evidence',
     'plan.notStarted': 'Not started',
@@ -257,7 +249,7 @@ const messages = {
     'progress.latest': 'Current action',
     'progress.events': 'Events',
     'progress.tools': 'Tool calls',
-    'progress.none': 'Current actions, tool calls, and brief results will appear after the task starts.',
+    'progress.none': 'Current actions, tool calls, and brief results will appear after the chat starts.',
     'progress.started': 'Started',
     'progress.running': 'Running',
     'progress.completed': 'Done',
@@ -268,11 +260,11 @@ const messages = {
     'approval.rejected': 'Denied',
     'approval.processing': 'Processing',
     'approval.none': 'No pending approval',
-    'tasks.eyebrow': 'All Tasks',
-    'tasks.title': 'Task History',
-    'tasks.desc': 'Review task status, results, failures, and process history.',
-    'tasks.empty': 'No task records.',
-    'filter.search': 'Search tasks',
+    'tasks.eyebrow': 'All Chats',
+    'tasks.title': 'Chat History',
+    'tasks.desc': 'Review chat status, results, failures, and process history.',
+    'tasks.empty': 'No chat records.',
+    'filter.search': 'Search chats',
     'filter.allStatus': 'All statuses',
     'filter.allAgents': 'All Agents',
     'filter.allTypes': 'All types',
@@ -292,7 +284,7 @@ const messages = {
     'agents.eyebrow': 'Agents',
     'agents.title': 'Choose the right Agent',
     'agents.desc': 'Each Agent has its own responsibilities, tools, and boundaries.',
-    'agents.use': 'Use for new task',
+    'agents.use': 'Use for new chat',
     'agents.tools': 'View tools',
     'agents.configWarning': 'Config issues',
     'tools.eyebrow': 'Tools',
@@ -322,11 +314,11 @@ const messages = {
     'timeline.toolCall': 'Tool call',
     'timeline.toolDone': 'Tool completed',
     'timeline.toolFailed': 'Tool failed',
-    'timeline.plan': 'Task plan',
+    'timeline.plan': 'Plan',
     'timeline.agentSelected': 'Agent selection',
-    'timeline.handoff': 'Task handoff',
+    'timeline.handoff': 'Agent handoff',
     'timeline.failed': 'Failure',
-    'timeline.default': 'Task event',
+    'timeline.default': 'Run event',
   },
 }
 
@@ -465,6 +457,7 @@ const taskCanRetry = computed(() => ['completed', 'failed', 'cancelled'].include
 const taskWaitingInput = computed(() => currentTask.value?.status === 'waiting_input')
 const taskWaitingApproval = computed(() => currentTask.value?.status === 'waiting_approval')
 const chatInputDisabled = computed(() => running.value || taskWaitingApproval.value)
+const visibleArtifacts = computed(() => currentArtifacts.value.filter(shouldShowArtifact))
 const taskMeta = computed(() => {
   if (!currentTask.value) return ''
   const parts = [
@@ -472,7 +465,7 @@ const taskMeta = computed(() => {
     statusLabel(currentTask.value.status),
     agentName(currentTask.value.agentId),
     currentTask.value.durationMs ? formatDuration(currentTask.value.durationMs) : '',
-    currentArtifacts.value.length ? `${t('task.artifacts')} ${currentArtifacts.value.length}` : '',
+    visibleArtifacts.value.length ? `${t('task.artifacts')} ${visibleArtifacts.value.length}` : '',
   ]
   return parts.filter(Boolean).join(' · ')
 })
@@ -494,75 +487,17 @@ const availableLinkProviders = computed(() => {
 
 const mergedTimeline = computed(() => {
   const replay = currentEvents.value.map((event) => normalizeTimelineEvent(event))
-  return [...replay, ...liveTimeline.value].filter(Boolean)
+  return dedupeTimelineItems([...replay, ...liveTimeline.value].filter(Boolean))
 })
 
 const progressItems = computed(() => mergedTimeline.value.filter(shouldShowProgressItem).map((item, index) => enrichProgressItem(item, index)))
-
-const progressStats = computed(() => {
-  const items = progressItems.value
-  return {
-    events: items.length,
-    tools: items.filter((item) => item.type === 'tool_call').length,
-  }
-})
-
-const currentProgressItem = computed(() => {
-  const items = progressItems.value
-  if (!running.value && currentTask.value?.status && currentTask.value.status !== 'running') {
-    const status = currentTask.value.status
-    const latest = items.length ? items[items.length - 1] : null
-    return {
-      title: statusLabel(status),
-      brief: status === 'failed'
-        ? compactSummary(currentTask.value.errorMessage || currentTask.value.error || latest?.title || '', 220)
-        : compactSummary(latest?.title || statusLabel(status), 220),
-      status: status === 'failed' ? 'failed' : status === 'completed' ? 'completed' : 'running',
-    }
-  }
-  if (!items.length) return null
-  const active = [...items].reverse().find((item) => item.status === 'running' || item.status === 'started')
-  return running.value && active ? active : items[items.length - 1]
-})
-
-const conversationStatusValue = computed(() => (
-  currentSession.value?.status
-  || currentTask.value?.status
-  || (running.value ? 'running' : 'idle')
-))
-
-const conversationStatusText = computed(() => statusLabel(conversationStatusValue.value))
-
-const conversationAgentName = computed(() => (
-  agentName(currentTask.value?.agentId || currentSession.value?.agentId || selectedAgentId.value || defaultAgentId.value)
-  || t('common.defaultAgent')
-))
-
-const conversationMessageCount = computed(() => {
-  const declared = Number(currentSession.value?.messageCount ?? chatMessageTotal.value)
-  const localCount = chatMessages.value.length
-  return Number.isFinite(declared) ? Math.max(declared, localCount) : localCount
-})
-
-const conversationRunCount = computed(() => {
-  const declared = Number(currentSession.value?.runCount)
-  if (Number.isFinite(declared)) return declared
-  const runs = Array.isArray(currentSession.value?.runs) ? currentSession.value.runs.length : 0
-  return runs || (currentTaskId.value ? 1 : 0)
-})
-
-const conversationOverviewStats = computed(() => [
-  { label: t('chat.messages'), value: conversationMessageCount.value },
-  { label: t('chat.runs'), value: conversationRunCount.value },
-  { label: t('chat.artifacts'), value: currentArtifacts.value.length },
-])
 
 const currentPlanPanel = computed(() => {
   const plans = mergedTimeline.value
     .filter((item) => item && isPlanEvent(item.type))
     .map((item) => planSnapshotFromEvent(item.type, item.raw || {}))
     .filter(Boolean)
-  return plans.length ? plans[plans.length - 1] : null
+  return plans.length ? normalizePlanSnapshotForDisplay(plans[plans.length - 1]) : null
 })
 
 watch(selectedAgentId, async () => {
@@ -763,11 +698,37 @@ function updateActiveAssistant(updates) {
   }
 }
 
-function appendAssistantContent(text) {
+function ensureActiveAssistantMessage(runId = '') {
+  const activeExists = chatMessages.value.some((message) => message.id === activeAssistantMessageId.value)
+  if (activeExists) return
+  const existing = [...chatMessages.value].reverse().find((message) => (
+    message.role === 'assistant'
+    && (!runId || message.taskId === runId)
+  ))
+  if (existing) {
+    activeAssistantMessageId.value = existing.id
+    return
+  }
+  const message = {
+    id: chatMessageId('assistant'),
+    role: 'assistant',
+    content: '',
+    taskId: runId || currentTaskId.value || '',
+    status: 'running',
+    time: Date.now(),
+    processOnly: false,
+  }
+  chatMessages.value.push(message)
+  activeAssistantMessageId.value = message.id
+}
+
+function appendAssistantContent(text, runId = '') {
   if (!text) return
+  ensureActiveAssistantMessage(runId)
   updateActiveAssistant((message) => ({
     content: `${message.content || ''}${text}`,
     status: 'running',
+    taskId: message.taskId || runId || currentTaskId.value || '',
   }))
 }
 
@@ -812,6 +773,45 @@ function mapBackendMessage(message, fallbackStatus = '') {
   }
 }
 
+function eventRunId(event) {
+  const payload = event?.payload || {}
+  return event?.runId || payload.runId || payload.taskId || payload.requestId || ''
+}
+
+function resultTextFromEvents(runId = '') {
+  return currentEvents.value
+    .filter((event) => ['result', 'agent_stream'].includes(event?.eventType || event?.type || ''))
+    .filter((event) => !runId || eventRunId(event) === runId)
+    .map((event) => String(event?.payload?.result || ''))
+    .filter(Boolean)
+    .join('')
+}
+
+function replayAssistantOutput(messages, runId, output, fallbackStatus = '') {
+  if (!output) return
+  const existing = [...messages].reverse().find((message) => (
+    message.role === 'assistant'
+    && (!runId || message.taskId === runId)
+  ))
+  if (existing) {
+    if (!existing.content || output.length > existing.content.length) {
+      existing.content = output
+    }
+    existing.status = existing.status || fallbackStatus || 'running'
+    existing.processOnly = false
+    return
+  }
+  messages.push({
+    id: `replay-${runId || chatMessageId('assistant')}`,
+    role: 'assistant',
+    content: output,
+    taskId: runId,
+    status: fallbackStatus || 'running',
+    time: sessionLatestEventTime() || Date.now(),
+    processOnly: false,
+  })
+}
+
 function seedChatFromSession(session, options = {}) {
   const backendMessages = Array.isArray(session?.messages) ? session.messages : []
   const nextMessages = backendMessages
@@ -821,11 +821,13 @@ function seedChatFromSession(session, options = {}) {
   chatHasMore.value = chatMessageTotal.value > nextMessages.length
   const latestRun = sessionRunFromPayload(session)
   const processRunId = sessionProcessRunId(session, latestRun)
+  const replayedOutput = resultTextFromEvents(processRunId)
+  replayAssistantOutput(nextMessages, processRunId, replayedOutput, latestRun?.status || session?.status || '')
   const hasAssistantForProcessRun = nextMessages.some((message) => (
     message.role === 'assistant'
     && (!processRunId || message.taskId === processRunId)
   ))
-  const processOutput = String(latestRun?.output || '').trim()
+  const processOutput = String(latestRun?.output || replayedOutput || '').trim()
   if (!hasAssistantForProcessRun && (processOutput || sessionHasVisibleProgressEvents())) {
     nextMessages.push({
       id: `process-${processRunId || chatMessageId('assistant')}`,
@@ -961,7 +963,7 @@ function applySessionPayload(session, events = [], artifacts = [], options = {})
     chatMessageTotal.value = Number(session.messageCount || 0)
     chatHasMore.value = chatMessageTotal.value > backendMessageCount()
   }
-  finalAnswer.value = latestAssistantText(session)
+  finalAnswer.value = latestAssistantText(session) || resultTextFromEvents(currentTaskId.value)
   if (!options.keepChat) seedChatFromSession(session, options)
   liveTimeline.value = []
   running.value = session?.status === 'running'
@@ -1019,7 +1021,7 @@ async function loadSession(sessionId, options = {}) {
   if (!sessionId) return
   openTaskMenuId.value = ''
   try {
-    const eventParams = new URLSearchParams({ limit: '2000' })
+    const eventParams = new URLSearchParams({ limit: EVENT_REPLAY_LIMIT })
     const [sessionResponse, eventsResponse, artifactsResponse] = await Promise.all([
       fetch(`/agent/sessions/${encodeURIComponent(sessionId)}`),
       fetch(`/agent/sessions/${encodeURIComponent(sessionId)}/events?${eventParams}`),
@@ -1056,15 +1058,35 @@ function maxSessionSeq() {
   return currentEvents.value.reduce((max, event) => Math.max(max, Number(event.seq || 0)), 0)
 }
 
+function sessionEventDedupeKey(event = {}) {
+  const payload = event.payload || {}
+  const explicitId = event.eventId || event.event_id || event.id || payload.eventId || payload.event_id
+  if (explicitId) return `id:${explicitId}`
+  const type = event.eventType || event.type || ''
+  const runId = eventRunId(event)
+  const seq = event.seq || ''
+  const createdAt = event.createdAt || payload.messageTime || ''
+  const messageId = event.messageId || payload.messageId || ''
+  const text = String(payload.result || payload.tool || payload.name || payload.status || '').slice(0, 80)
+  return [type, runId, seq, createdAt, messageId, text].join('|')
+}
+
+function hasSessionEvent(event) {
+  const key = sessionEventDedupeKey(event)
+  return currentEvents.value.some((item) => sessionEventDedupeKey(item) === key)
+}
+
 function mergeSessionEvent(event) {
   if (!event) return
-  const seq = Number(event.seq || 0)
-  if (seq && currentEvents.value.some((item) => Number(item.seq || 0) === seq)) return
+  if (hasSessionEvent(event)) return
   currentEvents.value = [...currentEvents.value, event].sort((left, right) => {
     const leftSeq = Number(left.seq || 0)
     const rightSeq = Number(right.seq || 0)
-    if (leftSeq || rightSeq) return leftSeq - rightSeq
-    return Number(left.createdAt || 0) - Number(right.createdAt || 0)
+    if (leftSeq !== rightSeq) return leftSeq - rightSeq
+    const leftTime = Number(left.createdAt || left.payload?.messageTime || 0)
+    const rightTime = Number(right.createdAt || right.payload?.messageTime || 0)
+    if (leftTime !== rightTime) return leftTime - rightTime
+    return Number(left.id || 0) - Number(right.id || 0)
   })
 
   const eventType = event.eventType || event.type
@@ -1081,7 +1103,7 @@ function mergeSessionEvent(event) {
   if (eventType === 'result' || eventType === 'agent_stream') {
     const text = payload.result || ''
     finalAnswer.value += text
-    appendAssistantContent(text)
+    appendAssistantContent(text, eventRunId(event))
   }
   if (eventType === 'waiting_input') {
     if (currentTask.value) currentTask.value.status = 'waiting_input'
@@ -1097,16 +1119,20 @@ function mergeSessionEvent(event) {
   if (eventType === 'task_completed') {
     if (currentTask.value) currentTask.value.status = 'completed'
     updateActiveAssistant({ status: 'completed' })
+    running.value = false
+    statusText.value = t('common.ready')
   }
   if (eventType === 'task_failed') {
     if (currentTask.value) currentTask.value.status = 'failed'
     updateActiveAssistant({ status: 'failed' })
+    running.value = false
+    statusText.value = t('common.ready')
   }
 }
 
 function sessionWebSocketUrl(sessionId, afterSeq) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const params = new URLSearchParams({ afterSeq: String(afterSeq) })
+  const params = new URLSearchParams({ afterSeq: String(afterSeq), limit: '50' })
   return `${protocol}//${window.location.host}/agent/ws/sessions/${encodeURIComponent(sessionId)}?${params}`
 }
 
@@ -1190,7 +1216,8 @@ function startSessionEventSource(sessionId, afterSeq = maxSessionSeq()) {
     startSessionPolling(sessionId)
     return
   }
-  const source = new EventSource(`/agent/sessions/${encodeURIComponent(sessionId)}/stream?afterSeq=${afterSeq}`)
+  const params = new URLSearchParams({ afterSeq: String(afterSeq), limit: '50' })
+  const source = new EventSource(`/agent/sessions/${encodeURIComponent(sessionId)}/stream?${params}`)
   sessionEventSource.value = source
   source.onmessage = async (message) => {
     let payload = null
@@ -1327,8 +1354,8 @@ async function submitConversationMessage(text, source) {
     startSessionStream(currentSessionId.value)
   } catch (error) {
     if (error.name !== 'AbortError') {
-      addNotification(withDetail('任务执行失败', 'Task failed', error.message), 'failed')
-      liveTimeline.value.push({ type: 'error', title: lt('任务执行失败', 'Task failed'), summary: error.message, time: Date.now(), open: true })
+      addNotification(withDetail('运行失败', 'Run failed', error.message), 'failed')
+      liveTimeline.value.push({ type: 'error', title: lt('运行失败', 'Run failed'), summary: error.message, time: Date.now(), open: true })
       updateActiveAssistant({ content: error.message, status: 'failed' })
       if (currentTask.value) currentTask.value.status = 'failed'
       running.value = false
@@ -1395,7 +1422,7 @@ function handleStreamEvent(event) {
 
   if (event.type === 'result' || event.type === 'agent_stream') {
     finalAnswer.value += payload.result || ''
-    appendAssistantContent(payload.result || '')
+    appendAssistantContent(payload.result || '', payload.taskId || payload.runId || '')
   } else if (event.type === 'done') {
     if (currentTask.value) currentTask.value.status = 'completed'
     updateActiveAssistant({ status: 'completed' })
@@ -1415,7 +1442,7 @@ async function stopTask() {
         `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/runs/${encodeURIComponent(currentTaskId.value)}/cancel`,
         { method: 'POST' },
       )
-      addNotification(language.value === 'en' ? 'Cancel request sent' : '任务取消请求已发送', 'cancelled')
+      addNotification(language.value === 'en' ? 'Cancel request sent' : '运行取消请求已发送', 'cancelled')
       if (currentTask.value) currentTask.value.status = 'cancelled'
       await refreshSessions()
     } catch (error) {
@@ -1430,7 +1457,7 @@ async function stopTask() {
 
 async function retryTask() {
   if (!currentSessionId.value || !currentTaskId.value || running.value) return
-  statusText.value = lt('任务重试中', 'Retrying task')
+  statusText.value = lt('运行重试中', 'Retrying run')
   try {
     const response = await fetch(
       `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/runs/${encodeURIComponent(currentTaskId.value)}/retry`,
@@ -1439,7 +1466,7 @@ async function retryTask() {
     if (!response.ok) throw new Error(serviceError(response.status))
     const task = await response.json()
     const retryTaskId = task.runId || task.taskId || task.task_id
-    addNotification(language.value === 'en' ? 'Task retried' : '任务已重试', 'running')
+    addNotification(language.value === 'en' ? 'Run retried' : '运行已重试', 'running')
     await refreshSessions()
     if (retryTaskId) {
       currentTaskId.value = retryTaskId
@@ -1447,7 +1474,7 @@ async function retryTask() {
       await loadSession(currentSessionId.value)
     }
   } catch (error) {
-    addNotification(withDetail('重试任务失败', 'Retry failed', error.message), 'failed')
+    addNotification(withDetail('重试运行失败', 'Retry failed', error.message), 'failed')
   } finally {
     statusText.value = t('common.ready')
   }
@@ -1481,34 +1508,54 @@ function rawApprovalToolNames(data = {}) {
 }
 
 function approvalResolvedFor(item) {
-  const requestEventId = Number(item?.eventId || 0)
-  if (!requestEventId) return false
+  const requestKeys = approvalRequestKeys(item)
+  if (!requestKeys.size) return false
   return currentEvents.value.some((event) => {
     const payload = event.payload || {}
+    const resolvedKeys = [
+      payload.approvalRequestEventId,
+      payload.approvalRequestEventEventId,
+      payload.approvalEventId,
+    ].map((value) => String(value || '').trim()).filter(Boolean)
     return (event.eventType || event.type) === 'approval_resolved'
-      && Number(payload.approvalRequestEventId || 0) === requestEventId
+      && resolvedKeys.some((key) => requestKeys.has(key))
   })
 }
 
 function approvalStatusText(item) {
-  const requestEventId = Number(item?.eventId || 0)
+  const requestKeys = approvalRequestKeys(item)
   const resolved = currentEvents.value.find((event) => {
     const payload = event.payload || {}
+    const resolvedKeys = [
+      payload.approvalRequestEventId,
+      payload.approvalRequestEventEventId,
+      payload.approvalEventId,
+    ].map((value) => String(value || '').trim()).filter(Boolean)
     return (event.eventType || event.type) === 'approval_resolved'
-      && Number(payload.approvalRequestEventId || 0) === requestEventId
+      && resolvedKeys.some((key) => requestKeys.has(key))
   })
   if (!resolved) return t('approval.none')
   return resolved.payload?.approved ? t('approval.approved') : t('approval.rejected')
 }
 
+function approvalRequestKeys(item = {}) {
+  return new Set([
+    item.eventId,
+    item.raw?.id,
+    item.raw?.eventId,
+    item.raw?.event_id,
+    item.raw?.approvalEventId,
+  ].map((value) => String(value || '').trim()).filter(Boolean))
+}
+
 function approvalBusyFor(item, approved) {
-  return approvalBusyKey.value === `${item.runId}:${item.eventId}:${approved ? 'approve' : 'reject'}`
+  const runId = item.runId || currentTaskId.value
+  return approvalBusyKey.value === `${runId}:${item.eventId}:${approved ? 'approve' : 'reject'}`
 }
 
 function approvalPending(item) {
   return item?.type === 'approval_requested'
-    && item.runId
-    && !running.value
+    && (item.runId || currentTaskId.value)
     && !approvalResolvedFor(item)
 }
 
@@ -1519,7 +1566,7 @@ function canResolveApproval(item) {
 async function resolveApproval(item, approved) {
   if (!canResolveApproval(item)) return
   const sessionId = currentSessionId.value
-  const runId = item?.runId
+  const runId = item?.runId || currentTaskId.value
   if (!sessionId || !runId) return
   const actionKey = `${runId}:${item.eventId}:${approved ? 'approve' : 'reject'}`
   approvalBusyKey.value = actionKey
@@ -1589,7 +1636,7 @@ async function refreshTasks() {
     const data = await response.json()
     tasks.value = Array.isArray(data.items) ? data.items : []
   } catch (error) {
-      addNotification(withDetail('任务列表加载失败', 'Task list failed to load', error.message), 'failed')
+      addNotification(withDetail('会话列表加载失败', 'Chat list failed to load', error.message), 'failed')
   }
 }
 
@@ -1710,15 +1757,15 @@ async function loadTask(taskId, options = {}) {
   if (!taskId) return
   openTaskMenuId.value = ''
   try {
-    const eventParams = new URLSearchParams({ limit: '2000' })
+    const eventParams = new URLSearchParams({ limit: EVENT_REPLAY_LIMIT })
     const [taskResponse, eventsResponse, artifactsResponse] = await Promise.all([
       fetch(`/agent/tasks/${encodeURIComponent(taskId)}`),
       fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?${eventParams}`),
       fetch(`/agent/tasks/${encodeURIComponent(taskId)}/artifacts`),
     ])
-    if (!taskResponse.ok) throw new Error(withDetail('任务详情加载失败', 'Task detail failed to load', taskResponse.status))
-    if (!eventsResponse.ok) throw new Error(withDetail('任务事件加载失败', 'Task events failed to load', eventsResponse.status))
-    if (!artifactsResponse.ok) throw new Error(withDetail('任务产物加载失败', 'Task artifacts failed to load', artifactsResponse.status))
+    if (!taskResponse.ok) throw new Error(withDetail('运行详情加载失败', 'Run detail failed to load', taskResponse.status))
+    if (!eventsResponse.ok) throw new Error(withDetail('运行事件加载失败', 'Run events failed to load', eventsResponse.status))
+    if (!artifactsResponse.ok) throw new Error(withDetail('产物加载失败', 'Artifacts failed to load', artifactsResponse.status))
     currentTask.value = await taskResponse.json()
     const eventsData = await eventsResponse.json()
     const artifactsData = await artifactsResponse.json()
@@ -1806,7 +1853,9 @@ async function refreshToolCatalog() {
       ...(Array.isArray(data.items) ? data.items : []),
       ...(Array.isArray(data.blockedTools) ? data.blockedTools : []),
     ]
-    selectedToolNames.value = new Set(toolCatalog.value.filter((tool) => tool.allowed !== false).map((tool) => tool.name))
+    selectedToolNames.value = new Set(
+      toolCatalog.value.filter(shouldSelectToolByDefault).map((tool) => tool.name),
+    )
     approvedToolNames.value = new Set()
     toolSelectionTouched.value = false
   } catch (error) {
@@ -1859,6 +1908,11 @@ function toggleTool(tool) {
 
 function toolRequiresApproval(tool) {
   return Boolean(tool.requiresApproval) || tool.blockReason === 'high_risk_requires_enable' || tool.blockReason === 'high_risk_requires_approval'
+}
+
+function shouldSelectToolByDefault(tool) {
+  const risk = String(tool.riskLevel || tool.policy?.risk || '').toLowerCase()
+  return tool.allowed !== false && !toolRequiresApproval(tool) && !['high', 'critical'].includes(risk)
 }
 
 function toolRiskText(tool) {
@@ -1915,6 +1969,47 @@ function normalizeTimelineEvent(event) {
   }
 }
 
+function dedupeTimelineItems(items) {
+  const result = []
+  const toolResultIndexByKey = new Map()
+  items.forEach((item) => {
+    const key = timelineToolResultDedupeKey(item)
+    if (!key) {
+      result.push(item)
+      return
+    }
+    const existingIndex = toolResultIndexByKey.get(key)
+    if (existingIndex === undefined) {
+      toolResultIndexByKey.set(key, result.length)
+      result.push(item)
+      return
+    }
+    if (timelineItemWeight(item) > timelineItemWeight(result[existingIndex])) {
+      result[existingIndex] = item
+    }
+  })
+  return result
+}
+
+function timelineToolResultDedupeKey(item) {
+  if (!item || item.type !== 'tool_result') return ''
+  const raw = item.raw || {}
+  const data = raw.resultMap && Object.keys(raw.resultMap).length ? raw.resultMap : raw
+  const tool = compactToolName(data.tool || data.name || raw.tool || raw.name)
+  if (!tool) return ''
+  return [
+    item.runId || raw.runId || raw.taskId || '',
+    tool,
+    stableTimelineValue(toolInput(data)),
+  ].join('|')
+}
+
+function timelineItemWeight(item) {
+  const raw = item?.raw || {}
+  const data = raw.resultMap && Object.keys(raw.resultMap).length ? raw.resultMap : raw
+  return String(data.result || data.resultSummary || data.content || data.summary || item?.summary || '').length
+}
+
 function timelineTitle(type, resultMap = {}, failed = false, payload = {}) {
   const toolName = resultMap.tool || resultMap.name ? compactToolName(resultMap.tool || resultMap.name) : ''
   if (type === 'tool_call') return toolActionTitle(toolName, toolInput(resultMap))
@@ -1923,7 +2018,7 @@ function timelineTitle(type, resultMap = {}, failed = false, payload = {}) {
   }
   if (isPlanEvent(type)) return planEventTitle(type, payload.plan || resultMap || payload)
   if (type === 'tool_thought') return toolThoughtTitle(payload)
-  if (type === 'plan_thought') return lt('规划任务', 'Planning task')
+  if (type === 'plan_thought') return lt('制定计划', 'Planning')
   if (type === 'agent_selected') return t('timeline.agentSelected')
   if (type === 'task_handoff_requested') return t('timeline.handoff')
   if (type === 'notifications') return compactSummary(notificationMessage(payload.task || payload.resultMap?.task || ''), 140) || eventTypeName(type)
@@ -1939,18 +2034,18 @@ function eventSummary(type, payload = {}) {
   if (type === 'plan_thought') return planThoughtSummary(payload)
   if (isPlanEvent(type)) return planEventSummary(type, data)
   if (type === 'result' || type === 'agent_stream') return ''
-  if (type === 'task_created') return withDetail('任务已创建', 'Task created', data.mode)
-  if (type === 'task_queued') return withDetail('任务排队中', 'Task queued', data.mode)
-  if (type === 'task_running') return lt('任务运行中', 'Task running')
-  if (type === 'task_completed') return lt('任务已完成', 'Task completed')
-  if (type === 'task_failed') return withDetail('任务失败', 'Task failed', data.error || t('status.unknown'))
-  if (type === 'task_cancel_requested') return lt('任务取消请求已发送', 'Cancel request sent')
-  if (type === 'task_cancelled') return lt('任务已取消', 'Task cancelled')
-  if (type === 'task_retry_requested') return withDetail('任务已重试', 'Task retried', data.retryTaskId || '')
+  if (type === 'task_created') return withDetail('运行已创建', 'Run created', data.mode)
+  if (type === 'task_queued') return withDetail('运行排队中', 'Run queued', data.mode)
+  if (type === 'task_running') return lt('运行中', 'Run running')
+  if (type === 'task_completed') return lt('运行已完成', 'Run completed')
+  if (type === 'task_failed') return withDetail('运行失败', 'Run failed', data.error || t('status.unknown'))
+  if (type === 'task_cancel_requested') return lt('运行取消请求已发送', 'Cancel request sent')
+  if (type === 'task_cancelled') return lt('运行已取消', 'Run cancelled')
+  if (type === 'task_retry_requested') return withDetail('运行已重试', 'Run retried', data.retryTaskId || '')
   if (type === 'waiting_input') return withDetail('等待补充输入', 'Waiting for input', data.prompt || '')
   if (type === 'task_waiting_approval') return lt('等待工具审批', 'Waiting for tool approval')
   if (type === 'user_input') return withDetail('用户补充', 'User input', data.content || '')
-  if (type === 'task_resume_requested') return lt('任务恢复请求已发送', 'Resume request sent')
+  if (type === 'task_resume_requested') return lt('运行恢复请求已发送', 'Resume request sent')
   if (type === 'approval_requested') return withDetail('需要审批工具', 'Approval needed', approvalToolNames(data).join(', '))
   if (type === 'approval_resolved') return data.approved
     ? withDetail('已允许工具', 'Tools allowed', approvalToolNames(data).join(', '))
@@ -1959,15 +2054,15 @@ function eventSummary(type, payload = {}) {
   if (type === 'memory_context_loaded') return lt('上下文已检索', 'Context loaded')
   if (type === 'runtime_boundary_applied') return withDetail('运行环境', 'Runtime', data.runEnvironment || 'local')
   if (type === 'tool_policy_applied') return lt(`工具策略已应用：可用 ${(data.availableTools || []).length} 个，拦截 ${(data.blockedTools || []).length} 个`, `Tool policy applied: ${(data.availableTools || []).length} available, ${(data.blockedTools || []).length} blocked`)
-  if (type === 'task_artifact_added') return withDetail('任务产物已登记', 'Artifact registered', data.filename || data.artifactId || '')
-  if (type === 'eval_run_created') return withDetail('评测任务已创建', 'Eval task created', data.caseId || '')
+  if (type === 'task_artifact_added') return withDetail('产物已登记', 'Artifact registered', data.filename || data.artifactId || '')
+  if (type === 'eval_run_created') return withDetail('评测运行已创建', 'Eval run created', data.caseId || '')
   if (type === 'eval_result') return withDetail('评测结果', 'Eval result', data.status || '')
   if (type === 'agent_selected') return `${withDetail('Supervisor 已选择 Agent', 'Supervisor selected Agent', data.agentName || data.agentId || '')}${data.reason ? ` · ${data.reason}` : ''}`
   if (type === 'agent_started') return withDetail('Agent 已启动', 'Agent started', data.agentName || data.agentId || '')
   if (type === 'agent_completed') return withDetail('Agent 已完成', 'Agent completed', data.agentName || data.agentId || '')
   if (type === 'agent_failed') return `${withDetail('Agent 失败', 'Agent failed', data.agentName || data.agentId || '')}${data.error ? ` · ${data.error}` : ''}`
   if (type === 'agent_cancelled') return withDetail('Agent 已取消', 'Agent cancelled', data.agentName || data.agentId || '')
-  if (type === 'task_handoff_requested') return withDetail('任务已交接', 'Task handed off', `${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`)
+  if (type === 'task_handoff_requested') return withDetail('Agent 已交接', 'Agent handed off', `${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`)
   if (type === 'notifications') return notificationMessage(data.task || data.error || '')
   if (type === 'task') return data.task || ''
   return stringify(data.task || data.message || data.error || '')
@@ -2090,8 +2185,9 @@ function planSnapshotFromEvent(type, payload = {}) {
   const statuses = Array.isArray(plan.step_status) ? plan.step_status : []
   const notes = Array.isArray(plan.notes) ? plan.notes : []
   const evidence = Array.isArray(plan.evidence) ? plan.evidence : []
+  const planCompleted = type === 'plan_completed' || plan.status === 'completed' || plan.planStatus === 'completed'
   const steps = plan.steps.map((step, index) => {
-    const status = String(statuses[index] || 'not_started')
+    const status = String(statuses[index] || (planCompleted ? 'completed' : 'not_started'))
     return {
       index: index + 1,
       title: typeof step === 'string' ? step : stringify(step),
@@ -2102,10 +2198,34 @@ function planSnapshotFromEvent(type, payload = {}) {
   })
   return {
     title: plan.title || t('timeline.plan'),
-    status: type === 'plan_completed' ? 'completed' : currentTask.value?.status || '',
+    status: planCompleted ? 'completed' : currentTask.value?.status || '',
     steps,
     completed: steps.filter((step) => ['completed', 'skipped'].includes(step.status)).length,
   }
+}
+
+function normalizePlanSnapshotForDisplay(plan) {
+  if (!plan || !Array.isArray(plan.steps)) return plan
+  if (plan.status !== 'completed' && !isCompletedRunStatus(currentTask.value?.status)) return plan
+  if (plan.steps.some((step) => step.status === 'failed')) return plan
+  const steps = plan.steps.map((step) => {
+    if (['completed', 'skipped'].includes(step.status)) return step
+    return {
+      ...step,
+      status: 'completed',
+      note: step.note || lt('运行已完成', 'Run completed'),
+    }
+  })
+  return {
+    ...plan,
+    status: 'completed',
+    steps,
+    completed: steps.filter((step) => ['completed', 'skipped'].includes(step.status)).length,
+  }
+}
+
+function isCompletedRunStatus(status) {
+  return ['completed', 'idle'].includes(String(status || '').toLowerCase())
 }
 
 function planEvidenceSummary(items) {
@@ -2292,6 +2412,25 @@ function parseJsonValue(value) {
   }
 }
 
+function stableTimelineValue(value) {
+  const parsed = parseJsonValue(value)
+  if (!parsed || typeof parsed !== 'object') return String(parsed || '')
+  try {
+    return JSON.stringify(sortObjectForStableValue(parsed))
+  } catch {
+    return stringify(parsed)
+  }
+}
+
+function sortObjectForStableValue(value) {
+  if (Array.isArray(value)) return value.map(sortObjectForStableValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.keys(value).sort().reduce((acc, key) => {
+    acc[key] = sortObjectForStableValue(value[key])
+    return acc
+  }, {})
+}
+
 function summarizeObject(value) {
   if (Array.isArray(value)) {
     if (!value.length) return ''
@@ -2309,15 +2448,15 @@ function summarizeObject(value) {
 
 function eventTypeName(type) {
   const names = language.value === 'en' ? {
-    task_created: 'Task created',
-    task_queued: 'Task queued',
-    task_running: 'Task running',
-    task_completed: 'Task completed',
-    task_failed: 'Task failed',
+    task_created: 'Run created',
+    task_queued: 'Run queued',
+    task_running: 'Run running',
+    task_completed: 'Run completed',
+    task_failed: 'Run failed',
     tool_call: 'Tool call',
     tool_result: 'Tool result',
     tool_thought: 'Preparing tool',
-    plan_thought: 'Planning task',
+    plan_thought: 'Planning',
     todo_list_updated: 'Todo list',
     agent_phase: 'Agent phase',
     memory_context_loaded: 'Context retrieval',
@@ -2328,21 +2467,21 @@ function eventTypeName(type) {
     approval_requested: 'Approval needed',
     approval_resolved: 'Approval resolved',
   } : {
-    task_created: '任务创建',
-    task_queued: '任务排队',
-    task_running: '任务运行',
-    task_completed: '任务完成',
-    task_failed: '任务失败',
+    task_created: '运行创建',
+    task_queued: '运行排队',
+    task_running: '运行中',
+    task_completed: '运行完成',
+    task_failed: '运行失败',
     tool_call: '工具调用',
     tool_result: '工具结果',
     tool_thought: '准备调用工具',
-    plan_thought: '规划任务',
+    plan_thought: '制定计划',
     todo_list_updated: 'TODO 更新',
     agent_phase: 'Agent 阶段',
     memory_context_loaded: '上下文检索',
     runtime_boundary_applied: '运行边界',
     tool_policy_applied: '工具策略',
-    task_artifact_added: '任务产物',
+    task_artifact_added: '产物',
     task_waiting_approval: '等待审批',
     approval_requested: '需要审批',
     approval_resolved: '审批结果',
@@ -2484,6 +2623,36 @@ function renderMarkdown(text) {
 
 function artifactHref(item) {
   return `/agent/sessions/${encodeURIComponent(currentSessionId.value)}/artifacts/${encodeURIComponent(item.artifactId)}`
+}
+
+function artifactDisplayName(item) {
+  const filename = String(item?.filename || item?.artifactId || '').trim()
+  try {
+    return decodeURIComponent(filename)
+  } catch {
+    return filename
+  }
+}
+
+function artifactTypeText(item) {
+  const mimeType = String(item?.mimeType || '').trim()
+  if (!mimeType || mimeType === 'application/octet-stream') return 'file'
+  return mimeType
+}
+
+function shouldShowArtifact(item) {
+  if (!item) return false
+  const filePath = String(item.remoteUrl || item.filePath || '').trim()
+  const isRemote = item.isRemote === true || /^https?:\/\//i.test(filePath)
+  if (!isRemote) return true
+
+  const filename = String(item.filename || '').trim()
+  const mimeType = String(item.mimeType || '').trim().toLowerCase()
+  const raw = item.metadata?.raw && typeof item.metadata.raw === 'object' ? item.metadata.raw : {}
+  const hasDownloadSignal = Boolean(raw.downloadUrl || raw.download_url || raw.ossUrl || raw.domainUrl || raw.domain_url)
+  const hasUsefulMimeType = Boolean(mimeType && mimeType !== 'application/octet-stream')
+  const hasUsefulExtension = /\.[a-z0-9]{1,8}$/i.test(filename)
+  return hasDownloadSignal || hasUsefulMimeType || hasUsefulExtension
 }
 
 function initialSessionIdFromUrl() {
@@ -2822,55 +2991,11 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="activeView === 'taskDetail'" class="view detail-view">
-        <div class="conversation-thread">
-          <div v-if="running" class="conversation-controls">
-            <button type="button" class="ghost-button small" @click="stopTask">{{ t('common.stop') }}</button>
-          </div>
-          <div class="conversation-overview">
-            <div class="conversation-overview-main">
-              <div>
-                <span class="overview-eyebrow">{{ t('chat.overview') }}</span>
-                <strong>{{ conversationAgentName }}</strong>
-              </div>
-              <span class="status-pill" :class="statusClass(conversationStatusValue)">{{ conversationStatusText }}</span>
+        <div class="conversation-layout" :class="{ 'conversation-layout-has-plan': currentPlanPanel }">
+          <div class="conversation-thread">
+            <div v-if="running" class="conversation-controls">
+              <button type="button" class="ghost-button small" @click="stopTask">{{ t('common.stop') }}</button>
             </div>
-            <div class="conversation-overview-grid">
-              <div v-for="item in conversationOverviewStats" :key="item.label" class="overview-stat">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-            <div v-if="currentProgressItem" class="conversation-overview-action">
-              <span>{{ t('chat.currentAction') }}</span>
-              <strong>{{ currentProgressItem.title }}</strong>
-              <small v-if="currentProgressItem.brief">{{ currentProgressItem.brief }}</small>
-            </div>
-          </div>
-          <div v-if="currentPlanPanel" class="conversation-plan-panel">
-            <div class="conversation-plan-head">
-              <div>
-                <span class="overview-eyebrow">{{ t('plan.title') }}</span>
-                <strong>{{ currentPlanPanel.title }}</strong>
-              </div>
-              <span>{{ currentPlanPanel.completed }}/{{ currentPlanPanel.steps.length }}</span>
-            </div>
-            <ol class="conversation-plan-list">
-              <li
-                v-for="step in currentPlanPanel.steps"
-                :key="`${step.index}-${step.title}`"
-                class="plan-step"
-                :class="`plan-step-${planStepStatusClass(step.status)}`"
-              >
-                <span class="timeline-dot" :class="`dot-${planStepStatusClass(step.status)}`"></span>
-                <div>
-                  <strong>{{ step.index }}. {{ step.title }}</strong>
-                  <small>{{ planStepStatusLabel(step.status) }}</small>
-                  <p v-if="step.note">{{ step.note }}</p>
-                  <p v-if="step.evidence">{{ t('plan.evidence') }}{{ detailSep() }}{{ step.evidence }}</p>
-                </div>
-              </li>
-            </ol>
-          </div>
           <div ref="scrollRef" class="conversation-stream">
             <div v-if="chatHasMore" class="chat-history-control">
               <button
@@ -2969,17 +3094,17 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="currentArtifacts.length" class="conversation-artifacts">
+          <div v-if="visibleArtifacts.length" class="conversation-artifacts">
             <a
-              v-for="artifact in currentArtifacts"
+              v-for="artifact in visibleArtifacts"
               :key="artifact.artifactId"
               class="artifact-link"
               :href="artifactHref(artifact)"
               target="_blank"
               rel="noreferrer"
             >
-              <span>{{ artifact.filename || artifact.artifactId }}</span>
-              <small>{{ artifact.mimeType || 'file' }}</small>
+              <span>{{ artifactDisplayName(artifact) }}</span>
+              <small>{{ artifactTypeText(artifact) }}</small>
             </a>
           </div>
 
@@ -3011,6 +3136,35 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </form>
+          </div>
+
+          <aside v-if="currentPlanPanel" class="conversation-plan-sidebar" :aria-label="t('plan.title')">
+            <div class="conversation-plan-panel">
+              <div class="conversation-plan-head">
+                <div>
+                  <span class="overview-eyebrow">{{ t('plan.title') }}</span>
+                  <strong>{{ currentPlanPanel.title }}</strong>
+                </div>
+                <span>{{ currentPlanPanel.completed }}/{{ currentPlanPanel.steps.length }}</span>
+              </div>
+              <ol class="conversation-plan-list">
+                <li
+                  v-for="step in currentPlanPanel.steps"
+                  :key="`${step.index}-${step.title}`"
+                  class="plan-step"
+                  :class="`plan-step-${planStepStatusClass(step.status)}`"
+                >
+                  <span class="timeline-dot" :class="`dot-${planStepStatusClass(step.status)}`"></span>
+                  <div>
+                    <strong>{{ step.index }}. {{ step.title }}</strong>
+                    <small>{{ planStepStatusLabel(step.status) }}</small>
+                    <p v-if="step.note">{{ step.note }}</p>
+                    <p v-if="step.evidence">{{ t('plan.evidence') }}{{ detailSep() }}{{ step.evidence }}</p>
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </aside>
         </div>
       </section>
 

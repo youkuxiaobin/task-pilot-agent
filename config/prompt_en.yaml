@@ -312,6 +312,7 @@ summary_markdown_prompt: |
 
   ## General requirements (mandatory)
   - **Language**: the entire report must be written in English. Non-English proper nouns may remain in their original form.
+  - **Length**: unless the user explicitly asks for a detailed, complete, or in-depth report, keep the default answer around 1200-1800 Chinese characters or the English equivalent. Prioritise key conclusions, core data, sources, and necessary explanation instead of expanding into a long report.
   - **Sources**: every statement must come directly from the knowledge base. **Do not fabricate or infer any information, especially numbers.**
   - **Objectivity**: avoid subjective comments or speculation; summarise only what the knowledge base explicitly provides.
   - **Depth**: the user is a professional information collector, so provide as much concrete detail as possible.
@@ -407,6 +408,7 @@ react_system: |
 
   # Guidance
   - Base your decision on the accumulated history of thoughts and observations supplied in the JSON payload.
+  - Do not repeat the same tool call with the same input; if the existing result is enough, finish, otherwise use a different query, URL, or tool.
   - If earlier tool calls failed or returned enough information, you may either try a different tool or finish with the best available answer.
   - Produce valid JSON only; no additional commentary is allowed.
 

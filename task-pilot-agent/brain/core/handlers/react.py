@@ -70,6 +70,25 @@ COMPLEX_TASK_SIGNALS = (
     "browser",
 )
 
+FINANCIAL_REPORT_SIGNALS = (
+    "财报",
+    "财年",
+    "年报",
+    "季报",
+    "业绩",
+    "营收",
+    "收入",
+    "利润",
+    "净利润",
+    "ebita",
+    "ebitda",
+    "financial report",
+    "annual report",
+    "earnings",
+    "revenue",
+    "profit",
+)
+
 
 class ReactHandler(AgentHandlerService):
     """
@@ -115,13 +134,26 @@ class ReactHandler(AgentHandlerService):
         if final_answer and not any("最终答案" in item for item in evidence):
             evidence.append(f"最终答案：{final_answer}")
 
+        summary_step_index = await self._mark_summary_step_running(ctx)
         try:
             self._emit_phase(ctx, "summary", "started", agent="summary")
             final_text = await summary_agent.summarize(ctx.query, [], evidence)
         except Exception:
             logger.exception("React summary agent failed for request %s", ctx.requestId)
+            await self._mark_summary_step_terminal(
+                ctx,
+                summary_step_index,
+                "failed",
+                "总结输出失败",
+            )
             self._emit_phase(ctx, "summary", "failed", agent="summary")
             raise
+        await self._mark_summary_step_terminal(
+            ctx,
+            summary_step_index,
+            "completed",
+            f"总结输出完成，长度 {len(final_text or '')} 字符",
+        )
         self._emit_phase(
             ctx,
             "summary",
@@ -144,6 +176,82 @@ class ReactHandler(AgentHandlerService):
             None,
             True,
         )
+
+    async def _mark_summary_step_running(self, ctx: AgentContext) -> Optional[int]:
+        plan_tool = self._get_plan_tool(ctx)
+        if plan_tool is None:
+            return None
+        plan = plan_tool.plan_dict()
+        if not isinstance(plan, dict):
+            return None
+        statuses = plan.get("step_status")
+        if not isinstance(statuses, list):
+            return None
+        running_index = next(
+            (index for index, status in enumerate(statuses, start=1) if status == "running"),
+            None,
+        )
+        next_index = next(
+            (index for index, status in enumerate(statuses, start=1) if status == "not_started"),
+            None,
+        )
+        if next_index is None:
+            return running_index
+        try:
+            if running_index is not None and running_index < next_index:
+                await plan_tool.execute(
+                    {
+                        "command": "mark_step",
+                        "step_index": running_index,
+                        "status": "completed",
+                        "note": "已完成资料处理，进入总结输出",
+                    }
+                )
+            await plan_tool.execute(
+                {
+                    "command": "mark_step",
+                    "step_index": next_index,
+                    "status": "running",
+                    "note": "开始整理并输出最终结果",
+                }
+            )
+            return next_index
+        except Exception:
+            logger.exception("failed to mark summary plan step running for request %s", ctx.requestId)
+            return None
+
+    async def _mark_summary_step_terminal(
+        self,
+        ctx: AgentContext,
+        step_index: Optional[int],
+        status: str,
+        note: str,
+    ) -> None:
+        if not step_index:
+            return
+        plan_tool = self._get_plan_tool(ctx)
+        if plan_tool is None:
+            return
+        try:
+            await plan_tool.execute(
+                {
+                    "command": "mark_step",
+                    "step_index": step_index,
+                    "status": status,
+                    "note": note,
+                }
+            )
+        except Exception:
+            logger.exception("failed to mark summary plan step %s for request %s", status, ctx.requestId)
+
+    @staticmethod
+    def _get_plan_tool(ctx: AgentContext) -> Any:
+        tool_collection = getattr(ctx, "toolCollection", None)
+        if not tool_collection:
+            return None
+        if hasattr(tool_collection, "get_tool"):
+            return tool_collection.get_tool(PLAN_TOOL_NAME)
+        return getattr(tool_collection, "tool_map", {}).get(PLAN_TOOL_NAME)
 
     async def _maybe_create_initial_plan(self, ctx: AgentContext) -> Optional[Dict[str, Any]]:
         tool_collection = getattr(ctx, "toolCollection", None)
@@ -198,6 +306,8 @@ def _query_needs_plan(query: str) -> bool:
     text = " ".join(str(query or "").strip().lower().split())
     if not text:
         return False
+    if any(signal in text for signal in FINANCIAL_REPORT_SIGNALS):
+        return True
     if any(trigger in text for trigger in EXPLICIT_PLAN_TRIGGERS):
         return True
     signal_count = sum(1 for signal in COMPLEX_TASK_SIGNALS if signal in text)
@@ -221,6 +331,17 @@ def _initial_plan_title_and_steps(ctx: AgentContext) -> Tuple[str, List[str]]:
             ]
             if english
             else ["明确需求和影响范围", "完成必要改动", "运行有效验证", "总结结果和剩余风险"]
+        )
+    elif any(token in lower_query for token in FINANCIAL_REPORT_SIGNALS):
+        steps = (
+            [
+                "Find and verify authoritative financial report sources.",
+                "Read reports and extract key financial metrics.",
+                "Analyze segment performance and major changes.",
+                "Summarize conclusions, sources, and uncertainty.",
+            ]
+            if english
+            else ["搜索并确认权威财报来源", "读取财报并提取关键财务指标", "分析业务板块表现和主要变化", "整理结论、来源和不确定性"]
         )
     elif any(token in lower_query for token in ("文件", "数据", "表格", "报告", "file", "data", "spreadsheet", "report")):
         steps = (

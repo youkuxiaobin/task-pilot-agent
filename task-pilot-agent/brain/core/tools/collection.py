@@ -4,6 +4,7 @@ import fnmatch
 import json
 import logging
 from pathlib import Path
+import re
 import time
 from datetime import datetime, timezone
 from typing import Callable, Dict, Any, Optional, List, Tuple
@@ -31,6 +32,16 @@ except Exception:  # pragma: no cover - optional logging dependency
 
 
 logger = get_logger(__name__)
+
+
+_OPENAI_TOOL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_OPENAI_TOOL_NAME_INVALID_CHARS = re.compile(r"[^a-zA-Z0-9_-]+")
+
+
+def _to_openai_tool_name(value: str) -> str:
+    text = str(value or "").strip().replace(":", "-")
+    text = _OPENAI_TOOL_NAME_INVALID_CHARS.sub("_", text).strip("_-")
+    return text or "tool"
 
 
 def _tool_name_variants(value: str) -> List[str]:
@@ -64,6 +75,8 @@ class ToolCollection:
     tool_allowed_checker: Optional[Callable[[str], bool]] = None
     blocked_tools: List[str] = field(default_factory=list)
     last_execution: Optional[Dict[str, Any]] = None
+    openai_tool_name_map: Dict[str, str] = field(default_factory=dict)
+    tool_openai_name_map: Dict[str, str] = field(default_factory=dict)
 
     def set_allowed_tool_patterns(self, patterns: Optional[List[str]]) -> None:
         if patterns is None:
@@ -104,10 +117,23 @@ class ToolCollection:
         return None
 
     def resolve_tool_name(self, name: str) -> str:
+        mapped_name = self.openai_tool_name_map.get(str(name or ""))
+        if mapped_name:
+            return mapped_name
         for candidate in _tool_name_variants(name):
             if candidate in self.tool_map:
                 return candidate
+        requested_safe_name = _to_openai_tool_name(name)
+        for tool_name in self.tool_map:
+            if _to_openai_tool_name(tool_name) == requested_safe_name:
+                return tool_name
         return name
+
+    def openai_tool_name_for(self, name: str) -> str:
+        resolved_name = self.resolve_tool_name(name)
+        if resolved_name not in self.tool_openai_name_map:
+            self._rebuild_openai_tool_name_maps()
+        return self.tool_openai_name_map.get(resolved_name, _to_openai_tool_name(resolved_name))
 
     def add_tool(self, tool: BaseTool) -> bool:
         if not self.is_tool_allowed(tool.name):
@@ -118,9 +144,10 @@ class ToolCollection:
         return True
 
     def get_tool(self, name: str) -> Optional[BaseTool]:
-        if not self.is_tool_allowed(name):
+        resolved_name = self.resolve_tool_name(name)
+        if not self.is_tool_allowed(resolved_name):
             return None
-        return self.tool_map.get(self.resolve_tool_name(name))
+        return self.tool_map.get(resolved_name)
 
     @observe(name="tool_execute")
     async def execute(self, name: str, input_obj: Dict[str, Any]) -> Optional[str]:
@@ -381,17 +408,22 @@ class ToolCollection:
     def to_openai_tools(self) -> List[Dict[str, Any]]:
         """将ToolCollection中的MCPTool转换为OpenAI function call格式"""
         tools = []
+        self._rebuild_openai_tool_name_maps()
         
         for tool in self.tool_map.values():
             if not self.is_tool_allowed(tool.name):
                 continue
             # 检查是否是MCPTool类型
             if hasattr(tool, 'input_schema') and hasattr(tool, 'full_name'):
+                tool_name = self.tool_openai_name_map.get(tool.name, _to_openai_tool_name(tool.name))
+                if not _OPENAI_TOOL_NAME_PATTERN.match(tool_name):
+                    logger.warning("skip tool with invalid OpenAI name: %s -> %s", tool.name, tool_name)
+                    continue
                 # 构建OpenAI function call格式
                 openai_tool = {
                     "type": "function",
                     "function": {
-                        "name": tool.full_name,  # 使用full_name作为工具名称
+                        "name": tool_name,
                         "description": tool.description,
                         "parameters": tool.input_schema if tool.input_schema else {
                             "type": "object",
@@ -403,6 +435,24 @@ class ToolCollection:
                 tools.append(openai_tool)
         
         return tools
+
+    def _rebuild_openai_tool_name_maps(self) -> None:
+        self.openai_tool_name_map = {}
+        self.tool_openai_name_map = {}
+        used_names: Dict[str, str] = {}
+        for tool in self.tool_map.values():
+            if not self.is_tool_allowed(tool.name):
+                continue
+            base_name = _to_openai_tool_name(getattr(tool, "full_name", None) or tool.name)
+            tool_name = base_name
+            suffix = 2
+            while tool_name in used_names and used_names[tool_name] != tool.name:
+                tool_name = f"{base_name}_{suffix}"
+                suffix += 1
+            used_names[tool_name] = tool.name
+            self.openai_tool_name_map[tool_name] = tool.name
+            self.tool_openai_name_map[tool.name] = tool_name
+
     def to_str(self) -> str:
         tools_str = ""
         for tool in self.tool_map.values():

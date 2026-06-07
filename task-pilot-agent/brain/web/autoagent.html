@@ -838,18 +838,18 @@
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand">TaskPilot</div>
-      <button id="new-session" class="btn-new" type="button">新建任务</button>
+      <button id="new-session" class="btn-new" type="button">新建会话</button>
     </div>
     <div id="session-list" class="session-list"></div>
     <div class="sidebar-section">
       <div class="sidebar-title">
-        <span>最近任务</span>
+        <span>最近会话</span>
         <button id="refresh-tasks" class="btn-small" type="button" hidden>刷新</button>
       </div>
       <div class="task-filters" hidden>
-        <input id="task-keyword" class="filter-input" type="search" placeholder="搜索任务">
+        <input id="task-keyword" class="filter-input" type="search" placeholder="搜索会话">
         <input id="task-user-filter" class="filter-input" type="search" placeholder="用户 ID">
-        <select id="task-status-filter" class="filter-select" title="任务状态">
+        <select id="task-status-filter" class="filter-select" title="运行状态">
           <option value="">全部状态</option>
           <option value="queued">排队中</option>
           <option value="running">运行中</option>
@@ -859,7 +859,7 @@
           <option value="failed">失败</option>
           <option value="cancelled">已取消</option>
         </select>
-        <select id="task-agent-filter" class="filter-select" title="任务 Agent">
+        <select id="task-agent-filter" class="filter-select" title="运行 Agent">
           <option value="">全部 Agent</option>
         </select>
         <select id="task-agent-type-filter" class="filter-select" title="Agent 类型">
@@ -886,7 +886,7 @@
         </select>
       </div>
       <div id="task-list" class="task-list">
-        <div class="task-empty">暂无任务记录</div>
+        <div class="task-empty">暂无会话记录</div>
       </div>
     </div>
   </aside>
@@ -894,7 +894,7 @@
   <main class="workspace">
     <div class="top-bar">
       <div class="status-indicator">
-        <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="任务列表">☰</button>
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" title="会话列表">☰</button>
         <div id="status-dot" class="status-dot"></div>
         <span id="status-text">就绪</span>
       </div>
@@ -905,14 +905,14 @@
           <option value="tool_call,tool_result">工具调用</option>
           <option value="agent_phase">Agent 阶段</option>
           <option value="task_failed,agent_failed">失败事件</option>
-          <option value="task_artifact_added">任务产物</option>
+          <option value="task_artifact_added">产物</option>
           <option value="eval_result">评测结果</option>
           <option value="memory_context_loaded">上下文检索</option>
         </select>
         <select id="task-event-source-filter" class="filter-select event-filter-select" title="事件来源" hidden>
           <option value="">全部来源</option>
           <option value="sse">SSE</option>
-          <option value="autoagent">任务系统</option>
+          <option value="autoagent">运行系统</option>
           <option value="agent">Agent</option>
           <option value="tool">工具</option>
         </select>
@@ -923,18 +923,18 @@
     <div id="chat-messages" class="chat-container">
       <div class="chat-empty">
         <h2>TaskPilot 控制台</h2>
-        <p>输入一个任务，系统会展示执行过程、工具调用和最终结果。</p>
+        <p>输入问题或需求，系统会在会话中展示执行过程、工具调用和最终结果。</p>
       </div>
     </div>
 
     <div id="task-input-panel" class="task-input-panel" hidden>
-      <textarea id="task-input-text" placeholder="补充任务需要的信息..." rows="2"></textarea>
+      <textarea id="task-input-text" placeholder="补充会话需要的信息..." rows="2"></textarea>
       <button id="send-task-input" class="btn-send" type="button">提交补充</button>
     </div>
 
     <div class="composer-area">
       <form id="request-form" class="composer-box">
-        <textarea id="query" placeholder="输入任务，按 Enter 发送" rows="1"></textarea>
+        <textarea id="query" placeholder="输入问题或需求，按 Enter 发送" rows="1"></textarea>
         
         <div class="controls">
           <div class="settings-group">
@@ -1067,7 +1067,7 @@
     '上下文已检索',
     '运行边界已应用',
     '工具策略已应用',
-    '任务运行中',
+    '运行中',
     'Agent 已启动',
     'Agent 已完成',
   ];
@@ -1160,7 +1160,7 @@
     dom.taskActions.hidden = false;
     const usageText = formatUsageMeta(session.usage);
     const parts = [
-      `任务 ${session.taskId}`,
+      `运行 ${session.taskId}`,
       session.taskStatus || 'running',
       formatAgentSnapshotMeta(session.agentSnapshot) || session.taskAgentId,
       session.taskMode,
@@ -1189,7 +1189,7 @@
   function renderTaskList() {
     if(!dom.taskList) return;
     if(!state.tasks.length) {
-      dom.taskList.innerHTML = '<div class="task-empty">暂无任务记录</div>';
+      dom.taskList.innerHTML = '<div class="task-empty">暂无会话记录</div>';
       return;
     }
     dom.taskList.innerHTML = '';
@@ -1303,7 +1303,7 @@
       state.tasks = Array.isArray(data.items) ? data.items : [];
       renderTaskList();
     } catch(err) {
-      dom.taskList.innerHTML = `<div class="task-empty">任务列表加载失败：${escapeHTML(err.message)}</div>`;
+      dom.taskList.innerHTML = `<div class="task-empty">会话列表加载失败：${escapeHTML(err.message)}</div>`;
     }
   }
 
@@ -1451,7 +1451,7 @@
       permission_can_access_network: '当前 Agent 不允许访问网络',
       permission_can_write_files: '当前 Agent 不允许写文件',
       not_in_allowed_tools: '不在允许工具列表中',
-      not_selected: '本次任务未选择',
+      not_selected: '本次运行未选择',
       blocked_by_policy: '被策略拦截',
     };
     return map[reason] || '';
@@ -1640,7 +1640,7 @@
       await refreshTaskList();
       if(taskId) await loadTask(taskId);
       const session = getActiveSession() || createSession();
-      upsertReasonMessage(session, 'notifications', renderNotificationHTML(`已启动评测任务：${taskId || '未知任务'}`), Date.now(), false);
+      upsertReasonMessage(session, 'notifications', renderNotificationHTML(`已启动评测运行：${taskId || '未知运行'}`), Date.now(), false);
     } catch(err) {
       const session = getActiveSession() || createSession();
       upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">启动评测失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
@@ -1668,7 +1668,7 @@
       if(taskId) await loadTask(taskId);
       const session = getActiveSession() || createSession();
       const idText = taskIds.length ? `：${taskIds.join(', ')}` : '';
-      upsertReasonMessage(session, 'notifications', renderNotificationHTML(`已启动 ${items.length} 个评测任务${idText}`), Date.now(), false);
+      upsertReasonMessage(session, 'notifications', renderNotificationHTML(`已启动 ${items.length} 个评测运行${idText}`), Date.now(), false);
     } catch(err) {
       const session = getActiveSession() || createSession();
       upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">启动全部评测失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
@@ -1688,11 +1688,11 @@
 
   async function loadTask(taskId, eventFilters={}) {
     if(!taskId) return;
-    setUIStatus('加载任务回看...', true);
+    setUIStatus('加载会话回看...', true);
     try {
       const eventType = eventFilters.eventType ?? dom.taskEventTypeFilter.value;
       const eventSource = eventFilters.source ?? dom.taskEventSourceFilter.value;
-      const eventParams = new URLSearchParams({ limit: '2000' });
+      const eventParams = new URLSearchParams({ limit: '10000' });
       if(eventType) eventParams.set('event_type', eventType);
       if(eventSource) eventParams.set('source', eventSource);
       const [taskResp, eventsResp, artifactsResp] = await Promise.all([
@@ -1700,14 +1700,14 @@
         fetch(`/agent/tasks/${encodeURIComponent(taskId)}/events?${eventParams.toString()}`),
         fetch(`/agent/tasks/${encodeURIComponent(taskId)}/artifacts`),
       ]);
-      if(!taskResp.ok) throw new Error(`任务详情加载失败：${taskResp.status}`);
-      if(!eventsResp.ok) throw new Error(`任务事件加载失败：${eventsResp.status}`);
-      if(!artifactsResp.ok) throw new Error(`任务产物加载失败：${artifactsResp.status}`);
+      if(!taskResp.ok) throw new Error(`运行详情加载失败：${taskResp.status}`);
+      if(!eventsResp.ok) throw new Error(`运行事件加载失败：${eventsResp.status}`);
+      if(!artifactsResp.ok) throw new Error(`产物加载失败：${artifactsResp.status}`);
       const task = await taskResp.json();
       const eventsData = await eventsResp.json();
       const artifactsData = await artifactsResp.json();
       const existing = state.sessions.find(s => s.taskId === taskId);
-      const session = existing || createSession({ id: `task_${taskId}`, title: `任务 ${String(taskId).slice(0, 8)}`, taskId });
+      const session = existing || createSession({ id: `task_${taskId}`, title: `运行 ${String(taskId).slice(0, 8)}`, taskId });
       renderTaskToSession(session, task, eventsData.items || [], artifactsData.items || [], { eventType, source: eventSource });
       activateSession(session);
     } catch(err) {
@@ -1729,7 +1729,7 @@
     session.artifacts = artifacts;
     session.eventTypeFilter = eventFilters.eventType || '';
     session.eventSourceFilter = eventFilters.source || '';
-    session.title = `任务 ${String(session.taskId).slice(0, 8)}`;
+    session.title = `运行 ${String(session.taskId).slice(0, 8)}`;
     session.messages = [];
     session.replayState = { sessionId: session.id, buffer: '', messageIndex: null, baseIndex: -1, lastIndexByKind: {}, gotAnyResult: false };
     if(task.input) {
@@ -1845,22 +1845,22 @@
       const tools = Array.isArray(data.selectedTools) ? data.selectedTools.join(', ') : '';
       const approved = Array.isArray(data.approvedTools) && data.approvedTools.length ? ` · 已授权 ${data.approvedTools.length} 个` : '';
       const env = data.runEnvironment ? ` · 环境：${data.runEnvironment}` : '';
-      return `任务已创建：${data.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}${approved}`;
+      return `运行已创建：${data.mode || ''}${env}${tools ? ` · 工具：${tools}` : ''}${approved}`;
     }
-    if(eventType === 'task_resumed') return `任务已恢复运行：${data.mode || ''}`;
-    if(eventType === 'task_queued') return `任务排队中：${data.mode || ''}`;
-    if(eventType === 'task_running') return '任务运行中';
-    if(eventType === 'task_completed') return '任务已完成';
-    if(eventType === 'task_failed') return `任务失败：${data.error || ''}`;
-    if(eventType === 'task_cancel_requested') return '任务取消请求已发送';
-    if(eventType === 'task_cancelled') return '任务已取消';
-    if(eventType === 'task_retry_requested') return `任务已重试：${data.retryTaskId || ''}`;
+    if(eventType === 'task_resumed') return `运行已恢复：${data.mode || ''}`;
+    if(eventType === 'task_queued') return `运行排队中：${data.mode || ''}`;
+    if(eventType === 'task_running') return '运行中';
+    if(eventType === 'task_completed') return '运行已完成';
+    if(eventType === 'task_failed') return `运行失败：${data.error || ''}`;
+    if(eventType === 'task_cancel_requested') return '运行取消请求已发送';
+    if(eventType === 'task_cancelled') return '运行已取消';
+    if(eventType === 'task_retry_requested') return `运行已重试：${data.retryTaskId || ''}`;
     if(eventType === 'waiting_input') return `等待补充输入：${data.prompt || ''}`;
     if(eventType === 'task_waiting_approval') return '等待工具审批';
     if(eventType === 'approval_requested') return '需要审批工具';
     if(eventType === 'approval_resolved') return data.approved ? '已允许工具' : '已拒绝工具';
     if(eventType === 'user_input') return `用户补充：${data.content || ''}`;
-    if(eventType === 'task_resume_requested') return '任务恢复请求已发送';
+    if(eventType === 'task_resume_requested') return '运行恢复请求已发送';
     if(eventType === 'memory_context_loaded') {
       if(data.memoryEnabled === false && data.ragEnabled === false) return '上下文检索已按 Agent 配置关闭';
       const memoryCount = Number(data.memoryCount || 0);
@@ -1880,8 +1880,8 @@
       const approved = Array.isArray(data.approvedTools) ? data.approvedTools.length : 0;
       return `工具策略已应用：可用 ${available} 个，拦截 ${blocked} 个${approved ? `，本次授权 ${approved} 个` : ''}`;
     }
-    if(eventType === 'task_artifact_added') return `任务产物已登记：${data.filename || data.artifactId || ''}`;
-    if(eventType === 'eval_run_created') return `评测任务已创建：${data.caseId || ''}`;
+    if(eventType === 'task_artifact_added') return `产物已登记：${data.filename || data.artifactId || ''}`;
+    if(eventType === 'eval_run_created') return `评测运行已创建：${data.caseId || ''}`;
     if(eventType === 'eval_result') {
       const status = data.status || (data.passed === true ? 'passed' : data.passed === false ? 'failed' : 'needs_review');
       const checkCount = Array.isArray(data.checks) ? data.checks.length : 0;
@@ -1902,7 +1902,7 @@
     if(eventType === 'agent_completed') return `Agent 已完成：${data.agentName || data.agentId || ''}`;
     if(eventType === 'agent_failed') return `Agent 失败：${data.agentName || data.agentId || ''}${data.error ? ` · ${data.error}` : ''}`;
     if(eventType === 'agent_cancelled') return `Agent 已取消：${data.agentName || data.agentId || ''}`;
-    if(eventType === 'task_handoff_requested') return `任务已交接：${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`;
+    if(eventType === 'task_handoff_requested') return `Agent 已交接：${data.parentAgentId || ''} -> ${data.targetAgentId || ''}`;
     return eventType || '';
   }
 
@@ -1927,7 +1927,7 @@
       dom.chatMessages.innerHTML = `
         <div class="chat-empty">
           <h2>TaskPilot 控制台</h2>
-          <p>输入一个任务，系统会展示执行过程、工具调用和最终结果。</p>
+          <p>输入问题或需求，系统会在会话中展示执行过程、工具调用和最终结果。</p>
         </div>`;
       return;
     }
@@ -2017,13 +2017,13 @@
     let typeClass = 'type-thought', icon = '💭', title = '思考过程';
 
     switch(msg.kind) {
-      case 'plan': typeClass = 'type-plan'; icon = '🗺️'; title = '任务计划 (Plan)'; break;
+      case 'plan': typeClass = 'type-plan'; icon = '🗺️'; title = '计划 (Plan)'; break;
       case 'plan_thought': typeClass = 'type-plan'; icon = '💡'; title = '计划思考 (Thinking)'; break;
       case 'tool_thought': typeClass = 'type-thought'; icon = '🧠'; title = '工具调用思考'; break;
       case 'tool_call': typeClass = 'type-tool'; icon = '🛠️'; title = '正在调用工具'; break;
-      case 'task': typeClass = 'type-task'; icon = '⚙️'; title = '执行任务'; break;
+      case 'task': typeClass = 'type-task'; icon = '⚙️'; title = '运行过程'; break;
       case 'tool_result': typeClass = 'type-tool'; icon = '✅'; title = '工具返回结果'; break;
-      case 'file': typeClass = 'type-tool'; icon = '📎'; title = '任务产物'; break;
+      case 'file': typeClass = 'type-tool'; icon = '📎'; title = '产物'; break;
       case 'stream': typeClass = 'type-tool'; icon = '📡'; title = '工具输出片段'; break;
       case 'notifications': typeClass = 'type-task'; icon = '🔔'; title = '系统通知'; break;
     }
@@ -2286,7 +2286,7 @@
     if(['tool_call', 'tool_result', 'result', 'done'].includes(event.type)) { delete streamState.lastIndexByKind['plan_thought']; delete streamState.lastIndexByKind['plan']; }
 
     switch(event.type) {
-      case 'plan': if(payload.plan) upsertReasonMessage(session, 'plan', renderPlanHTML(payload.plan), ts, true, { title: payload.plan.title ? `任务计划：${payload.plan.title}` : '任务计划', icon: '🗺️', typeClass: 'type-plan', compact: true }); break;
+      case 'plan': if(payload.plan) upsertReasonMessage(session, 'plan', renderPlanHTML(payload.plan), ts, true, { title: payload.plan.title ? `计划：${payload.plan.title}` : '计划', icon: '🗺️', typeClass: 'type-plan', compact: true }); break;
       case 'plan_thought': if(payload.planThought) upsertReasonMessage(session, 'plan_thought', renderPlanThoughtHTML(payload.planThought), ts, true); break;
       case 'tool_thought': if(payload.toolThought) upsertReasonMessage(session, 'tool_thought', renderToolThoughtHTML(payload.toolThought), ts, false); break;
       case 'tool_call': {
@@ -2381,7 +2381,7 @@
         updateTaskMeta(session);
         refreshTaskList();
       } catch(err) {
-        upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">取消任务失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
+        upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">取消运行失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
       }
     }
     if(controller) controller.abort();
@@ -2415,7 +2415,7 @@
     const session = getActiveSession();
     if(!session?.taskId || state.running) return;
     dom.retryTask.disabled = true;
-    setUIStatus('任务重试中...', true);
+    setUIStatus('运行重试中...', true);
     try {
       const resp = await fetch(`/agent/tasks/${encodeURIComponent(session.taskId)}/retry`, { method: 'POST' });
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -2424,7 +2424,7 @@
       await refreshTaskList();
       if(retryTaskId) await loadTask(retryTaskId);
     } catch(err) {
-      upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">重试任务失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
+      upsertReasonMessage(session, 'notifications', `<span style="color:#ef4444">重试运行失败：${escapeHTML(err.message)}</span>`, Date.now(), false);
     } finally {
       setUIStatus('就绪', false);
       updateTaskMeta(getActiveSession());

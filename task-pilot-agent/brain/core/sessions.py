@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -19,6 +20,20 @@ Base = declarative_base()
 
 ID_TYPE = BigInteger().with_variant(Integer, "sqlite")
 LONG_TEXT = Text().with_variant(mysql.LONGTEXT, "mysql")
+RUN_EVENT_QUERY_LIMIT = 10000
+
+_RUN_EVENT_SEQ_LOCKS: Dict[str, threading.Lock] = {}
+_RUN_EVENT_SEQ_LOCKS_GUARD = threading.Lock()
+
+
+def _run_event_seq_lock(session_id: str) -> threading.Lock:
+    lock_key = session_id or "__empty_session__"
+    with _RUN_EVENT_SEQ_LOCKS_GUARD:
+        lock = _RUN_EVENT_SEQ_LOCKS.get(lock_key)
+        if lock is None:
+            lock = threading.Lock()
+            _RUN_EVENT_SEQ_LOCKS[lock_key] = lock
+        return lock
 
 
 class AgentSessionStatus:
@@ -778,54 +793,55 @@ class SessionStore:
         created_at: Optional[int] = None,
     ) -> AgentRunEventRecord:
         timestamp = created_at or now_ms()
-        session = self._session_maker()
-        try:
-            parent = (
-                session.query(AgentSessionRecord)
-                .filter(AgentSessionRecord.session_id == session_id)
-                .one_or_none()
-            )
-            if not parent:
-                raise ValueError(f"session not found: {session_id}")
-            resolved_event_id = event_id or f"evt_{uuid.uuid4()}"
-            existing = (
-                session.query(AgentRunEventRecord)
-                .filter(AgentRunEventRecord.event_id == resolved_event_id)
-                .one_or_none()
-            )
-            if existing:
-                session.expunge(existing)
-                return existing
-            if seq is None:
-                latest = (
-                    session.query(AgentRunEventRecord)
-                    .filter(AgentRunEventRecord.session_id == session_id)
-                    .order_by(AgentRunEventRecord.seq.desc(), AgentRunEventRecord.id.desc())
-                    .first()
+        with _run_event_seq_lock(session_id):
+            session = self._session_maker()
+            try:
+                parent = (
+                    session.query(AgentSessionRecord)
+                    .filter(AgentSessionRecord.session_id == session_id)
+                    .one_or_none()
                 )
-                seq = int(latest.seq if latest else 0) + 1
-            record = AgentRunEventRecord(
-                event_id=resolved_event_id,
-                session_id=session_id,
-                run_id=run_id,
-                user_id=user_id or parent.user_id,
-                seq=max(int(seq or 1), 1),
-                event_type=event_type,
-                source=source or "",
-                message_id=message_id,
-                payload_json=_json_dumps(sanitize_payload(payload)),
-                created_at=timestamp,
-            )
-            session.add(record)
-            session.commit()
-            session.refresh(record)
-            session.expunge(record)
-            return record
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+                if not parent:
+                    raise ValueError(f"session not found: {session_id}")
+                resolved_event_id = event_id or f"evt_{uuid.uuid4()}"
+                existing = (
+                    session.query(AgentRunEventRecord)
+                    .filter(AgentRunEventRecord.event_id == resolved_event_id)
+                    .one_or_none()
+                )
+                if existing:
+                    session.expunge(existing)
+                    return existing
+                if seq is None:
+                    latest = (
+                        session.query(AgentRunEventRecord)
+                        .filter(AgentRunEventRecord.session_id == session_id)
+                        .order_by(AgentRunEventRecord.seq.desc(), AgentRunEventRecord.id.desc())
+                        .first()
+                    )
+                    seq = int(latest.seq if latest else 0) + 1
+                record = AgentRunEventRecord(
+                    event_id=resolved_event_id,
+                    session_id=session_id,
+                    run_id=run_id,
+                    user_id=user_id or parent.user_id,
+                    seq=max(int(seq or 1), 1),
+                    event_type=event_type,
+                    source=source or "",
+                    message_id=message_id,
+                    payload_json=_json_dumps(sanitize_payload(payload)),
+                    created_at=timestamp,
+                )
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                session.expunge(record)
+                return record
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
 
     def list_run_events(
         self,
@@ -854,7 +870,7 @@ class SessionStore:
             records = (
                 query.order_by(AgentRunEventRecord.seq.asc(), AgentRunEventRecord.id.asc())
                 .offset(max(offset, 0))
-                .limit(max(min(limit, 2000), 1))
+                .limit(max(min(limit, RUN_EVENT_QUERY_LIMIT), 1))
                 .all()
             )
             _detach_records(session, records)

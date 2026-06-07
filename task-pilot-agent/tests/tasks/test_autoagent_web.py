@@ -28,7 +28,7 @@ def test_vue_frontend_has_product_navigation_and_core_views():
         "工具",
         "所有会话",
         "我能为你做什么？",
-        "任务详情",
+        "运行详情",
         "activeView === 'home'",
         "activeView === 'taskDetail'",
         "activeView === 'tasks'",
@@ -97,9 +97,9 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         "task.needApproval",
         "用户补充",
         "task_retry_requested",
-        "任务已重试",
+        "运行已重试",
         "task_handoff_requested",
-        "任务已交接",
+        "Agent 已交接",
         "tool_policy_applied",
         "工具策略已应用",
         "memory_context_loaded",
@@ -110,7 +110,7 @@ def test_vue_frontend_keeps_task_replay_and_control_flows():
         "TODO 更新",
         "todoListSummary",
         "task_artifact_added",
-        "任务产物已登记",
+        "产物已登记",
         "agent_selected",
         "Supervisor 已选择 Agent",
     ]:
@@ -140,6 +140,8 @@ def test_task_detail_is_continuous_chat_window():
         "const chatMessages = ref([])",
         "const chatHasMore = ref(false)",
         "const chatHistoryLoading = ref(false)",
+        "const EVENT_REPLAY_LIMIT = '10000'",
+        "const visibleArtifacts = computed",
         "function createSessionId",
         "function resetConversationState",
         "async function submitChatMessage",
@@ -147,7 +149,14 @@ def test_task_detail_is_continuous_chat_window():
         "function earliestBackendMessageId",
         "function backendMessageCount",
         "function appendAssistantContent",
+        "function ensureActiveAssistantMessage",
         "function seedChatFromTask",
+        "function resultTextFromEvents",
+        "function replayAssistantOutput",
+        "function sessionEventDedupeKey",
+        "function hasSessionEvent",
+        "eventRunId(event)",
+        "replayAssistantOutput(nextMessages, processRunId, replayedOutput",
         "if (!['user', 'assistant'].includes(role)) return null",
         ".filter(Boolean)",
         "chatMessages.value.push(userMessage, assistantMessage)",
@@ -156,19 +165,26 @@ def test_task_detail_is_continuous_chat_window():
         "@click=\"loadOlderMessages\"",
         "class=\"chat-composer\"",
         "@keydown.enter.exact.prevent=\"submitChatMessage\"",
-        "appendAssistantContent(payload.result || '')",
+        "appendAssistantContent(text, eventRunId(event))",
+        "appendAssistantContent(payload.result || '', payload.taskId || payload.runId || '')",
+        "new URLSearchParams({ afterSeq: String(afterSeq), limit: '50' })",
+        "new URLSearchParams({ limit: EVENT_REPLAY_LIMIT })",
         "const progressItems = computed",
-        "const currentProgressItem = computed",
-        "const conversationOverviewStats = computed",
-        "const conversationMessageCount = computed",
-        "const conversationRunCount = computed",
         "const currentPlanPanel = computed",
+        "normalizePlanSnapshotForDisplay(plans[plans.length - 1])",
         "function planSnapshotFromEvent",
+        "function normalizePlanSnapshotForDisplay",
+        "function isCompletedRunStatus",
+        "type === 'plan_completed' || plan.status === 'completed' || plan.planStatus === 'completed'",
+        "step.note || lt('运行已完成', 'Run completed')",
         "function planEvidenceSummary",
         "function planStepStatusLabel",
         "function toolThoughtSummary",
         "function toolActionTitle",
         "function progressDetailRows",
+        "function shouldShowArtifact",
+        "function artifactDisplayName",
+        "function artifactTypeText",
         "function shouldShowProgressItem",
         "function sessionHasVisibleProgressEvents",
         "function sessionProcessRunId",
@@ -176,10 +192,10 @@ def test_task_detail_is_continuous_chat_window():
         "function isNoisyProgressNotification",
         "function isProgressMessage",
         "processOnly: !processOutput",
+        "conversation-layout",
+        "conversation-layout-has-plan",
         "conversation-thread",
-        "conversation-overview",
-        "conversation-overview-grid",
-        "conversation-overview-action",
+        "conversation-plan-sidebar",
         "conversation-plan-panel",
         "conversation-plan-list",
         "conversation-stream",
@@ -205,15 +221,24 @@ def test_task_detail_is_continuous_chat_window():
     detail_block = source.split('<section v-else-if="activeView === \'taskDetail\'"', 1)[1].split(
         '<section v-else-if="activeView === \'tasks\'"', 1
     )[0]
+    assert 'class="conversation-layout"' in detail_block
+    assert "'conversation-layout-has-plan': currentPlanPanel" in detail_block
     assert 'class="conversation-thread"' in detail_block
-    assert 'class="conversation-overview"' in detail_block
-    assert "{{ conversationAgentName }}" in detail_block
-    assert "conversationOverviewStats" in detail_block
-    assert "currentProgressItem.title" in detail_block
+    assert 'class="conversation-overview"' not in detail_block
+    assert "{{ conversationAgentName }}" not in detail_block
+    assert "conversationOverviewStats" not in detail_block
+    assert "currentProgressItem.title" not in detail_block
+    assert 'class="conversation-plan-sidebar"' in detail_block
     assert 'class="conversation-plan-panel"' in detail_block
     assert "currentPlanPanel.steps" in detail_block
     assert "planStepStatusLabel(step.status)" in detail_block
     assert "step.evidence" in detail_block
+    thread_block = detail_block.split('class="conversation-thread"', 1)[1].split(
+        '<aside v-if="currentPlanPanel"',
+        1,
+    )[0]
+    assert 'class="conversation-plan-panel"' not in thread_block
+    assert detail_block.index('class="conversation-thread"') < detail_block.index('class="conversation-plan-sidebar"')
     assert 'class="detail-header"' not in detail_block
     assert "currentTask?.input || t('task.current')" not in detail_block
     assert "{{ taskMeta }}" not in detail_block
@@ -226,10 +251,17 @@ def test_task_detail_is_continuous_chat_window():
     assert "eventFilters.eventType" not in detail_block
     assert "eventFilters.source" not in detail_block
     assert "retryTask" not in detail_block
+    assert 'v-if="visibleArtifacts.length"' in detail_block
+    assert 'v-for="artifact in visibleArtifacts"' in detail_block
+    assert "artifactDisplayName(artifact)" in detail_block
+    assert "artifactTypeText(artifact)" in detail_block
+    assert ".conversation-layout" in styles
+    assert ".conversation-layout-has-plan" in styles
     assert ".conversation-thread" in styles
-    assert ".conversation-overview" in styles
-    assert ".conversation-overview-grid" in styles
-    assert ".conversation-overview-action" in styles
+    assert ".conversation-overview" not in styles
+    assert ".conversation-overview-grid" not in styles
+    assert ".conversation-overview-action" not in styles
+    assert ".conversation-plan-sidebar" in styles
     assert ".conversation-plan-panel" in styles
     assert ".conversation-plan-list" in styles
     assert ".plan-step" in styles
@@ -241,6 +273,12 @@ def test_task_detail_is_continuous_chat_window():
     assert ".progress-detail-row" in styles
     assert ".progress-main" in styles
     assert ".progress-state" in styles
+    assert "dedupeTimelineItems([...replay, ...liveTimeline.value].filter(Boolean))" in source
+    assert "function timelineToolResultDedupeKey" in source
+    assert "function stableTimelineValue" in source
+    timeline_item_block = styles.split(".timeline-item {", 1)[1].split("}", 1)[0]
+    assert "width: 100%;" in timeline_item_block
+    assert "overflow: visible;" in timeline_item_block
     assert ':open="item.open || index === progressItems.length - 1"' not in detail_block
     assert "<pre>{{ item.summary }}</pre>" not in detail_block
 
@@ -278,8 +316,13 @@ def test_vue_sidebar_is_collapsible_resizable_and_detail_layout_is_responsive():
         ".detail-view",
         "container-type: inline-size",
         "@container (max-width: 1180px)",
+        "@container (max-width: 980px)",
+        ".conversation-layout",
+        "width: min(1160px, calc(100% - 48px))",
+        "grid-template-columns: minmax(0, 720px) minmax(260px, 320px)",
+        ".conversation-plan-sidebar",
         ".conversation-thread",
-        "width: min(720px, calc(100% - 48px))",
+        "width: 100%;",
         "width: fit-content",
         "overflow-wrap: anywhere",
     ]:
@@ -440,8 +483,11 @@ def test_vue_tools_panel_shows_tool_source_risk_and_server():
         "function toolSourceText(tool)",
         "function toolServerText(tool)",
         "function toolMetaRows(tool)",
+        "function shouldSelectToolByDefault(tool)",
         "tool.riskLevel || tool.policy?.risk",
         "tool.requiresApproval",
+        "filter(shouldSelectToolByDefault)",
+        "!['high', 'critical'].includes(risk)",
         "class=\"tool-meta-list\"",
         "toolMetaRows(tool)",
     ]:
@@ -453,6 +499,24 @@ def test_vue_tools_panel_shows_tool_source_risk_and_server():
         ".tool-meta-list b",
     ]:
         assert marker in styles
+
+
+def test_vue_approval_actions_are_available_for_pending_tool_approval():
+    source = APP_VUE_PATH.read_text(encoding="utf-8")
+
+    for marker in [
+        "function approvalRequestKeys(item = {})",
+        "item.raw?.eventId",
+        "payload.approvalRequestEventEventId",
+        "item.runId || currentTaskId.value",
+        "function approvalPending(item)",
+        "function resolveApproval(item, approved)",
+        "/approval",
+        "approvedTools: approved ? requestedTools : []",
+        "@click=\"resolveApproval(item, true)\"",
+        "@click=\"resolveApproval(item, false)\"",
+    ]:
+        assert marker in source
 
 
 def test_vue_styles_are_workspace_not_debug_console():

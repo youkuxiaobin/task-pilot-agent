@@ -131,22 +131,22 @@ class ExecutorAgent(ReActAgent):
 
         outputs = []
         for call in thought.toolCalls:
-            
-            result = await self.context.toolCollection.execute(call.name, call.arguments)
+            resolved_tool_name = self._resolve_tool_name(call.name)
+            result = await self.context.toolCollection.execute(resolved_tool_name, call.arguments)
             #call_result = json.loads(result)
             
             logger.debug(
                 "Executor completed tool call for request %s: tool=%s arg_keys=%s result_type=%s",
                 self.context.requestId,
-                call.name,
+                resolved_tool_name,
                 sorted((call.arguments or {}).keys()),
                 type(result).__name__,
             )
-            outputs.append({"tool": call.name, "result": result})
+            outputs.append({"tool": resolved_tool_name, "requestedTool": call.name, "result": result})
             self.add_message(
                 LLMMessage(
                     role=RoleType.ASSISTANT.value,
-                    content=prompt_store.get_prompt("exectutor_to_str").format(tool_name=call.name, result=result),
+                    content=prompt_store.get_prompt("exectutor_to_str").format(tool_name=resolved_tool_name, result=result),
                 )
             )
 
@@ -154,10 +154,11 @@ class ExecutorAgent(ReActAgent):
                 None,
                 "tool_result",
                 {
-                    "tool": call.name,
+                    "tool": resolved_tool_name,
+                    "requestedTool": call.name,
                     "arguments": call.arguments,
                     "result": result,
-                    **self._tool_execution_metadata(call.name),
+                    **self._tool_execution_metadata(resolved_tool_name),
                 },
                 None,
                 True,
@@ -165,6 +166,12 @@ class ExecutorAgent(ReActAgent):
 
         self.set_state(AgentState.FINISHED)
         return json.dumps(outputs)
+
+    def _resolve_tool_name(self, name: str) -> str:
+        tool_collection = getattr(self.context, "toolCollection", None)
+        if tool_collection is not None and hasattr(tool_collection, "resolve_tool_name"):
+            return tool_collection.resolve_tool_name(name)
+        return name
 
     def _tool_execution_metadata(self, tool_name: str) -> dict:
         meta = getattr(self.context.toolCollection, "last_execution", None)

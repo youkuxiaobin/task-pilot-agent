@@ -12,6 +12,8 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+STREAM_CHUNK_MAX_CHARS = 8
+
 
 class SummaryAgent(BaseAgent):
     def __init__(self, ctx: AgentContext):
@@ -27,6 +29,7 @@ class SummaryAgent(BaseAgent):
         summary_cfg = getattr(self.config, "summary_agent", None)
         self._default_enable_thinking = bool(getattr(summary_cfg, "enable_thinking", False))
         self._default_discard_reasoning = bool(getattr(summary_cfg, "discard_reasoning_content", True))
+        self._default_max_tokens = int(getattr(summary_cfg, "max_tokens", 2200) or 2200)
 
     @observe(name="summary_summarize")
     async def summarize(
@@ -67,13 +70,12 @@ class SummaryAgent(BaseAgent):
         def handle_chunk(chunk: str) -> None:
             if not chunk:
                 return
-            streamed_chunks.append(chunk)
-            self.context.printer.send(None, "result", chunk, None, False)
+            for piece in _split_stream_chunk(chunk):
+                streamed_chunks.append(piece)
+                self.context.printer.send(None, "result", piece, None, False)
 
         stream_kwargs = {}
-        has_call_tools = bool(call_tools_history.strip())
-        if not plan_steps_list or not has_call_tools:
-            stream_kwargs["max_tokens"] = 8000
+        stream_kwargs["max_tokens"] = self._default_max_tokens
         stream_kwargs["thinking_budget"] = 8192
         final_response = await self.llm.stream_generate_async(
             messages,
@@ -122,3 +124,11 @@ class SummaryAgent(BaseAgent):
             except Exception:  # pragma: no cover - MemoryManager already degrades, this protects custom managers.
                 logger.exception("failed to record summary message for request %s", self.context.requestId)
     
+
+def _split_stream_chunk(chunk: str) -> Iterable[str]:
+    text = str(chunk or "")
+    if not text:
+        return []
+    if len(text) <= STREAM_CHUNK_MAX_CHARS:
+        return [text]
+    return [text[index : index + STREAM_CHUNK_MAX_CHARS] for index in range(0, len(text), STREAM_CHUNK_MAX_CHARS)]

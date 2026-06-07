@@ -209,6 +209,7 @@ class EmbeddingSettings(BaseModel):
 class SummaryAgentSettings(BaseModel):
     enable_thinking: bool = Field(False, description="Whether summary agent enables structured thinking outputs.")
     discard_reasoning_content: bool = Field(True, description="Discard reasoning_content chunks when streaming summaries.")
+    max_tokens: int = Field(2200, ge=256, description="Maximum tokens for final summary generation.")
 
 class VectorStoreConfigSettings(BaseModel):
     #path: str = Field("/tmp/vector_store")

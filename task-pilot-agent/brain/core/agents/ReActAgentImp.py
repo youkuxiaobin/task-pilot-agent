@@ -14,6 +14,15 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 PLAN_TOOL_NAME = "builtin:plan_tool"
+DUPLICATE_GUARDED_TOOL_TOKENS = (
+    "web_search",
+    "deepsearch",
+    "fetch_url",
+    "web_reader",
+    "file_read",
+    "file_stat",
+    "file_list",
+)
 
 
 class ReActAgentImp(ReActAgent):
@@ -116,6 +125,28 @@ class ReActAgentImp(ReActAgent):
                 return answer_text
             self.set_state(AgentState.FINISHED)
             return msg
+
+        duplicate_call = self._find_previous_successful_tool_call(action, tool_args)
+        if duplicate_call is not None:
+            resolved_action = self._resolve_tool_name(action)
+            previous_step = duplicate_call.get("step") or "之前"
+            msg = f"检测到重复工具调用 `{resolved_action}`，已复用第 {previous_step} 步结果并停止继续调用。"
+            self.history.append(
+                {
+                    "step": step,
+                    "thought": thought_text,
+                    "action": "finish",
+                    "input": {},
+                    "observation": msg,
+                    "reused_action": resolved_action,
+                    "reused_step": previous_step,
+                }
+            )
+            if thought_text:
+                self.evidence.append(f"{step}. 思考：{thought_text}")
+            self.evidence.append(msg)
+            self.set_state(AgentState.FINISHED)
+            return None
 
         observation = await self._invoke_tool(action, tool_args)
         self.history.append(
@@ -231,6 +262,8 @@ class ReActAgentImp(ReActAgent):
         if not tool_collection:
             return specs
         for name, tool in tool_collection.tool_map.items():
+            if hasattr(tool_collection, "is_tool_allowed") and not tool_collection.is_tool_allowed(name):
+                continue
             schema = None
             if hasattr(tool, "input_schema") and isinstance(tool.input_schema, dict):
                 schema = tool.input_schema
@@ -241,7 +274,9 @@ class ReActAgentImp(ReActAgent):
                     schema = None
             specs.append(
                 {
-                    "name": name,
+                    "name": tool_collection.openai_tool_name_for(name)
+                    if hasattr(tool_collection, "openai_tool_name_for")
+                    else name,
                     "description": getattr(tool, "description", ""),
                     "schema": schema,
                 }
@@ -396,6 +431,47 @@ class ReActAgentImp(ReActAgent):
         if tool_collection is not None and hasattr(tool_collection, "resolve_tool_name"):
             return tool_collection.resolve_tool_name(name)
         return name
+
+    def _find_previous_successful_tool_call(self, name: str, arguments: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        resolved_name = self._resolve_tool_name(name)
+        if not self._should_guard_duplicate_tool(resolved_name):
+            return None
+        current_key = self._tool_call_key(resolved_name, arguments)
+        for item in reversed(self.history):
+            if not isinstance(item, dict):
+                continue
+            previous_action = str(item.get("action") or "")
+            if not previous_action or previous_action == "finish":
+                continue
+            previous_input = item.get("input") if isinstance(item.get("input"), dict) else {}
+            previous_key = self._tool_call_key(self._resolve_tool_name(previous_action), previous_input)
+            if previous_key == current_key and self._observation_is_reusable(item.get("observation")):
+                return item
+        return None
+
+    @staticmethod
+    def _should_guard_duplicate_tool(name: str) -> bool:
+        normalized = name.replace(":", "_").replace("-", "_").lower()
+        return any(token in normalized for token in DUPLICATE_GUARDED_TOOL_TOKENS)
+
+    def _tool_call_key(self, name: str, arguments: Dict[str, Any]) -> str:
+        return f"{name}:{self._stable_json(arguments)}"
+
+    @staticmethod
+    def _observation_is_reusable(value: Any) -> bool:
+        text = str(value or "").strip()
+        if not text:
+            return False
+        lowered = text.lower()
+        failure_markers = ("调用失败", "tool not found", "not allowed", "timed out", "traceback")
+        return not any(marker in lowered for marker in failure_markers)
+
+    @staticmethod
+    def _stable_json(value: Any) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        except Exception:
+            return str(value)
 
     def _tool_result_summary(self, tool_payload: Dict[str, Any]) -> str:
         payload = tool_payload.get("payload") if isinstance(tool_payload.get("payload"), dict) else {}

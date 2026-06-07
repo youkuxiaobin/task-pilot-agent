@@ -59,6 +59,7 @@ from memory.memory_mgr import memory_manager
 logger = get_logger(__name__)
 
 agent_router = APIRouter()
+EVENT_REPLAY_QUERY_LIMIT = 10000
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 FRONTEND_ROOT = Path(__file__).resolve().parents[1] / "frontend"
@@ -69,6 +70,8 @@ SESSION_SUMMARY_RECENT_MESSAGE_COUNT = 12
 SESSION_SUMMARY_MAX_MESSAGES = 200
 SESSION_SUMMARY_MAX_CHARS = 3000
 DEFAULT_AGENT_MODE = "react"
+SESSION_STREAM_ACTIVE_SLEEP_SECONDS = 0.05
+SESSION_STREAM_IDLE_SLEEP_SECONDS = 0.25
 
 agentRegistry = AgentRegistry()
 runningAgentTasks: Dict[str, asyncio.Task] = {}
@@ -162,11 +165,14 @@ def _approval_requests_from_blocked_tools(
     blocked_tools: List[str],
     blocked_reasons: Dict[str, str],
     agent_config: Optional[AgentConfig],
+    selected_tools: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     requests: List[Dict[str, Any]] = []
     for tool_name in blocked_tools:
         reason = blocked_reasons.get(tool_name) or ""
         if reason != "high_risk_requires_approval":
+            continue
+        if selected_tools is None or not _matches_selected_tool(selected_tools, tool_name):
             continue
         tool_spec = _find_agent_tool_spec(agent_config, tool_name)
         policy = dict(getattr(tool_spec, "policy", None) or {})
@@ -770,8 +776,10 @@ def _is_result_text_chunk(event_data: Dict[str, Any]) -> bool:
     return event_data.get("messageType") == "result" and isinstance(event_data.get("result"), str)
 
 
-REMOTE_ARTIFACT_URL_KEYS = ("domainUrl", "downloadUrl", "download_url", "ossUrl", "url", "href")
+REMOTE_ARTIFACT_URL_KEYS = ("domainUrl", "domain_url", "downloadUrl", "download_url", "ossUrl", "url", "href")
+REMOTE_ARTIFACT_STRONG_URL_KEYS = ("domainUrl", "domain_url", "downloadUrl", "download_url", "ossUrl")
 REMOTE_ARTIFACT_NAME_KEYS = ("fileName", "filename", "name")
+REMOTE_ARTIFACT_STRONG_NAME_KEYS = ("fileName", "filename")
 LOCAL_ARTIFACT_SCAN_LIMIT = 100
 
 
@@ -795,6 +803,14 @@ def _first_present(mapping: Dict[str, Any], keys: tuple[str, ...]) -> Optional[A
     return None
 
 
+def _first_present_item(mapping: Dict[str, Any], keys: tuple[str, ...]) -> tuple[Optional[str], Optional[Any]]:
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return key, value
+    return None, None
+
+
 def _coerce_file_size(value: Any) -> int:
     try:
         return max(int(value or 0), 0)
@@ -813,20 +829,27 @@ def _iter_remote_artifact_candidates(value: Any) -> List[Dict[str, Any]]:
         return []
 
     found: List[Dict[str, Any]] = []
-    url = _first_present(parsed, REMOTE_ARTIFACT_URL_KEYS)
+    url_key, url = _first_present_item(parsed, REMOTE_ARTIFACT_URL_KEYS)
     if isinstance(url, str) and url.startswith(("http://", "https://")):
         filename = _first_present(parsed, REMOTE_ARTIFACT_NAME_KEYS)
-        if not filename:
-            filename = Path(urlparse(url).path).name or "artifact"
-        found.append(
-            {
-                "url": url,
-                "filename": str(filename),
-                "mimeType": parsed.get("mimeType") or parsed.get("mime_type") or parsed.get("fileType"),
-                "fileSize": _coerce_file_size(parsed.get("fileSize") or parsed.get("file_size") or parsed.get("size")),
-                "raw": parsed,
-            }
+        has_artifact_signal = (
+            url_key in REMOTE_ARTIFACT_STRONG_URL_KEYS
+            or _first_present(parsed, REMOTE_ARTIFACT_STRONG_NAME_KEYS) is not None
+            or _first_present(parsed, ("mimeType", "mime_type", "fileType")) is not None
+            or _coerce_file_size(parsed.get("fileSize") or parsed.get("file_size") or parsed.get("size")) > 0
         )
+        if has_artifact_signal and not filename:
+            filename = Path(urlparse(url).path).name or "artifact"
+        if has_artifact_signal and filename:
+            found.append(
+                {
+                    "url": url,
+                    "filename": str(filename),
+                    "mimeType": parsed.get("mimeType") or parsed.get("mime_type") or parsed.get("fileType"),
+                    "fileSize": _coerce_file_size(parsed.get("fileSize") or parsed.get("file_size") or parsed.get("size")),
+                    "raw": parsed,
+                }
+            )
 
     for nested in parsed.values():
         found.extend(_iter_remote_artifact_candidates(nested))
@@ -1474,7 +1497,11 @@ async def _resolve_session_run_record_approval(
     req: AgentRunApprovalReq,
 ) -> Dict[str, Any]:
     run_id = str(getattr(run_record, "run_id", "") or "")
-    all_events = session_store.list_run_events(session_record.session_id, run_id=run_id, limit=2000)
+    all_events = session_store.list_run_events(
+        session_record.session_id,
+        run_id=run_id,
+        limit=EVENT_REPLAY_QUERY_LIMIT,
+    )
     approval_events = [event for event in all_events if event.event_type == "approval_requested"]
     if not approval_events:
         raise HTTPException(status_code=409, detail="approval is not requested")
@@ -1916,7 +1943,7 @@ def _serialize_plan_event_payload(
 def _latest_plan_payload(task_store: TaskStore, run_id: str) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     latest_plan: Optional[Dict[str, Any]] = None
     latest_event_type: Optional[str] = None
-    for event in task_store.list_events(run_id, limit=2000):
+    for event in task_store.list_events(run_id, limit=EVENT_REPLAY_QUERY_LIMIT):
         if event.event_type not in PLAN_EVENT_TYPES:
             continue
         payload = serialize_event(event).get("payload")
@@ -2061,7 +2088,7 @@ def _pending_approval_payload(task_store: TaskStore, session_id: str, run_id: st
                 "runId": run_id,
                 "type": event.event_type,
             }
-            for event in task_store.list_events(run_id, limit=2000)
+            for event in task_store.list_events(run_id, limit=EVENT_REPLAY_QUERY_LIMIT)
         ],
     )
 
@@ -2080,7 +2107,7 @@ def _session_pending_approval_payload(
             task_store,
             session_id,
             run_id,
-            events_limit=2000,
+            events_limit=EVENT_REPLAY_QUERY_LIMIT,
         ),
     )
 
@@ -2093,11 +2120,11 @@ def _legacy_session_event_payloads(
     tasks = task_store.list_tasks(
         user_id=session_record.user_id,
         conversation_id=session_id,
-        limit=2000,
+        limit=EVENT_REPLAY_QUERY_LIMIT,
     )
     events: List[Dict[str, Any]] = []
     for task in tasks:
-        for event in task_store.list_events(task.task_id, limit=2000):
+        for event in task_store.list_events(task.task_id, limit=EVENT_REPLAY_QUERY_LIMIT):
             payload = serialize_event(event)
             payload["sessionId"] = session_id
             payload["runId"] = payload.get("taskId")
@@ -2119,7 +2146,7 @@ def _collect_session_events(
     session_id = session_record.session_id
     session_store = SessionStore()
     task_store = TaskStore()
-    run_event_records = session_store.list_run_events(session_id, limit=2000)
+    run_event_records = session_store.list_run_events(session_id, limit=EVENT_REPLAY_QUERY_LIMIT)
     if run_event_records:
         events = [serialize_run_event(event) for event in run_event_records]
         for item in events:
@@ -2157,7 +2184,7 @@ def _collect_session_events(
     if effective_after_seq is not None:
         events = [item for item in events if int(item.get("seq") or 0) > effective_after_seq]
     count = len(events)
-    sliced = events[max(offset, 0) : max(offset, 0) + max(min(limit, 2000), 1)]
+    sliced = events[max(offset, 0) : max(offset, 0) + max(min(limit, EVENT_REPLAY_QUERY_LIMIT), 1)]
     next_seq = max(
         [int(item.get("seq") or 0) for item in sliced]
         + [int(effective_after_seq or 0)]
@@ -2183,7 +2210,7 @@ def _next_session_event_seq(
     session_id: str,
     user_id: Optional[str],
 ) -> int:
-    run_events = session_store.list_run_events(session_id, limit=2000)
+    run_events = session_store.list_run_events(session_id, limit=EVENT_REPLAY_QUERY_LIMIT)
     if run_events:
         seen_event_ids = {str(getattr(event, "event_id", "") or "") for event in run_events}
         next_seq = max([int(getattr(event, "seq", 0) or 0) for event in run_events] + [0])
@@ -2203,7 +2230,7 @@ def _next_session_event_seq(
     )
     total_events = 0
     for run in runs:
-        total_events += len(task_store.list_events(run.task_id, limit=2000))
+        total_events += len(task_store.list_events(run.task_id, limit=EVENT_REPLAY_QUERY_LIMIT))
     return total_events + 1
 
 
@@ -2822,6 +2849,7 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 blocked_tools,
                 blocked_tool_reasons,
                 agent_config,
+                selected_tools,
             )
             if approval_requests:
                 approval_event = task_store.add_event(
@@ -3856,7 +3884,7 @@ async def list_agent_session_events(
     event_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
     after_seq: Optional[int] = Query(default=None, ge=0, alias="afterSeq"),
-    limit: int = Query(default=500, ge=1, le=2000),
+    limit: int = Query(default=500, ge=1, le=EVENT_REPLAY_QUERY_LIMIT),
     offset: int = Query(default=0, ge=0),
     current_user: TaskPilotUser = Depends(require_current_user),
 ) -> Dict[str, Any]:
@@ -3890,7 +3918,7 @@ def _websocket_query_int(websocket: WebSocket, name: str, default: int, *, minim
 async def stream_agent_session_events(
     session_id: str,
     after_seq: int = Query(default=0, ge=0, alias="afterSeq"),
-    limit: int = Query(default=200, ge=1, le=2000),
+    limit: int = Query(default=200, ge=1, le=EVENT_REPLAY_QUERY_LIMIT),
     current_user: TaskPilotUser = Depends(require_current_user),
 ) -> StreamingResponse:
     initial_session = _load_owned_session(session_id, current_user)
@@ -3955,7 +3983,7 @@ async def stream_agent_session_events(
                         "afterSeq": next_seq,
                     }
                 ).encode("utf-8")
-            await asyncio.sleep(1)
+            await asyncio.sleep(SESSION_STREAM_ACTIVE_SLEEP_SECONDS if items else SESSION_STREAM_IDLE_SLEEP_SECONDS)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -4032,7 +4060,7 @@ async def list_agent_session_runs(
 async def get_agent_session_run(
     session_id: str,
     run_id: str,
-    events_limit: int = Query(default=500, ge=1, le=2000),
+    events_limit: int = Query(default=500, ge=1, le=EVENT_REPLAY_QUERY_LIMIT),
     current_user: TaskPilotUser = Depends(require_current_user),
 ) -> Dict[str, Any]:
     session_record = _load_owned_session(session_id, current_user)
@@ -4092,7 +4120,7 @@ async def get_agent_session_run_plan(
         task_store,
         session_id,
         run_id,
-        events_limit=2000,
+        events_limit=EVENT_REPLAY_QUERY_LIMIT,
     )
     for seq, event in enumerate(all_events, start=1):
         event_name = str(event.get("eventType") or event.get("type") or "")
@@ -4252,7 +4280,7 @@ async def resolve_agent_session_run_approval(
             run_record,
             req,
         )
-    all_events = task_store.list_events(run_id, limit=2000)
+    all_events = task_store.list_events(run_id, limit=EVENT_REPLAY_QUERY_LIMIT)
     approval_events = [event for event in all_events if event.event_type == "approval_requested"]
     if not approval_events:
         raise HTTPException(status_code=409, detail="approval is not requested")
@@ -4773,7 +4801,7 @@ async def evaluate_agent_task(task_id: str) -> Dict[str, Any]:
     if metadata.get("source") != "eval":
         raise HTTPException(status_code=400, detail="task is not an eval task")
 
-    event_payloads = [serialize_event(event) for event in store.list_events(task_id, limit=2000)]
+    event_payloads = [serialize_event(event) for event in store.list_events(task_id, limit=EVENT_REPLAY_QUERY_LIMIT)]
     artifact_payloads = [serialize_artifact(artifact) for artifact in store.list_artifacts(task_id)]
     result = evaluate_eval_task(task_payload, event_payloads, artifact_payloads).to_dict()
     store.add_event(
@@ -5126,7 +5154,7 @@ async def list_agent_task_events(
     task_id: str,
     event_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
-    limit: int = Query(default=500, ge=1, le=2000),
+    limit: int = Query(default=500, ge=1, le=EVENT_REPLAY_QUERY_LIMIT),
     offset: int = Query(default=0, ge=0),
     current_user: TaskPilotUser = Depends(require_current_user),
 ) -> Dict[str, Any]:
@@ -5431,7 +5459,7 @@ async def session_events_ws(websocket: WebSocket, session_id: str) -> None:
 
     owner_user_id = str(initial_session.user_id or "")
     next_seq = _websocket_query_int(websocket, "afterSeq", 0, minimum=0, maximum=2_000_000_000)
-    limit = _websocket_query_int(websocket, "limit", 200, minimum=1, maximum=2000)
+    limit = _websocket_query_int(websocket, "limit", 200, minimum=1, maximum=EVENT_REPLAY_QUERY_LIMIT)
     last_status = ""
     idle_ticks = 0
 
@@ -5490,7 +5518,7 @@ async def session_events_ws(websocket: WebSocket, session_id: str) -> None:
                         "afterSeq": next_seq,
                     }
                 )
-            await asyncio.sleep(1)
+            await asyncio.sleep(SESSION_STREAM_ACTIVE_SLEEP_SECONDS if items else SESSION_STREAM_IDLE_SLEEP_SECONDS)
     except WebSocketDisconnect:
         return
     finally:

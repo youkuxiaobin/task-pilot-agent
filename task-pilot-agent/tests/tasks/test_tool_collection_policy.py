@@ -77,7 +77,8 @@ def test_tool_collection_blocks_tools_outside_allowed_patterns():
         item["function"]["name"]
         for item in collection.to_openai_tools()
     ]
-    assert openai_tool_names == ["mcp_local:deepsearch", "mcp_world:browser"]
+    assert openai_tool_names == ["mcp_local-deepsearch", "mcp_world-browser"]
+    assert all(":" not in name for name in openai_tool_names)
 
 
 def test_tool_collection_matches_colon_and_hyphen_tool_aliases():
@@ -95,6 +96,44 @@ def test_tool_collection_matches_colon_and_hyphen_tool_aliases():
 
     assert result == "ok:mcp_local-web_search:query"
     assert collection.last_execution["tool"] == "mcp_local-web_search"
+
+
+def test_tool_collection_uses_openai_safe_names_and_executes_safe_aliases():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["mcp_local:deepsearch", "builtin:plan_tool"])
+    search_tool = DummyTool("mcp_local:deepsearch")
+    builtin_tool = DummyTool("builtin:plan_tool")
+
+    assert collection.add_tool(search_tool) is True
+    assert collection.add_tool(builtin_tool) is True
+
+    specs = collection.to_openai_tools()
+    names = [item["function"]["name"] for item in specs]
+
+    assert names == ["mcp_local-deepsearch", "builtin-plan_tool"]
+    assert all(":" not in name for name in names)
+    assert collection.resolve_tool_name("mcp_local-deepsearch") == "mcp_local:deepsearch"
+    assert collection.resolve_tool_name("builtin-plan_tool") == "builtin:plan_tool"
+
+    result = asyncio.run(collection.execute("mcp_local-deepsearch", {"value": "query"}))
+
+    assert result == "ok:mcp_local:deepsearch:query"
+    assert search_tool.called is True
+    assert collection.last_execution["tool"] == "mcp_local:deepsearch"
+
+
+def test_tool_collection_disambiguates_safe_name_collisions():
+    collection = ToolCollection()
+    colon_tool = DummyTool("mcp_local:reader")
+    hyphen_tool = DummyTool("mcp_local-reader")
+    collection.add_tool(colon_tool)
+    collection.add_tool(hyphen_tool)
+
+    names = [item["function"]["name"] for item in collection.to_openai_tools()]
+
+    assert names == ["mcp_local-reader", "mcp_local-reader_2"]
+    assert collection.resolve_tool_name("mcp_local-reader") == "mcp_local:reader"
+    assert collection.resolve_tool_name("mcp_local-reader_2") == "mcp_local-reader"
 
 
 def test_tool_collection_checker_overrides_patterns_and_blocks_add():

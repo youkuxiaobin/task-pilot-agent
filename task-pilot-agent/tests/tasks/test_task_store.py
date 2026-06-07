@@ -265,14 +265,23 @@ def test_task_store_mirrors_session_run_events(task_modules):
     task_event = store.add_event(
         "mirror-run",
         "tool_call",
-        {"tool": "web_search", "args": {"query": "public", "token": "secret"}},
+        {"seq": 99, "tool": "web_search", "args": {"query": "public", "token": "secret"}},
         trace_id="mirror-run",
         source="sse",
         message_id="message-1",
     )
+    second_task_event = store.add_event(
+        "mirror-run",
+        "result",
+        {"seq": 99, "result": "partial"},
+        trace_id="mirror-run",
+        source="sse",
+        message_id="message-2",
+    )
 
     run_events = session_store.list_run_events("mirror-session")
-    assert len(run_events) == 1
+    assert len(run_events) == 2
+    assert [event.seq for event in run_events] == [1, 2]
     mirrored = sessions.serialize_run_event(run_events[0])
     assert mirrored["eventId"] == f"evt_{task_event.id}"
     assert mirrored["sessionId"] == "mirror-session"
@@ -282,8 +291,13 @@ def test_task_store_mirrors_session_run_events(task_modules):
     assert mirrored["eventType"] == "tool_call"
     assert mirrored["source"] == "sse"
     assert mirrored["messageId"] == "message-1"
+    assert mirrored["payload"]["seq"] == 99
     assert mirrored["payload"]["args"]["query"] == "public"
     assert mirrored["payload"]["args"]["token"] == "***"
+    second_mirrored = sessions.serialize_run_event(run_events[1])
+    assert second_mirrored["eventId"] == f"evt_{second_task_event.id}"
+    assert second_mirrored["seq"] == 2
+    assert second_mirrored["payload"]["seq"] == 99
 
 
 def test_task_store_mirrors_session_run_artifacts(task_modules):

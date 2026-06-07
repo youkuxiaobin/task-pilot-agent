@@ -3633,6 +3633,75 @@ def test_autoagent_records_approval_requested_for_unapproved_high_risk_tool(app_
     assert messages[-1].status == app.AgentSessionStatus.WAITING_APPROVAL
 
 
+def test_autoagent_does_not_request_approval_for_unselected_high_risk_tool(app_modules, monkeypatch):
+    app, tasks = app_modules
+    from brain.core.agent_registry import AgentToolSpec
+
+    agent = app.AgentConfig(
+        id="approval-agent",
+        name="Approval Agent",
+        tools=[
+            AgentToolSpec(
+                name="mcp_local:code_interpreter",
+                description="Run code",
+                policy={"risk": "high"},
+            )
+        ],
+        permissions={"require_approval_for": ["high_risk_tools"]},
+    )
+
+    async def fake_memory_context(ctx, query):
+        return {"memoryCount": 0, "ragCount": 0, "querySummary": query}
+
+    async def fake_tool_collection(ctx):
+        return SimpleNamespace(
+            tool_map={},
+            blocked_tools=["mcp_local:code_interpreter"],
+        )
+
+    handler_requested = []
+
+    class FakeHandler:
+        async def handle(self, ctx, _request):
+            handler_requested.append(True)
+            ctx.printer.send(None, "result", "北京今天晴", None, True)
+
+    monkeypatch.setattr(app, "_resolve_agent_config", lambda agent_id: agent)
+    monkeypatch.setattr(app, "_load_task_memory_context", fake_memory_context)
+    monkeypatch.setattr(app, "build_tool_collection", fake_tool_collection)
+    monkeypatch.setattr(app.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
+
+    asyncio.run(
+        app._run_autoagent(
+            app.GptQueryReq(
+                trace_id="approval-not-selected-run",
+                user_id="user-1",
+                agent_id="approval-agent",
+                conversation_id="approval-not-selected-session",
+                language="ch",
+                messages=[app.AgentMessage(role="user", content="北京天气")],
+            ),
+            lambda _data: None,
+        )
+    )
+
+    store = tasks.TaskStore()
+    task = store.get_task("approval-not-selected-run")
+    events = store.list_events("approval-not-selected-run")
+    event_types = [event.event_type for event in events]
+    policy_event = next(event for event in events if event.event_type == "tool_policy_applied")
+    policy_payload = tasks.serialize_event(policy_event)["payload"]
+
+    assert handler_requested == [True]
+    assert task.status == tasks.AgentTaskStatus.COMPLETED
+    assert policy_payload["blockedToolReasons"] == {
+        "mcp_local:code_interpreter": "high_risk_requires_approval"
+    }
+    assert "approval_requested" not in event_types
+    assert "task_waiting_approval" not in event_types
+    assert "task_completed" in event_types
+
+
 def test_build_tool_collection_allows_approved_high_risk_tools(app_modules, monkeypatch):
     app, _tasks = app_modules
     from brain.core.agent_registry import AgentToolSpec
@@ -3699,6 +3768,43 @@ def test_remote_artifact_download_redirects_to_recorded_url(app_modules):
     assert list_payload["items"][0]["remoteUrl"] == "https://files.example.test/output.csv?token=***"
     assert response.status_code in {302, 307}
     assert response.headers["location"] == "https://files.example.test/output.csv?token=raw-secret"
+
+
+def test_tool_result_search_urls_are_not_registered_as_remote_artifacts(app_modules):
+    app, _tasks = app_modules
+
+    search_event = {
+        "messageType": "tool_result",
+        "tool": "mcp_local:web_search",
+        "result": {
+            "results": [
+                {
+                    "title": "遵化",
+                    "url": "https://zh.wikipedia.org/zh-hans/%E9%81%B5%E5%8C%96%E5%B8%82",
+                    "content": "百科页面摘要",
+                }
+            ]
+        },
+    }
+    file_event = {
+        "messageType": "tool_result",
+        "tool": "mcp_local:code_interpreter",
+        "result": {
+            "fileInfo": [
+                {
+                    "fileName": "analysis.txt",
+                    "download_url": "https://files.example.test/analysis.txt",
+                    "fileSize": 42,
+                }
+            ]
+        },
+    }
+
+    assert app._extract_remote_artifacts(search_event) == []
+    artifacts = app._extract_remote_artifacts(file_event)
+    assert len(artifacts) == 1
+    assert artifacts[0]["filename"] == "analysis.txt"
+    assert artifacts[0]["url"] == "https://files.example.test/analysis.txt"
 
 
 def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
