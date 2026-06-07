@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import List, Optional
 
-from langfuse import observe
 from brain.core.agents.base_agent import AgentState
 from brain.core.agents.react_agent import ReActAgent
 
@@ -91,7 +90,6 @@ class ExecutorAgent(ReActAgent):
             LLMMessage(role=RoleType.USER.value, content=current_msg.content),
         ]
 
-    @observe(name="executor_think")
     async def think(self) -> Optional[LLMMessage]:
         if self.current_step is None:
             self.set_state(AgentState.FINISHED)
@@ -119,7 +117,6 @@ class ExecutorAgent(ReActAgent):
         #self.add_message(thought)
         return thought
 
-    @observe(name="executor_act")
     async def act(self, thought: Optional[LLMMessage]) -> Optional[str]:
         if thought is None :
             self.set_state(AgentState.FINISHED)

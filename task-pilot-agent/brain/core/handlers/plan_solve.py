@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional, Tuple
-from langfuse import observe
 
 
 from brain.core.context import AgentContext
@@ -21,7 +20,6 @@ class PlanSolveHandler(AgentHandlerService):
     def support(self, ctx: AgentContext, req: AgentRequest) -> bool:
         return ctx.mode == "plans_executor"
 
-    @observe(name="plan_solve_handler")
     async def handle(self, ctx: AgentContext, req: AgentRequest) -> None:
         summary = SummaryAgent(ctx)
         planner = PlanningAgent(ctx)
@@ -290,7 +288,6 @@ class PlanSolveHandler(AgentHandlerService):
             payload["current_plan"] = current_plan
         return json.dumps(payload, ensure_ascii=False)
 
-    @observe(name="call_planning_agent")
     async def _call_planning_agent(
         self,
         ctx: AgentContext,

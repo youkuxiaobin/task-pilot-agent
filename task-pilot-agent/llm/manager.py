@@ -5,7 +5,6 @@ import threading
 
 from types import GeneratorType
 from typing import Any, Dict, Generator, Iterable, List, Optional, Union, Awaitable, Callable
-from langfuse import observe
 from llm.tokenizer import estimate_tokens_messages
 from llm.types import LLMMessage, LLMResponse, RoleType
 from llm.providers.base import LLMProvider
@@ -86,7 +85,6 @@ class LLMManager:
         self._providers[key] = provider
         return provider
 
-    @observe(name="llm_generate")
     def generate(
         self,
         messages: Iterable[LLMMessage],
@@ -110,7 +108,6 @@ class LLMManager:
 
         return provider.generate(msg_list, stream=stream, **kwargs)
 
-    @observe(name="llm_ask_tool")
     def ask_tool(
         self,
         messages: Iterable[LLMMessage],
@@ -169,7 +166,6 @@ class LLMManager:
 
         return pairs, resp.text if hasattr(resp, "text") else ""
     
-    @observe(name="llm_generate_async")
     async def generate_async(
         self,
         messages: Iterable[LLMMessage],
@@ -189,7 +185,6 @@ class LLMManager:
             **kwargs,
         )
 
-    @observe(name="llm_ask_tool_async")
     async def ask_tool_async(
         self,
         messages: Iterable[LLMMessage],
@@ -213,7 +208,6 @@ class LLMManager:
             **kwargs,
         )
 
-    @observe(name="llm_stream_generate_async")
     async def stream_generate_async(
         self,
         messages: Iterable[LLMMessage],

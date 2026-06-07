@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Iterable, List, Optional
 
-from langfuse import observe
 from brain.core.agents.base_agent import BaseAgent
 from brain.core.context import AgentContext
 from llm.manager import store as prompt_store, summary_mgr
@@ -31,7 +30,6 @@ class SummaryAgent(BaseAgent):
         self._default_discard_reasoning = bool(getattr(summary_cfg, "discard_reasoning_content", True))
         self._default_max_tokens = int(getattr(summary_cfg, "max_tokens", 2200) or 2200)
 
-    @observe(name="summary_summarize")
     async def summarize(
         self,
         query: str,

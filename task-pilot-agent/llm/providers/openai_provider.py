@@ -22,7 +22,7 @@ class OpenAIProvider(LLMProvider):
         **kwargs,
     ) -> Union[LLMResponse, Generator[Any, None, LLMResponse]]:
         try:
-            from langfuse.openai import OpenAI  # type: ignore
+            from openai import OpenAI
         except Exception as e:
             raise RuntimeError(
                 "Missing dependency 'openai'. Install with: pip install openai"

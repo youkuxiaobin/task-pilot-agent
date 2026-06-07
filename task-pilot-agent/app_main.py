@@ -17,7 +17,6 @@ from file.file_op import file_router  # noqa: E402
 from auth.hardening import validate_auth_production_config  # noqa: E402
 from auth.router import auth_router  # noqa: E402
 from utils.logger import get_logger  # noqa: E402
-from langfuse import Langfuse  # noqa: E402
 from mcp_process import _set_proctitle  # noqa: E402
 
 logger = get_logger(__name__)
@@ -28,17 +27,6 @@ async def _bootstrap():
     logger.info("Starting bootstrap in worker...")
     _set_proctitle("taskpilotagent-api-worker")
     validate_auth_production_config(agentSettings)
-    
-    try:
-        langfuse = Langfuse(
-            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
-            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-            host=os.getenv("LANGFUSE_BASE_URL"),
-        )
-        langfuse.auth_check()
-        logger.info("Langfuse initialized successfully")
-    except Exception as e:
-        logger.warning(f"Langfuse initialization failed: {e}. Continuing without tracing.")
 
     # MCP Market Registry 初始化
     try:

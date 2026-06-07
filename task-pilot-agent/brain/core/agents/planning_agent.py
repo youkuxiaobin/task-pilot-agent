@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import List, Optional
 
-from langfuse import observe
 from llm.types import LLMMessage, RoleType, ToolCall
 
 from brain.core.agents.base_agent import AgentState
@@ -36,7 +35,6 @@ class PlanningAgent(ReActAgent):
         )
 
 
-    @observe(name="planning_think")
     async def think(self) -> Optional[LLMMessage]:
         """Ask LLM to decide how to operate the plan tool."""
         messages = self._build_conversation()
@@ -75,7 +73,6 @@ class PlanningAgent(ReActAgent):
         #self.add_message(thought)
         return thought
 
-    @observe(name="planning_act")
     async def act(self, thought: Optional[LLMMessage]) -> Optional[str]:
         if thought is None:
             self.set_state(AgentState.FINISHED)

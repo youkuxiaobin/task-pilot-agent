@@ -1,7 +1,7 @@
 import base64
 import mimetypes
 from pathlib import Path
-from langfuse.openai import AsyncOpenAI
+from openai import AsyncOpenAI
 from config.config import agentSettings, reveal_secret
 from utils.file import FileUtils
 from utils.logger import get_logger

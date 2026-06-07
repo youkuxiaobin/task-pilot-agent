@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from enum import Enum
 from typing import Any, Iterable, List, Optional
-from langfuse import observe
 
 from llm.manager  import mgr as llm_mgr
 from config.config  import AgentSettings
@@ -46,7 +45,6 @@ class BaseAgent:
         #self.messages = []
         self.current_msg = None
 
-    @observe(name="agent_run")
     async def run(self, initial_user_input: str) -> Optional[str]:
         self.state = AgentState.RUNNING
         if initial_user_input:

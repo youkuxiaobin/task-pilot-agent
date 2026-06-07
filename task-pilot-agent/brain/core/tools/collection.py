@@ -10,18 +10,6 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 
-try:
-    from langfuse import observe
-except Exception:  # pragma: no cover - optional tracing dependency
-    def observe(*args, **kwargs):
-        if args and callable(args[0]):
-            return args[0]
-
-        def decorator(func):
-            return func
-
-        return decorator
-
 from .base import BaseTool
 
 try:
@@ -149,7 +137,6 @@ class ToolCollection:
             return None
         return self.tool_map.get(resolved_name)
 
-    @observe(name="tool_execute")
     async def execute(self, name: str, input_obj: Dict[str, Any]) -> Optional[str]:
         name = self.resolve_tool_name(name)
         started_at = time.perf_counter()
