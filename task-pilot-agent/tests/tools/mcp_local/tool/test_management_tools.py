@@ -5,7 +5,6 @@ import pytest
 from tools.mcp_local.tool.management_tools import (
     config_read,
     create_subagent,
-    discover_channels,
     install_skill,
     load_skill,
     mcp_manager_list_servers,
@@ -58,10 +57,3 @@ async def test_create_subagent_defaults_to_task_workspace(tmp_path):
     assert result["created"] is True
     assert result["runtimeAvailableAfterReload"] is False
     assert (tmp_path / "subagents" / "draft-agent" / "agent.yaml").exists()
-
-
-@pytest.mark.asyncio
-async def test_discover_channels_includes_local_task():
-    result = await discover_channels()
-
-    assert any(item["id"] == "local_task" and item["available"] for item in result["channels"])

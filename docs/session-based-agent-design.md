@@ -1350,8 +1350,8 @@ Agent Runtime
 | 多媒体 | `read_multimedia`、`image_generate`、`audio_transcribe`、`video_analyze` | 图片、音频、视频处理 | 低到中 |
 | 报告 | `report_generate` | 生成 Markdown、HTML、PPT、表格 | 低到中 |
 | MCP 管理 | `mcp_manager_list_servers`、`mcp_manager_write_manifest`、`mcp_manager_add_server` | 查看、导出或调整 MCP Server 配置 | 低到高 |
-| 消息渠道 | `discover_channels`、`message_send` | 发现可用通知渠道并发送消息 | 低到高 |
-| 记忆 / 知识库 | `memory_search`、`memory_add`、`memory_delete`、`knowledge_search`、`knowledge_add`、`knowledge_delete` | 显式检索或维护长期记忆和知识库 | 中 |
+| 消息渠道 | `message_send` | 向本地任务流或配置的外部 webhook 发送消息 | 低到高 |
+| 记忆 | `memory_search`、`memory_add`、`memory_delete` | 显式检索或维护长期记忆 | 中 |
 
 当前已经有的工具不需要重写，但要逐步纳入统一命名和统一权限：
 
@@ -1371,13 +1371,12 @@ Agent Runtime
 | `skill_search/skill_load/skill_install` | 技能发现、读取和任务本地安装 |
 | `config_read/config_update` | 配置读取和受控修改 |
 | `mcp_manager_list_servers/mcp_manager_write_manifest/mcp_manager_add_server` | MCP Server 查看、导出和受控修改 |
-| `discover_channels/message_send` | 消息渠道发现和发送 |
+| `message_send` | 消息发送 |
 | `memory_search/memory_add/memory_delete` | 长期记忆显式操作 |
-| `knowledge_search/knowledge_add/knowledge_delete` | 知识库显式操作 |
 
 当前实现状态：
 
-- 本地 MCP 已注册文件局部替换、glob、grep、长进程管理、浏览器 Agent、图片生成、技能、配置、MCP 管理、消息渠道、记忆和知识库工具。
+- 本地 MCP 已注册文件局部替换、glob、grep、长进程管理、浏览器 Agent、图片生成、技能、配置、MCP 管理、消息发送和记忆工具。
 - `task-pilot-agent` 默认 Agent 已允许 `builtin:request_input` 和 `builtin:handoff`，可在缺少关键信息时等待用户补充，也可把子任务交给预先配置的专业 Agent。
 - `create_subagent` 默认只在任务工作目录生成子 Agent 配置；只有设置 `APP_ALLOW_AGENT_CONFIG_WRITE=1` 时，才允许写入运行时 Agent 配置目录。
 - `config_update` 和 `mcp_manager_add_server` 只有设置 `APP_ALLOW_CONFIG_WRITE_TOOLS=1` 时才允许修改真实配置。

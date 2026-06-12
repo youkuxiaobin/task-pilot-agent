@@ -34,11 +34,7 @@ from tools.mcp_local.tool.management_tools import (
     config_read as config_read_run,
     config_update as config_update_run,
     create_subagent as create_subagent_run,
-    discover_channels as discover_channels_run,
     install_skill as install_skill_run,
-    knowledge_add as knowledge_add_run,
-    knowledge_delete as knowledge_delete_run,
-    knowledge_search as knowledge_search_run,
     load_skill as load_skill_run,
     mcp_manager_add_server as mcp_manager_add_server_run,
     mcp_manager_list_servers as mcp_manager_list_servers_run,
@@ -503,11 +499,6 @@ async def mcp_manager_add_server(
     )
 
 
-@mcp.tool(name="discover_channels", description="发现当前可用的消息发送渠道。")
-async def discover_channels() -> Dict[str, Any]:
-    return await discover_channels_run()
-
-
 @mcp.tool(name="message_send", description="向本地任务流或配置的外部 webhook 发送消息。")
 async def message_send(
     channel: str,
@@ -583,20 +574,6 @@ async def memory_add(
 async def memory_delete(memory_id: str) -> Dict[str, Any]:
     return await memory_delete_run(memory_id)
 
-
-@mcp.tool(name="knowledge_search", description="查询知识库内容。")
-async def knowledge_search(query: str, limit: int = 10) -> Dict[str, Any]:
-    return await knowledge_search_run(query, limit=limit)
-
-
-@mcp.tool(name="knowledge_add", description="写入知识库内容。")
-async def knowledge_add(content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    return await knowledge_add_run(content, metadata=metadata)
-
-
-@mcp.tool(name="knowledge_delete", description="删除知识库内容。")
-async def knowledge_delete(document_id: str) -> Dict[str, Any]:
-    return await knowledge_delete_run(document_id)
 
 async def _accumulate_report_stream(
     task: str,

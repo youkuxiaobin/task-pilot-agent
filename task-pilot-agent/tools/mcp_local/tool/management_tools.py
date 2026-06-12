@@ -184,27 +184,6 @@ async def mcp_manager_add_server(
     return {"path": str(config_path), "added": True, "toolPrefix": tool_prefix}
 
 
-async def discover_channels() -> Dict[str, Any]:
-    channels = [
-        {
-            "id": "local_task",
-            "type": "local",
-            "description": "Send a notification into the current task event stream.",
-            "available": True,
-        }
-    ]
-    webhook_url = os.getenv("TASKPILOT_WEBHOOK_URL") or ""
-    channels.append(
-        {
-            "id": "webhook",
-            "type": "http",
-            "description": "POST a JSON message to TASKPILOT_WEBHOOK_URL.",
-            "available": bool(webhook_url),
-        }
-    )
-    return {"channels": channels}
-
-
 async def send_message(
     channel: str,
     message: str,
@@ -399,23 +378,3 @@ async def memory_delete(memory_id: str) -> Dict[str, Any]:
     from memory.memory_mgr import memory_manager
 
     return {"memoryId": memory_id, "deleted": memory_manager.delete_memory(memory_id)}
-
-
-async def knowledge_search(query: str, *, limit: int = 10) -> Dict[str, Any]:
-    from memory.memory_mgr import memory_manager
-
-    items = memory_manager.search_rag(query, limit=limit)
-    return {"items": items, "count": len(items), "degraded": memory_manager.get_degradation_status()}
-
-
-async def knowledge_add(content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from memory.memory_mgr import memory_manager
-
-    document_id = memory_manager.add_to_knowledge_base(content, metadata=metadata or {})
-    return {"documentId": document_id, "added": bool(document_id), "degraded": memory_manager.get_degradation_status()}
-
-
-async def knowledge_delete(document_id: str) -> Dict[str, Any]:
-    from memory.memory_mgr import memory_manager
-
-    return {"documentId": document_id, "deleted": memory_manager.delete_from_knowledge_base(document_id)}

@@ -32,7 +32,6 @@ def test_mcp_local_registers_general_agent_tools():
         "mcp_manager_list_servers",
         "mcp_manager_write_manifest",
         "mcp_manager_add_server",
-        "discover_channels",
         "message_send",
         "skill_search",
         "skill_load",
@@ -41,9 +40,6 @@ def test_mcp_local_registers_general_agent_tools():
         "memory_search",
         "memory_add",
         "memory_delete",
-        "knowledge_search",
-        "knowledge_add",
-        "knowledge_delete",
         "get_current_weather",
         "get_weather_forecast",
     ]:
