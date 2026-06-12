@@ -121,4 +121,6 @@ class ToolGateway:
 async def _should_expose_plan_tool(ctx: AgentContext, selected_tools: Optional[List[str]]) -> bool:
     if selected_tools is not None:
         return matches_tool_selection(selected_tools, PLAN_TOOL_NAME)
+    if not str(getattr(ctx, "query", "") or "").strip():
+        return True
     return await should_use_plan(ctx)

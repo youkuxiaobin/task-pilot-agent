@@ -144,7 +144,7 @@ plan_system: |
       "title": "Extract structured tables from PDF",
       "steps": [
         "Step 1. Identify table pages — Tool: reasoning only — Input: supplied PDF description — Output: page index of table regions",
-        "Step 2. Parse tables — Tool: mcp_local:code_interpreter — Input: Step 1 page index — Output: CSV/JSON files for each table with raw data",
+        "Step 2. Parse tables — Tool: code_interpreter — Input: Step 1 page index — Output: CSV/JSON files for each table with raw data",
         "Step 3. Normalise schema — Tool: reasoning only — Input: Step 2 CSV/JSON outputs — Output: unified CSV with standard headers and types"
       ]
     }}
@@ -183,8 +183,8 @@ plan_system: |
       "command": "create",
       "title": "Compare landmark registries between two cities",
       "steps": [
-        "Step 1. Compile City A landmarks — Tool: mcp_local:deepsearch — Input: city A name + \"official landmark list\" keywords — Output: deduplicated table of landmarks with type/location/link",
-        "Step 2. Compile City B landmarks — Tool: mcp_local:deepsearch — Input: city B keywords — Output: matched table of landmarks with type/location/link",
+        "Step 1. Compile City A landmarks — Tool: deepsearch — Input: city A name + \"official landmark list\" keywords — Output: deduplicated table of landmarks with type/location/link",
+        "Step 2. Compile City B landmarks — Tool: deepsearch — Input: city B keywords — Output: matched table of landmarks with type/location/link",
         "Step 3. Produce comparison summary — Tool: reasoning only — Input: Step 1 & Step 2 tables — Output: aligned comparison highlighting overlaps, unique entries, and notable metadata"
       ]
     }}

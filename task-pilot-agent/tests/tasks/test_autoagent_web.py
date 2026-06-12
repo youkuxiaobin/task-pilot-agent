@@ -345,11 +345,14 @@ def test_vue_home_composer_matches_manus_compact_scale():
     textarea_block = styles.split(".composer-card textarea {", 1)[1].split("}", 1)[0]
     hero_block = styles.split(".hero-block {", 1)[1].split("}", 1)[0]
 
-    assert 'rows="3"' in source
-    assert "width: min(980px, 100%)" in hero_block
-    assert "width: min(960px, 100%)" in composer_block
-    assert "padding: 14px 16px 12px" in composer_block
-    assert "min-height: 86px" in textarea_block
+    assert 'rows="2"' in source
+    assert 'class="tool-button"' not in source
+    assert "width: min(900px, 100%)" in hero_block
+    assert "width: min(880px, 100%)" in composer_block
+    assert "padding: 12px 14px 10px" in composer_block
+    assert "min-height: 58px" in textarea_block
+    assert "max-height: 130px" in textarea_block
+    assert "resize: none" in textarea_block
     assert "font-size: 16px" in textarea_block
 
 

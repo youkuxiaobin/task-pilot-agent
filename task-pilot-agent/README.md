@@ -52,7 +52,7 @@ taskpilotagent-master (main.py)
 
 执行一个工具（无论 `plans_executor` 或 `react`）时，链路大致是：
 
-1. Agent 产生工具调用（name 通常是 MCP 的 `full_name`，例如 `mcp_local:deepsearch`）。
+1. Agent 产生工具调用（name 通常是 MCP 的 `full_name`，例如本地工具 `deepsearch` 或远程工具 `mcp_world:search`）。
 2. `ToolCollection.execute()` 找到对应 `MCPTool` 并执行。
 3. `MCPTool.execute()` 调用 MCP Market：`POST /aggre_mcp_market/call_tool`。
 4. MCP Market 通过 registry 选择对应 MCP client（SSE / Streamable HTTP），把请求转发到配置的 MCP server（本地 `mcp_local` 或远程 server）。

@@ -189,7 +189,7 @@ mcp:
   mcp_market:
     mcp_servers:                    # External MCP servers to aggregate
       - url: "http://127.0.0.1:9009/mcp"
-        tool_prefix: "mcp_local"
+        tool_prefix: ""
 ```
 
 ### Environment Variables

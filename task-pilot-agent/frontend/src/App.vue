@@ -2914,7 +2914,7 @@ onBeforeUnmount(() => {
             <textarea
               id="query"
               v-model="query"
-              rows="3"
+              rows="2"
               :placeholder="t('home.placeholder')"
               @keydown.enter.exact.prevent="submitTask"
             />
@@ -2922,14 +2922,6 @@ onBeforeUnmount(() => {
               <div class="left-actions">
                 <button type="button" class="icon-button" :title="t('common.upload')" @click="fileInputRef?.click()">＋</button>
                 <input ref="fileInputRef" class="sr-only" type="file" multiple @change="onFileChange" />
-                <button type="button" class="tool-button" @click="switchView('tools')">
-                  <span class="button-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false">
-                      <path d="M12 3 21 12 12 21 3 12Z" />
-                    </svg>
-                  </span>
-                  <span>{{ t('nav.tools') }}</span>
-                </button>
                 <select v-model="selectedAgentId" class="agent-picker" :title="t('common.agent')">
                   <option value="">{{ t('common.defaultAgent') }}</option>
                   <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name || agent.id }}</option>

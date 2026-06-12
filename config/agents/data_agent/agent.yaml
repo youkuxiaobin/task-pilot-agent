@@ -3,7 +3,7 @@ name: 数据分析 Agent
 type: react_worker
 description: 面向表格、结构化数据、统计计算、异常值分析和数据结论生成的专家 Agent。
 version: "1"
-enabled: true
+enabled: false
 mode: react
 system_prompt_file: system_prompt.md
 capabilities:
@@ -12,14 +12,14 @@ capabilities:
   - table
   - artifact
 tools:
-  - name: mcp_local:code_interpreter
+  - name: code_interpreter
     description: 在任务工作目录内执行数据分析代码。
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:*data*
+  - name: "*data*"
     description: 本地数据处理工具。
-  - name: mcp_local:*file*
+  - name: "*file*"
     description: 文件读取和产物处理工具。
 metadata:
   owner: core

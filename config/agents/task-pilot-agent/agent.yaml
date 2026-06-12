@@ -142,23 +142,69 @@ tools:
           type: string
         taskId:
           type: string
-  - name: mcp_local:file_read
+  - name: file_read
     description: 读取 Linux/macOS/Windows 本机文件内容。
-  - name: mcp_local:file_list
+  - name: file_list
     description: 列出目录内容。
-  - name: mcp_local:file_stat
+  - name: file_stat
     description: 查看文件或目录基础信息。
-  - name: mcp_local:file_write
+  - name: file_write
     description: 在任务工作目录内写入文本文件。
-  - name: mcp_local:directory_create
+  - name: file_edit
+    description: 基于字符串匹配局部修改任务工作目录内的文件。
+  - name: file_glob
+    description: 按通配符搜索文件或目录。
+  - name: file_grep
+    description: 在文件内容中搜索文本或正则表达式。
+  - name: directory_create
     description: 在任务工作目录内创建目录。
-  - name: mcp_local:file_copy
+  - name: file_copy
     description: 复制文件到任务工作目录。
-  - name: mcp_local:file_move
+  - name: file_move
     description: 移动或重命名任务工作目录内的文件。
-  - name: mcp_local:file_delete
+  - name: file_delete
     description: 删除任务工作目录内的文件或目录。
-  - name: mcp_local:code_interpreter
+  - name: web_search
+    description: 轻量网页搜索，返回搜索结果和页面正文。
+  - name: fetch_url
+    description: 读取指定 URL 的页面正文。
+  - name: web_reader
+    description: 读取已知网页 URL 的正文内容。
+  - name: get_current_weather
+    description: 获取指定城市的实时天气。
+  - name: get_weather_forecast
+    description: 获取指定城市的天气预报。
+  - name: browser_agent
+    description: 在浏览器沙箱中完成网页访问、页面交互和结果提取。
+  - name: audio_tool
+    description: 分析音频文件内容。
+  - name: image_tool
+    description: 理解图片内容。
+  - name: video_tool
+    description: 分析视频文件内容。
+  - name: text_to_image
+    description: 根据文本描述生成图片并保存到任务工作目录。
+  - name: report
+    description: 生成 Markdown、HTML 或 PPT 报告产物。
+  - name: config_read
+    description: 读取当前运行配置，默认隐藏敏感字段。
+  - name: mcp_manager_list_servers
+    description: 查看当前配置的 MCP Server。
+  - name: mcp_manager_write_manifest
+    description: 把当前 MCP 配置导出为 mcp.json 到任务工作目录。
+  - name: message_send
+    description: 向本地任务流或配置的外部 webhook 发送消息。
+  - name: skill_search
+    description: 搜索当前可用 Agent 能力和任务本地技能。
+  - name: skill_load
+    description: 加载一个已存在的 Agent 能力说明或任务本地技能说明。
+  - name: memory_search
+    description: 搜索长期记忆。
+  - name: memory_add
+    description: 写入长期记忆。
+  - name: memory_delete
+    description: 删除长期记忆。
+  - name: code_interpreter
     description: 执行代码，默认需要显式打开高风险工具开关。
     input_schema:
       type: object
@@ -180,46 +226,41 @@ tools:
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:shell_exec
+  - name: shell_exec
     description: 执行本机 Shell 命令，默认需要显式打开高风险工具开关。
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:process_command_*
+  - name: process_command_*
     description: 管理长生命周期命令行进程，默认需要显式打开高风险工具开关。
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:config_update
+  - name: config_update
     description: 修改运行配置，默认需要显式打开高风险工具开关。
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:mcp_manager_add_server
+  - name: mcp_manager_add_server
     description: 修改 MCP Server 配置，默认需要显式打开高风险工具开关。
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:create_subagent
+  - name: create_subagent
     description: 创建子 Agent 配置；注册到运行时需要显式打开高风险工具开关。
     policy:
       risk: high
       requires_explicit_enable: true
-  - name: mcp_local:skill_install
+  - name: skill_install
     description: 安装任务本地技能说明。
     policy:
       risk: medium
-  - name: "mcp_*:*"
-    description: 允许使用当前工具市场中可用的 MCP 工具。
+  - name: mcp_world:*
+    description: 允许使用当前远程 MCP 扩展工具。
 denied_tools:
-  - mcp_local:deepsearch
+  - deepsearch
 handoffs:
-  allowed:
-    - search_agent
-    - browser_agent
-    - data_agent
-    - code_agent
-    - report_agent
+  allowed: []
 metadata:
   owner: core
   compatibility: legacy

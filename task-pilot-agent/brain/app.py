@@ -7,7 +7,6 @@ import time
 import uuid
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from pathlib import Path
-from types import SimpleNamespace
 import contextlib
 from urllib.parse import urlparse
 
@@ -25,21 +24,42 @@ from brain.models.requests import (
     TaskUserInputReq,
 )
 from brain.core.agent_registry import AgentConfig, AgentRegistry
+from brain.core.approval_service import (
+    ApprovalServiceDeps,
+    resolve_agent_session_run_approval as resolve_session_run_approval_service,
+    start_retry_from_session_run_record as start_retry_from_session_run_record_service,
+)
 from brain.core.autoagent_runtime import AutoAgentRuntimeDeps, run_autoagent
 from brain.core.context import AgentContext, FileItem
 from brain.core.eval_runner import build_eval_run, evaluate_eval_task
-from brain.core.printer import EVENT_TYPE_ALIASES, SSEPrinter
 from brain.core.sanitization import sanitize_payload
 from brain.core.session_message_service import AgentSessionMessageDeps, add_session_message
 from brain.core.sessions import (
     AgentMessageRole,
     AgentSessionStatus,
     SessionStore,
-    serialize_agent_artifact,
     serialize_message,
-    serialize_run,
     serialize_run_event,
     serialize_session,
+)
+from brain.core.session_view_service import (
+    PLAN_EVENT_TYPES,
+    artifact_download_response as _artifact_download_response,
+    artifact_event_payload as _artifact_event_payload,
+    attach_session_run_record as _attach_session_run_record,
+    collect_session_artifacts as _collect_session_artifacts,
+    collect_session_events as _collect_session_events,
+    collect_session_run_event_payloads as _collect_session_run_event_payloads,
+    collect_session_run_payloads as _collect_session_run_payloads,
+    message_event_payload as _message_event_payload,
+    next_session_event_seq as _next_session_event_seq,
+    run_record_metadata as _run_record_metadata,
+    serialize_plan_event as _serialize_plan_event,
+    serialize_plan_event_payload as _serialize_plan_event_payload,
+    serialize_session_run_payload as _serialize_session_run_payload,
+    session_pending_approval_payload as _session_pending_approval_payload,
+    sync_plan_terminal_status as _sync_plan_terminal_status,
+    load_session_run_records as load_session_run_records_for_view,
 )
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
 from brain.core.tools.collection import ToolCollection
@@ -54,7 +74,7 @@ from auth.models import TaskPilotUser
 from config.config import agentSettings
 from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
-from utils.logger import get_logger, configure_log_context, clear_log_context
+from utils.logger import get_logger
 from llm.types import LLMMessage, RoleType
 from memory.memory_mgr import memory_manager
 
@@ -1171,129 +1191,6 @@ def _load_owned_session(session_id: str, current_user: Any) -> Any:
     return session_record
 
 
-def _attach_session_run_record(payload: Dict[str, Any], session_store: SessionStore, run_id: str) -> Dict[str, Any]:
-    run_record = session_store.get_run(run_id)
-    if run_record:
-        payload["runRecord"] = serialize_run(run_record)
-    return payload
-
-
-def _serialize_run_record_as_task_payload(run_record: Any) -> Dict[str, Any]:
-    run_payload = serialize_run(run_record)
-    payload = dict(run_payload)
-    run_id = str(payload.get("runId") or "")
-    payload["task_id"] = run_id
-    payload["taskId"] = run_id
-    payload["trace_id"] = payload.get("traceId") or run_id
-    payload["conversation_id"] = payload.get("sessionId")
-    payload["conversationId"] = payload.get("sessionId")
-    payload["session_id"] = payload.get("sessionId")
-    payload["runRecord"] = run_payload
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    payload["usage"] = metadata.get("usage") if isinstance(metadata.get("usage"), dict) else {}
-    started_at = payload.get("startedAt")
-    ended_at = payload.get("endedAt") or payload.get("updatedAt")
-    payload["durationMs"] = (
-        max(int(ended_at or 0) - int(started_at or 0), 0)
-        if started_at is not None and ended_at is not None
-        else None
-    )
-    payload["hasError"] = bool(payload.get("status") == AgentTaskStatus.FAILED or payload.get("errorMessage"))
-    return payload
-
-
-def _serialize_session_run_payload(
-    session_id: str,
-    *,
-    run_record: Optional[Any] = None,
-    task_record: Optional[Any] = None,
-) -> Dict[str, Any]:
-    if task_record is not None:
-        payload = serialize_task(task_record)
-        payload["sessionId"] = session_id
-        payload["runId"] = payload.get("taskId")
-        if run_record is not None:
-            payload["runRecord"] = serialize_run(run_record)
-        return payload
-    if run_record is not None:
-        payload = _serialize_run_record_as_task_payload(run_record)
-        payload["sessionId"] = session_id
-        return payload
-    raise ValueError("run payload needs a run or task record")
-
-
-def _run_payload_sort_key(payload: Dict[str, Any]) -> tuple[int, int]:
-    return (
-        int(payload.get("createdAt") or 0),
-        int(payload.get("id") or 0),
-    )
-
-
-def _collect_session_run_payloads(
-    session_store: SessionStore,
-    task_store: TaskStore,
-    session_record: Any,
-    *,
-    status: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> Dict[str, Any]:
-    session_id = session_record.session_id
-    owner_user_id = session_record.user_id or ""
-    normalized_status = (status or "").strip()
-    task_records = task_store.list_tasks(
-        user_id=owner_user_id or None,
-        conversation_id=session_id,
-        status=normalized_status or None,
-        limit=2000,
-    )
-    task_by_run_id = {str(task.task_id): task for task in task_records}
-    payloads: List[Dict[str, Any]] = []
-    seen_run_ids: set[str] = set()
-
-    for run_record in session_store.list_runs(
-        session_id,
-        status=normalized_status or None,
-        limit=2000,
-    ):
-        run_id = str(getattr(run_record, "run_id", "") or "")
-        if not run_id:
-            continue
-        if owner_user_id and getattr(run_record, "user_id", "") not in {"", owner_user_id}:
-            continue
-        payloads.append(
-            _serialize_session_run_payload(
-                session_id,
-                run_record=run_record,
-                task_record=task_by_run_id.get(run_id),
-            )
-        )
-        seen_run_ids.add(run_id)
-
-    for task_record in task_records:
-        run_id = str(task_record.task_id)
-        if run_id in seen_run_ids:
-            continue
-        payloads.append(
-            _serialize_session_run_payload(
-                session_id,
-                task_record=task_record,
-            )
-        )
-
-    payloads.sort(key=_run_payload_sort_key, reverse=True)
-    count = len(payloads)
-    resolved_offset = max(offset, 0)
-    resolved_limit = max(min(limit, 200), 1)
-    return {
-        "items": payloads[resolved_offset : resolved_offset + resolved_limit],
-        "count": count,
-        "hasMore": resolved_offset + resolved_limit < count,
-        "allItems": payloads,
-        "taskRecords": task_records,
-    }
-
-
 def _load_session_run_records(
     session_store: SessionStore,
     task_store: TaskStore,
@@ -1301,55 +1198,14 @@ def _load_session_run_records(
     run_id: str,
     current_user: Any,
 ) -> tuple[Optional[Any], Optional[Any]]:
-    run_record = session_store.get_run(run_id)
-    if run_record and run_record.session_id != session_record.session_id:
-        run_record = None
-    if run_record and session_record.user_id and run_record.user_id not in {"", session_record.user_id}:
-        run_record = None
-    task = task_store.get_task(run_id)
-    if task and task.conversation_id != session_record.session_id:
-        task = None
-    if task:
-        _ensure_task_owner(task, current_user)
-    if not run_record and not task:
-        raise HTTPException(status_code=404, detail="run not found")
-    return run_record, task
-
-
-def _collect_session_run_event_payloads(
-    session_store: SessionStore,
-    task_store: TaskStore,
-    session_id: str,
-    run_id: str,
-    *,
-    events_limit: int = 500,
-) -> List[Dict[str, Any]]:
-    run_events = session_store.list_run_events(
-        session_id,
-        run_id=run_id,
-        limit=events_limit,
+    return load_session_run_records_for_view(
+        session_store,
+        task_store,
+        session_record,
+        run_id,
+        current_user,
+        _ensure_task_owner,
     )
-    if run_events:
-        payloads = [serialize_run_event(event) for event in run_events]
-        for payload in payloads:
-            payload["type"] = _session_event_type(payload)
-        return payloads
-
-    return [
-        {
-            **serialize_event(event),
-            "sessionId": session_id,
-            "runId": run_id,
-            "type": event.event_type,
-        }
-        for event in task_store.list_events(run_id, limit=events_limit)
-    ]
-
-
-def _run_record_metadata(run_record: Any) -> Dict[str, Any]:
-    payload = serialize_run(run_record)
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    return dict(metadata if isinstance(metadata, dict) else {})
 
 
 def _run_record_retry_runtime(
@@ -1381,6 +1237,27 @@ def _run_record_retry_runtime(
     }
 
 
+
+def _approval_service_deps() -> ApprovalServiceDeps:
+    return ApprovalServiceDeps(
+        event_replay_query_limit=EVENT_REPLAY_QUERY_LIMIT,
+        default_agent_id=agentSettings.core.agent_id,
+        load_owned_session=_load_owned_session,
+        load_session_run_records=_load_session_run_records,
+        run_record_metadata=_run_record_metadata,
+        run_record_retry_runtime=_run_record_retry_runtime,
+        serialize_session_run_payload=_serialize_session_run_payload,
+        normalize_tool_selection=_normalize_tool_selection,
+        merge_tool_selection=_merge_tool_selection,
+        normalize_run_environment=_normalize_run_environment,
+        normalize_language=_normalize_language,
+        resolve_agent_config=_resolve_agent_config,
+        deserialize_file_items=_deserialize_file_items,
+        sync_session_run=_sync_session_run,
+        run_autoagent=_run_autoagent,
+    )
+
+
 def _start_retry_from_session_run_record(
     session_store: SessionStore,
     session_record: Any,
@@ -1391,128 +1268,16 @@ def _start_retry_from_session_run_record(
     approval_type: Optional[str] = None,
     parent_event_type: Optional[str] = None,
 ) -> Dict[str, Any]:
-    input_text = (getattr(run_record, "input_text", None) or "").strip()
-    if not input_text:
-        raise HTTPException(status_code=400, detail="run has no input to retry")
-
-    retry_run_id = str(uuid.uuid4())
-    runtime = _run_record_retry_runtime(run_record, approved_tools_override=approved_tools_override)
-    user_id = getattr(run_record, "user_id", None) or getattr(session_record, "user_id", "") or ""
-    agent_id = getattr(run_record, "agent_id", None) or getattr(session_record, "agent_id", "") or agentSettings.core.agent_id
-    mode = getattr(run_record, "mode", None) or ""
-    output_style = getattr(run_record, "output_style", None) or ""
-
-    message_metadata = {
-        "source": source,
-        "parentRunId": getattr(run_record, "run_id", ""),
-        "inputFiles": runtime["inputFiles"],
-        "approvedTools": runtime["approvedTools"],
-    }
-    if approval_type:
-        message_metadata["approvalType"] = approval_type
-    user_message = session_store.add_message(
-        session_record.session_id,
-        run_id=retry_run_id,
-        user_id=user_id,
-        role=AgentMessageRole.USER,
-        content=input_text,
-        metadata=message_metadata,
-    )
-
-    retry_metadata = {
-        "source": source,
-        "parentRunId": getattr(run_record, "run_id", ""),
-        "parentTaskId": getattr(run_record, "run_id", ""),
-        "agentSnapshot": runtime["agentSnapshot"],
-        "selectedTools": runtime["selectedTools"],
-        "approvedTools": runtime["approvedTools"],
-        "runEnvironment": runtime["runEnvironment"],
-        "language": runtime["language"],
-        "inputFiles": runtime["inputFiles"],
-        "sessionMessageId": user_message.message_id,
-    }
-    if approval_type:
-        retry_metadata["approvalType"] = approval_type
-    retry_run = session_store.create_run(
-        run_id=retry_run_id,
-        session_id=session_record.session_id,
-        user_id=user_id,
-        user_message_id=user_message.message_id,
-        trace_id=retry_run_id,
-        agent_id=agent_id,
-        mode=mode,
-        output_style=output_style,
-        status=AgentTaskStatus.QUEUED,
-        input_text=input_text,
-        metadata=retry_metadata,
-    )
-    queued_event = session_store.add_run_event(
-        session_id=session_record.session_id,
-        run_id=retry_run_id,
-        user_id=user_id,
-        event_type="run_queued",
+    return start_retry_from_session_run_record_service(
+        session_store,
+        session_record,
+        run_record,
+        _approval_service_deps(),
         source=source,
-        message_id=user_message.message_id,
-        payload={
-            "status": AgentTaskStatus.QUEUED,
-            "mode": mode,
-            "outputStyle": output_style,
-            "parentRunId": getattr(run_record, "run_id", ""),
-            "agentConfigId": agent_id,
-            "agentSnapshot": runtime["agentSnapshot"],
-            "selectedTools": runtime["selectedTools"],
-            "approvedTools": runtime["approvedTools"],
-            "runEnvironment": runtime["runEnvironment"],
-            "language": runtime["language"],
-            "inputFiles": runtime["inputFiles"],
-        },
+        approved_tools_override=approved_tools_override,
+        approval_type=approval_type,
+        parent_event_type=parent_event_type,
     )
-    parent_event = None
-    if parent_event_type:
-        parent_event = session_store.add_run_event(
-            session_id=session_record.session_id,
-            run_id=getattr(run_record, "run_id", ""),
-            user_id=user_id,
-            event_type=parent_event_type,
-            source="api",
-            payload={"retryRunId": retry_run_id},
-        )
-    session_store.update_session(
-        session_record.session_id,
-        status=AgentSessionStatus.RUNNING,
-        current_run_id=retry_run_id,
-        last_message_id=user_message.message_id,
-        last_message_preview=input_text,
-    )
-
-    retry_req = GptQueryReq(
-        trace_id=retry_run_id,
-        user_id=user_id,
-        agent_id=agent_id,
-        conversation_id=session_record.session_id,
-        session_message_id=user_message.message_id,
-        outputStyle=output_style,
-        mode=mode,
-        selected_tools=runtime["selectedTools"],
-        approved_tools=runtime["approvedTools"],
-        run_environment=runtime["runEnvironment"],
-        language=runtime["language"],
-        messages=[
-            AgentMessage(
-                role=RoleType.USER.value,
-                content=input_text,
-                uploadFile=_deserialize_file_items(runtime["inputFiles"]),
-            )
-        ],
-    )
-    asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
-
-    payload = _serialize_session_run_payload(session_record.session_id, run_record=retry_run)
-    payload["message"] = serialize_message(user_message)
-    payload["event"] = serialize_run_event(queued_event)
-    if parent_event:
-        payload["retryRequested"] = serialize_run_event(parent_event)
-    return payload
 
 
 async def _resolve_session_run_record_approval(
@@ -1521,170 +1286,15 @@ async def _resolve_session_run_record_approval(
     run_record: Any,
     req: AgentRunApprovalReq,
 ) -> Dict[str, Any]:
-    run_id = str(getattr(run_record, "run_id", "") or "")
-    all_events = session_store.list_run_events(
-        session_record.session_id,
-        run_id=run_id,
-        limit=EVENT_REPLAY_QUERY_LIMIT,
-    )
-    approval_events = [event for event in all_events if event.event_type == "approval_requested"]
-    if not approval_events:
-        raise HTTPException(status_code=409, detail="approval is not requested")
-    approval_request_event = approval_events[-1]
-    approval_request_payload = serialize_run_event(approval_request_event).get("payload") or {}
+    from brain.core.approval_service import resolve_session_run_record_approval
 
-    for event in all_events:
-        if event.event_type != "approval_resolved" or event.seq <= approval_request_event.seq:
-            continue
-        payload = serialize_run_event(event).get("payload") or {}
-        if not isinstance(payload, dict):
-            continue
-        request_id = payload.get("approvalRequestEventId")
-        request_event_id = payload.get("approvalRequestEventEventId")
-        if request_id == approval_request_event.id or request_event_id == approval_request_event.event_id:
-            raise HTTPException(status_code=409, detail="approval already resolved")
-
-    requested_items = (
-        approval_request_payload.get("requests")
-        if isinstance(approval_request_payload, dict)
-        else []
-    )
-    requested_tools = [
-        str(item.get("tool") or "").strip()
-        for item in (requested_items or [])
-        if isinstance(item, dict) and str(item.get("tool") or "").strip()
-    ]
-    explicit_approved_tools = _normalize_tool_selection(
-        req.approved_tools if req.approved_tools is not None else req.approvedTools
-    )
-    if req.approved and not explicit_approved_tools:
-        explicit_approved_tools = requested_tools
-    metadata = _run_record_metadata(run_record)
-    selected_tools = _normalize_tool_selection(metadata.get("selectedTools"))
-    approved_tools = _merge_tool_selection(metadata.get("approvedTools"), explicit_approved_tools)
-    approval_type = req.approval_type or req.approvalType or "high_risk_tools"
-    base_resolution_payload = {
-        "approvalType": approval_type,
-        "approvalRequestEventId": approval_request_event.id,
-        "approvalRequestEventEventId": approval_request_event.event_id,
-        "approved": bool(req.approved),
-        "requestedTools": requested_tools,
-        "approvedTools": approved_tools,
-        "selectedTools": selected_tools,
-        "reason": req.reason or "",
-    }
-
-    if not req.approved or not req.rerun:
-        event = session_store.add_run_event(
-            session_id=session_record.session_id,
-            run_id=run_id,
-            user_id=getattr(run_record, "user_id", None) or session_record.user_id,
-            event_type="approval_resolved",
-            source="user",
-            payload=base_resolution_payload,
-        )
-        if getattr(run_record, "status", "") == AgentTaskStatus.WAITING_APPROVAL:
-            terminal_status = AgentTaskStatus.CANCELLED if not req.approved else AgentTaskStatus.COMPLETED
-            terminal_event_type = "run_cancelled" if not req.approved else "run_completed"
-            terminal_reason = "approval_rejected" if not req.approved else "approval_resolved_without_rerun"
-            session_store.update_run(
-                run_id,
-                status=terminal_status,
-                error_message="approval rejected" if not req.approved else None,
-                output_text="approval resolved without rerun" if req.approved else None,
-            )
-            session_store.add_run_event(
-                session_id=session_record.session_id,
-                run_id=run_id,
-                user_id=getattr(run_record, "user_id", None) or session_record.user_id,
-                event_type=terminal_event_type,
-                source="approval",
-                payload={
-                    "status": terminal_status,
-                    "reason": terminal_reason,
-                    "approvalRequestEventId": approval_request_event.id,
-                    "approvalResolutionEventId": event.id,
-                },
-            )
-            if session_record.current_run_id == run_id:
-                session_store.update_session(
-                    session_record.session_id,
-                    status=AgentSessionStatus.IDLE,
-                    current_run_id="",
-                    last_message_preview=(
-                        req.reason or "approval rejected"
-                        if not req.approved
-                        else "approval resolved"
-                    ),
-                )
-        return {
-            "sessionId": session_record.session_id,
-            "runId": run_id,
-            "approved": bool(req.approved),
-            "rerun": False,
-            "event": serialize_run_event(event),
-        }
-
-    if not approved_tools:
-        raise HTTPException(status_code=400, detail="approved_tools is required")
-    if not (getattr(run_record, "input_text", None) or "").strip():
-        raise HTTPException(status_code=400, detail="run has no input to rerun")
-    active_run_id = str(session_record.current_run_id or "")
-    if session_record.status in {AgentSessionStatus.RUNNING, AgentSessionStatus.WAITING_APPROVAL}:
-        if active_run_id != run_id:
-            raise HTTPException(status_code=409, detail="session is busy")
-        if getattr(run_record, "status", "") not in {
-            AgentTaskStatus.COMPLETED,
-            AgentTaskStatus.FAILED,
-            AgentTaskStatus.CANCELLED,
-            AgentTaskStatus.WAITING_APPROVAL,
-        }:
-            raise HTTPException(status_code=409, detail="session is busy")
-
-    payload = _start_retry_from_session_run_record(
+    return await resolve_session_run_record_approval(
         session_store,
         session_record,
         run_record,
-        source="approval_retry",
-        approved_tools_override=approved_tools,
-        approval_type=approval_type,
+        req,
+        _approval_service_deps(),
     )
-    retry_run_id = str(payload.get("runId") or "")
-    resolution_event = session_store.add_run_event(
-        session_id=session_record.session_id,
-        run_id=run_id,
-        user_id=getattr(run_record, "user_id", None) or session_record.user_id,
-        event_type="approval_resolved",
-        source="user",
-        payload={
-            **base_resolution_payload,
-            "retryRunId": retry_run_id,
-            "sessionMessageId": (payload.get("message") or {}).get("messageId"),
-        },
-    )
-    if getattr(run_record, "status", "") == AgentTaskStatus.WAITING_APPROVAL:
-        session_store.update_run(
-            run_id,
-            status=AgentTaskStatus.COMPLETED,
-            output_text="approval resolved; retry started",
-        )
-        session_store.add_run_event(
-            session_id=session_record.session_id,
-            run_id=run_id,
-            user_id=getattr(run_record, "user_id", None) or session_record.user_id,
-            event_type="run_completed",
-            source="approval",
-            payload={
-                "status": AgentTaskStatus.COMPLETED,
-                "reason": "approval_retry_started",
-                "retryRunId": retry_run_id,
-                "approvalRequestEventId": approval_request_event.id,
-                "approvalResolutionEventId": resolution_event.id,
-            },
-        )
-    payload["approvalResolved"] = serialize_run_event(resolution_event)
-    return payload
-
 
 async def _archive_owned_session(
     session_id: str,
@@ -1774,502 +1384,6 @@ async def _archive_owned_session(
         "deleted": source == "deleted",
         "cancelledRunId": cancelled_run_id,
     }
-
-
-def _serialize_session_artifact(session_id: str, run_id: str, artifact: Any) -> Dict[str, Any]:
-    if hasattr(artifact, "session_id") and hasattr(artifact, "run_id"):
-        payload = serialize_agent_artifact(artifact)
-        payload["sessionId"] = session_id or payload.get("sessionId")
-        payload["runId"] = run_id or payload.get("runId")
-        payload["taskId"] = payload.get("runId")
-        return payload
-    payload = serialize_artifact(artifact)
-    payload["sessionId"] = session_id
-    payload["runId"] = run_id
-    return payload
-
-
-def _artifact_event_payload(session_id: str, run_id: str, artifact: Any) -> Dict[str, Any]:
-    payload = _serialize_session_artifact(session_id, run_id, artifact)
-    payload["type"] = "artifact_created"
-    return payload
-
-
-def _collect_session_artifacts(
-    session_store: SessionStore,
-    task_store: TaskStore,
-    session_id: str,
-    *,
-    runs: Optional[List[Any]] = None,
-    run_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    artifacts: List[Dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def append_payload(payload: Dict[str, Any]) -> None:
-        artifact_key = str(payload.get("artifactId") or "")
-        if artifact_key and artifact_key in seen:
-            return
-        if artifact_key:
-            seen.add(artifact_key)
-        artifacts.append(payload)
-
-    for artifact in session_store.list_artifacts(session_id, run_id=run_id, limit=2000):
-        append_payload(
-            _serialize_session_artifact(
-                session_id,
-                str(getattr(artifact, "run_id", "") or run_id or ""),
-                artifact,
-            )
-        )
-
-    if run_id:
-        for artifact in task_store.list_artifacts(run_id):
-            append_payload(_serialize_session_artifact(session_id, run_id, artifact))
-    else:
-        task_runs = runs
-        if task_runs is None:
-            task_runs = task_store.list_tasks(conversation_id=session_id, limit=200)
-        for run in task_runs:
-            current_run_id = str(getattr(run, "task_id", "") or "")
-            if not current_run_id:
-                continue
-            for artifact in task_store.list_artifacts(current_run_id):
-                append_payload(_serialize_session_artifact(session_id, current_run_id, artifact))
-
-    return artifacts
-
-
-def _message_event_payload(
-    *,
-    session_id: str,
-    run_id: str,
-    message_id: str,
-    role: str,
-    content: Optional[str],
-    status: str = "created",
-    input_files: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    files = input_files or []
-    return {
-        "sessionId": session_id,
-        "runId": run_id,
-        "messageId": message_id,
-        "role": role,
-        "status": status,
-        "contentPreview": _truncate_for_event(content or "", 240),
-        "fileCount": len(files),
-        "inputFiles": files,
-    }
-
-
-PLAN_EVENT_TYPES = {
-    "plan",
-    "plan_created",
-    "plan_updated",
-    "plan_step_started",
-    "plan_step_completed",
-    "plan_step_failed",
-    "plan_step_updated",
-    "plan_completed",
-    "plan_failed",
-    "plan_cancelled",
-}
-
-SESSION_EVENT_TYPE_ALIASES = {
-    "task_created": "run_created",
-    "task_resumed": "run_started",
-    "task_running": "run_started",
-    "task_queued": "run_queued",
-    "task_completed": "run_completed",
-    "task_failed": "run_failed",
-    "task_cancel_requested": "run_cancelled",
-    "task_retry_requested": "run_retry_requested",
-    "task_resume_requested": "run_started",
-    "task_artifact_added": "artifact_created",
-    "user_input": "user_input_received",
-    "user_message_created": "user_message_created",
-    "assistant_message_started": "assistant_message_started",
-    "assistant_message_completed": "assistant_message_completed",
-}
-
-
-def _csv_filter_values(value: Optional[str]) -> List[str]:
-    return [item.strip() for item in (value or "").split(",") if item.strip()]
-
-
-def _matches_optional_filter(value: Any, allowed: List[str]) -> bool:
-    return not allowed or str(value or "") in allowed
-
-
-def _matches_session_event_type(item: Dict[str, Any], allowed: List[str]) -> bool:
-    if not allowed:
-        return True
-    candidates = {
-        str(item.get("eventType") or ""),
-        str(item.get("type") or ""),
-    }
-    return any(candidate in allowed for candidate in candidates if candidate)
-
-
-def _session_event_type(payload: Dict[str, Any]) -> str:
-    inner_payload = payload.get("payload")
-    if isinstance(inner_payload, dict) and inner_payload.get("type"):
-        return str(inner_payload.get("type") or "")
-    event_type = str(payload.get("eventType") or "")
-    return SESSION_EVENT_TYPE_ALIASES.get(event_type) or EVENT_TYPE_ALIASES.get(event_type, event_type)
-
-
-def _plan_payload_from_event_payload(event_payload: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(event_payload, dict):
-        return None
-    plan = event_payload.get("plan")
-    if isinstance(plan, dict):
-        return plan
-    result_map = event_payload.get("resultMap")
-    if isinstance(result_map, dict) and isinstance(result_map.get("plan"), dict):
-        return result_map["plan"]
-    if "steps" in event_payload or "step_status" in event_payload:
-        return event_payload
-    return None
-
-
-def _serialize_plan_event(session_id: str, run_id: str, event: Any, seq: int) -> Optional[Dict[str, Any]]:
-    payload = serialize_event(event)
-    plan = _plan_payload_from_event_payload(payload.get("payload"))
-    if plan is None:
-        return None
-    payload["sessionId"] = session_id
-    payload["runId"] = run_id
-    payload["seq"] = seq
-    payload["type"] = payload.get("eventType")
-    payload["plan"] = plan
-    return payload
-
-
-def _serialize_plan_event_payload(
-    session_id: str,
-    run_id: str,
-    payload: Dict[str, Any],
-    seq: int,
-) -> Optional[Dict[str, Any]]:
-    plan = _plan_payload_from_event_payload(payload.get("payload"))
-    if plan is None:
-        return None
-    item = dict(payload)
-    item["sessionId"] = session_id
-    item["runId"] = run_id
-    item["seq"] = seq
-    item["type"] = item.get("type") or item.get("eventType")
-    item["plan"] = plan
-    return item
-
-
-def _latest_plan_payload(task_store: TaskStore, run_id: str) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
-    latest_plan: Optional[Dict[str, Any]] = None
-    latest_event_type: Optional[str] = None
-    for event in task_store.list_events(run_id, limit=EVENT_REPLAY_QUERY_LIMIT):
-        if event.event_type not in PLAN_EVENT_TYPES:
-            continue
-        payload = serialize_event(event).get("payload")
-        plan = _plan_payload_from_event_payload(payload)
-        if plan is None:
-            continue
-        latest_plan = dict(plan)
-        latest_event_type = event.event_type
-    return latest_plan, latest_event_type
-
-
-def _terminal_plan_payload(
-    plan: Dict[str, Any],
-    *,
-    terminal_status: str,
-    reason: str,
-) -> Dict[str, Any]:
-    payload = dict(plan)
-    payload["planStatus"] = terminal_status
-    payload["status"] = terminal_status
-    payload["terminalReason"] = reason
-    payload["eventType"] = f"plan_{terminal_status}"
-    payload["command"] = terminal_status
-    steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
-    statuses = list(payload.get("step_status") if isinstance(payload.get("step_status"), list) else [])
-    statuses = [str(item or "not_started") for item in statuses]
-    while len(statuses) < len(steps):
-        statuses.append("not_started")
-    statuses = statuses[: len(steps)]
-
-    if terminal_status == "completed":
-        payload["step_status"] = ["completed" for _ in steps]
-        return payload
-
-    if terminal_status in {"failed", "cancelled"} and steps:
-        target_status = terminal_status
-        if not any(status in {"running", "failed", "cancelled"} for status in statuses):
-            for index, status in enumerate(statuses):
-                if status != "completed":
-                    statuses[index] = target_status
-                    break
-        else:
-            statuses = [
-                target_status if status == "running" else status
-                for status in statuses
-            ]
-        payload["step_status"] = statuses
-    return payload
-
-
-def _sync_plan_terminal_status(
-    task_store: TaskStore,
-    run_id: str,
-    *,
-    trace_id: str,
-    terminal_status: str,
-    reason: str,
-    source: str,
-) -> None:
-    if terminal_status not in {"completed", "failed", "cancelled"}:
-        return
-    latest_plan, latest_event_type = _latest_plan_payload(task_store, run_id)
-    if latest_plan is None:
-        return
-    target_event_type = f"plan_{terminal_status}"
-    if latest_event_type == target_event_type:
-        return
-    terminal_plan = _terminal_plan_payload(
-        latest_plan,
-        terminal_status=terminal_status,
-        reason=reason,
-    )
-    task_store.add_event(
-        run_id,
-        target_event_type,
-        {
-            "messageType": target_event_type,
-            "plan": terminal_plan,
-            "reason": reason,
-        },
-        trace_id=trace_id,
-        source=source,
-    )
-
-
-def _pending_approval_from_event_payloads(
-    session_id: str,
-    run_id: str,
-    events: List[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    approval_request_event = None
-    approval_request_index = -1
-    for index, event in enumerate(events):
-        event_type = str(event.get("eventType") or event.get("type") or "")
-        if event_type == "approval_requested":
-            approval_request_event = event
-            approval_request_index = index
-    if approval_request_event is None:
-        return None
-
-    approval_request_id = approval_request_event.get("id")
-    approval_request_event_id = (
-        approval_request_event.get("eventId")
-        or approval_request_event.get("event_id")
-        or approval_request_event.get("approvalEventId")
-    )
-    for event in events[approval_request_index + 1 :]:
-        event_type = str(event.get("eventType") or event.get("type") or "")
-        if event_type != "approval_resolved":
-            continue
-        payload = event.get("payload") or {}
-        if not isinstance(payload, dict):
-            continue
-        resolved_request_id = payload.get("approvalRequestEventId")
-        resolved_request_event_id = (
-            payload.get("approvalRequestEventEventId")
-            or payload.get("approvalEventId")
-        )
-        if approval_request_id is not None and resolved_request_id is not None:
-            if str(resolved_request_id) == str(approval_request_id):
-                return None
-        if approval_request_event_id and resolved_request_event_id:
-            if str(resolved_request_event_id) == str(approval_request_event_id):
-                return None
-
-    payload = dict(approval_request_event)
-    payload["sessionId"] = session_id
-    payload["runId"] = run_id
-    payload["type"] = "approval_requested"
-    payload["pending"] = True
-    return payload
-
-
-def _pending_approval_payload(task_store: TaskStore, session_id: str, run_id: str) -> Optional[Dict[str, Any]]:
-    return _pending_approval_from_event_payloads(
-        session_id,
-        run_id,
-        [
-            {
-                **serialize_event(event),
-                "sessionId": session_id,
-                "runId": run_id,
-                "type": event.event_type,
-            }
-            for event in task_store.list_events(run_id, limit=EVENT_REPLAY_QUERY_LIMIT)
-        ],
-    )
-
-
-def _session_pending_approval_payload(
-    session_store: SessionStore,
-    task_store: TaskStore,
-    session_id: str,
-    run_id: str,
-) -> Optional[Dict[str, Any]]:
-    return _pending_approval_from_event_payloads(
-        session_id,
-        run_id,
-        _collect_session_run_event_payloads(
-            session_store,
-            task_store,
-            session_id,
-            run_id,
-            events_limit=EVENT_REPLAY_QUERY_LIMIT,
-        ),
-    )
-
-
-def _legacy_session_event_payloads(
-    task_store: TaskStore,
-    session_record: Any,
-) -> List[Dict[str, Any]]:
-    session_id = session_record.session_id
-    tasks = task_store.list_tasks(
-        user_id=session_record.user_id,
-        conversation_id=session_id,
-        limit=EVENT_REPLAY_QUERY_LIMIT,
-    )
-    events: List[Dict[str, Any]] = []
-    for task in tasks:
-        for event in task_store.list_events(task.task_id, limit=EVENT_REPLAY_QUERY_LIMIT):
-            payload = serialize_event(event)
-            payload["sessionId"] = session_id
-            payload["runId"] = payload.get("taskId")
-            payload["type"] = _session_event_type(payload)
-            events.append(payload)
-    events.sort(key=lambda item: (item.get("createdAt") or 0, item.get("id") or 0))
-    return events
-
-
-def _collect_session_events(
-    session_record: Any,
-    *,
-    event_type: Optional[str] = None,
-    source: Optional[str] = None,
-    after_seq: Optional[int] = None,
-    limit: int = 500,
-    offset: int = 0,
-) -> Dict[str, Any]:
-    session_id = session_record.session_id
-    session_store = SessionStore()
-    task_store = TaskStore()
-    run_event_records = session_store.list_run_events(session_id, limit=EVENT_REPLAY_QUERY_LIMIT)
-    if run_event_records:
-        events = [serialize_run_event(event) for event in run_event_records]
-        for item in events:
-            item["type"] = _session_event_type(item)
-        seen_event_ids = {str(item.get("eventId") or "") for item in events if item.get("eventId")}
-        next_seq = max([int(item.get("seq") or 0) for item in events] + [0])
-        for item in _legacy_session_event_payloads(task_store, session_record):
-            if str(item.get("eventId") or "") in seen_event_ids:
-                continue
-            next_seq += 1
-            item["seq"] = next_seq
-            events.append(item)
-        events.sort(key=lambda item: (int(item.get("seq") or 0), int(item.get("id") or 0)))
-    else:
-        events = _legacy_session_event_payloads(task_store, session_record)
-        for index, item in enumerate(events, start=1):
-            item["seq"] = index
-
-    event_type_filters = _csv_filter_values(event_type)
-    source_filters = _csv_filter_values(source)
-    latest_seq = max([int(item.get("seq") or 0) for item in events] + [0])
-    if event_type_filters:
-        events = [
-            item
-            for item in events
-            if _matches_session_event_type(item, event_type_filters)
-        ]
-    if source_filters:
-        events = [
-            item
-            for item in events
-            if _matches_optional_filter(item.get("source"), source_filters)
-        ]
-    effective_after_seq = after_seq if isinstance(after_seq, int) else None
-    if effective_after_seq is not None:
-        events = [item for item in events if int(item.get("seq") or 0) > effective_after_seq]
-    count = len(events)
-    sliced = events[max(offset, 0) : max(offset, 0) + max(min(limit, EVENT_REPLAY_QUERY_LIMIT), 1)]
-    next_seq = max(
-        [int(item.get("seq") or 0) for item in sliced]
-        + [int(effective_after_seq or 0)]
-    )
-    return {
-        "items": sliced,
-        "sessionId": session_id,
-        "eventType": event_type,
-        "source": source,
-        "afterSeq": effective_after_seq,
-        "nextSeq": next_seq,
-        "latestSeq": latest_seq,
-        "count": count,
-        "hasMore": offset + len(sliced) < count,
-        "limit": limit,
-        "offset": offset,
-    }
-
-
-def _next_session_event_seq(
-    session_store: SessionStore,
-    task_store: TaskStore,
-    session_id: str,
-    user_id: Optional[str],
-) -> int:
-    run_events = session_store.list_run_events(session_id, limit=EVENT_REPLAY_QUERY_LIMIT)
-    if run_events:
-        seen_event_ids = {str(getattr(event, "event_id", "") or "") for event in run_events}
-        next_seq = max([int(getattr(event, "seq", 0) or 0) for event in run_events] + [0])
-        for item in _legacy_session_event_payloads(
-            task_store,
-            SimpleNamespace(session_id=session_id, user_id=user_id or ""),
-        ):
-            if str(item.get("eventId") or "") in seen_event_ids:
-                continue
-            next_seq += 1
-        return next_seq + 1
-
-    runs = task_store.list_tasks(
-        user_id=user_id,
-        conversation_id=session_id,
-        limit=200,
-    )
-    total_events = 0
-    for run in runs:
-        total_events += len(task_store.list_events(run.task_id, limit=EVENT_REPLAY_QUERY_LIMIT))
-    return total_events + 1
-
-
-def _artifact_download_response(artifact: Any) -> Any:
-    if str(artifact.file_path).startswith(("http://", "https://")):
-        return RedirectResponse(artifact.file_path)
-    file_path = Path(artifact.file_path)
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="artifact file not found")
-    return FileResponse(
-        str(file_path),
-        media_type=artifact.mime_type or "application/octet-stream",
-        filename=artifact.filename,
-    )
 
 
 def _agent_message_from_session_message(record: Any) -> AgentMessage:
@@ -3337,272 +2451,13 @@ async def resolve_agent_session_run_approval(
     req: AgentRunApprovalReq,
     current_user: TaskPilotUser = Depends(require_current_user),
 ) -> Dict[str, Any]:
-    session_store = SessionStore()
-    session_record = _load_owned_session(session_id, current_user)
-    if session_record.status == AgentSessionStatus.ARCHIVED:
-        raise HTTPException(status_code=409, detail="session is archived")
-
-    task_store = TaskStore()
-    run_record, task = _load_session_run_records(
-        session_store,
-        task_store,
-        session_record,
+    return await resolve_session_run_approval_service(
+        session_id,
         run_id,
+        req,
         current_user,
+        _approval_service_deps(),
     )
-    if task is None:
-        return await _resolve_session_run_record_approval(
-            session_store,
-            session_record,
-            run_record,
-            req,
-        )
-    all_events = task_store.list_events(run_id, limit=EVENT_REPLAY_QUERY_LIMIT)
-    approval_events = [event for event in all_events if event.event_type == "approval_requested"]
-    if not approval_events:
-        raise HTTPException(status_code=409, detail="approval is not requested")
-    approval_request_event = approval_events[-1]
-    already_resolved = [
-        event
-        for event in all_events
-        if event.event_type == "approval_resolved" and event.id > approval_request_event.id
-    ]
-    if already_resolved:
-        raise HTTPException(status_code=409, detail="approval already resolved")
-
-    approval_request_payload = serialize_event(approval_request_event).get("payload") or {}
-    requested_items = (
-        approval_request_payload.get("requests")
-        if isinstance(approval_request_payload, dict)
-        else []
-    )
-    requested_tools = [
-        str(item.get("tool") or "").strip()
-        for item in (requested_items or [])
-        if isinstance(item, dict) and str(item.get("tool") or "").strip()
-    ]
-    explicit_approved_tools = _normalize_tool_selection(
-        req.approved_tools if req.approved_tools is not None else req.approvedTools
-    )
-    if req.approved and not explicit_approved_tools:
-        explicit_approved_tools = requested_tools
-    approval_type = req.approval_type or req.approvalType or "high_risk_tools"
-    task_payload = serialize_task(task)
-    metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
-    selected_tools = _normalize_tool_selection(metadata.get("selectedTools") if metadata else None)
-    approved_tools = _merge_tool_selection(
-        metadata.get("approvedTools") if metadata else None,
-        explicit_approved_tools,
-    )
-
-    base_resolution_payload = {
-        "approvalType": approval_type,
-        "approvalRequestEventId": approval_request_event.id,
-        "approved": bool(req.approved),
-        "requestedTools": requested_tools,
-        "approvedTools": approved_tools,
-        "selectedTools": selected_tools,
-        "reason": req.reason or "",
-    }
-
-    if not req.approved or not req.rerun:
-        event = task_store.add_event(
-            run_id,
-            "approval_resolved",
-            base_resolution_payload,
-            trace_id=task.trace_id,
-            source="user",
-        )
-        if task.status == AgentTaskStatus.WAITING_APPROVAL:
-            terminal_status = AgentTaskStatus.CANCELLED if not req.approved else AgentTaskStatus.COMPLETED
-            terminal_event_type = "task_cancelled" if not req.approved else "task_completed"
-            terminal_reason = "approval_rejected" if not req.approved else "approval_resolved_without_rerun"
-            task_store.update_status(
-                run_id,
-                terminal_status,
-                error_message="approval rejected" if not req.approved else None,
-                output_text="approval resolved without rerun" if req.approved else None,
-            )
-            _sync_session_run(
-                session_store,
-                run_id=run_id,
-                status=terminal_status,
-                error_message="approval rejected" if not req.approved else None,
-                output_text="approval resolved without rerun" if req.approved else None,
-            )
-            task_store.add_event(
-                run_id,
-                terminal_event_type,
-                {
-                    "status": terminal_status,
-                    "reason": terminal_reason,
-                    "approvalRequestEventId": approval_request_event.id,
-                    "approvalResolutionEventId": event.id,
-                },
-                trace_id=task.trace_id,
-                source="approval",
-            )
-            if session_record.current_run_id == run_id:
-                session_store.update_session(
-                    session_id,
-                    status=AgentSessionStatus.IDLE,
-                    current_run_id="",
-                    last_message_preview=(
-                        req.reason or "approval rejected"
-                        if not req.approved
-                        else "approval resolved"
-                    ),
-                )
-        return {
-            "sessionId": session_id,
-            "runId": run_id,
-            "approved": bool(req.approved),
-            "rerun": False,
-            "event": serialize_event(event),
-        }
-
-    if not approved_tools:
-        raise HTTPException(status_code=400, detail="approved_tools is required")
-    if not task.input_text:
-        raise HTTPException(status_code=400, detail="run has no input to rerun")
-    active_run_id = str(session_record.current_run_id or "")
-    if session_record.status in {AgentSessionStatus.RUNNING, AgentSessionStatus.WAITING_APPROVAL}:
-        if active_run_id != run_id:
-            raise HTTPException(status_code=409, detail="session is busy")
-        if task.status not in {
-            AgentTaskStatus.COMPLETED,
-            AgentTaskStatus.FAILED,
-            AgentTaskStatus.CANCELLED,
-            AgentTaskStatus.WAITING_APPROVAL,
-        }:
-            raise HTTPException(status_code=409, detail="session is busy")
-
-    retry_run_id = str(uuid.uuid4())
-    run_environment = _normalize_run_environment(metadata.get("runEnvironment") if metadata else None)
-    language = _normalize_language(metadata.get("language") if metadata else None)
-    input_files = metadata.get("inputFiles") if metadata else None
-    agent_config = _resolve_agent_config(task.agent_id)
-    agent_snapshot = agent_config.to_runtime_snapshot(approved_tools=approved_tools) if agent_config else None
-    user_message = session_store.add_message(
-        session_id,
-        run_id=retry_run_id,
-        user_id=task.user_id,
-        role=AgentMessageRole.USER,
-        content=task.input_text,
-        metadata={
-            "source": "approval_retry",
-            "parentRunId": run_id,
-            "approvalType": approval_type,
-            "approvedTools": approved_tools,
-            "inputFiles": input_files,
-        },
-    )
-    retry_task = task_store.create_task(
-        task_id=retry_run_id,
-        trace_id=retry_run_id,
-        conversation_id=session_id,
-        user_id=task.user_id,
-        agent_id=task.agent_id,
-        mode=task.mode,
-        output_style=task.output_style,
-        input_text=task.input_text,
-        metadata={
-            "source": "approval_retry",
-            "parentTaskId": run_id,
-            "agentSnapshot": agent_snapshot,
-            "selectedTools": selected_tools,
-            "approvedTools": approved_tools,
-            "runEnvironment": run_environment,
-            "language": language,
-            "inputFiles": input_files,
-            "sessionMessageId": user_message.message_id,
-        },
-    )
-    task_store.add_event(
-        retry_run_id,
-        "task_queued",
-        {
-            "status": AgentTaskStatus.QUEUED,
-            "mode": task.mode,
-            "outputStyle": task.output_style,
-            "parentTaskId": run_id,
-            "approvalType": approval_type,
-            "agentConfigId": task.agent_id,
-            "agentSnapshot": agent_snapshot,
-            "selectedTools": selected_tools,
-            "approvedTools": approved_tools,
-            "runEnvironment": run_environment,
-            "language": language,
-            "inputFiles": input_files,
-        },
-        trace_id=retry_run_id,
-        source="approval",
-    )
-    resolution_event = task_store.add_event(
-        run_id,
-        "approval_resolved",
-        {
-            **base_resolution_payload,
-            "retryRunId": retry_run_id,
-            "sessionMessageId": user_message.message_id,
-        },
-        trace_id=task.trace_id,
-        source="user",
-    )
-    if task.status == AgentTaskStatus.WAITING_APPROVAL:
-        task_store.update_status(
-            run_id,
-            AgentTaskStatus.COMPLETED,
-            output_text="approval resolved; retry started",
-        )
-        task_store.add_event(
-            run_id,
-            "task_completed",
-            {
-                "status": AgentTaskStatus.COMPLETED,
-                "reason": "approval_retry_started",
-                "retryRunId": retry_run_id,
-                "approvalRequestEventId": approval_request_event.id,
-                "approvalResolutionEventId": resolution_event.id,
-            },
-            trace_id=task.trace_id,
-            source="approval",
-        )
-    session_store.update_session(
-        session_id,
-        status=AgentSessionStatus.RUNNING,
-        current_run_id=retry_run_id,
-        last_message_id=user_message.message_id,
-        last_message_preview=task.input_text,
-    )
-
-    retry_req = GptQueryReq(
-        trace_id=retry_run_id,
-        user_id=task.user_id,
-        agent_id=task.agent_id,
-        conversation_id=session_id,
-        session_message_id=user_message.message_id,
-        outputStyle=task.output_style,
-        mode=task.mode,
-        selected_tools=selected_tools,
-        approved_tools=approved_tools,
-        run_environment=run_environment,
-        language=language,
-        messages=[
-            AgentMessage(
-                role=RoleType.USER.value,
-                content=task.input_text,
-                uploadFile=_deserialize_file_items(input_files),
-            )
-        ],
-    )
-    asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
-    payload = serialize_task(retry_task)
-    payload["sessionId"] = session_id
-    payload["runId"] = retry_run_id
-    payload["approvalResolved"] = serialize_event(resolution_event)
-    payload["message"] = serialize_message(user_message)
-    return payload
 
 
 @agent_router.get("/sessions/{session_id}/artifacts")

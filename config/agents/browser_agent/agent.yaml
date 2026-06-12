@@ -3,7 +3,7 @@ name: 浏览器任务 Agent
 type: react_worker
 description: 面向网页访问、页面信息提取、浏览器自动化和网页流程检查的专家 Agent。
 version: "1"
-enabled: true
+enabled: false
 mode: react
 system_prompt_file: system_prompt.md
 capabilities:
@@ -11,11 +11,11 @@ capabilities:
   - web
   - extraction
 tools:
-  - name: mcp_local:fetch_url
+  - name: fetch_url
     description: 读取指定 URL 的页面正文。
-  - name: mcp_local:*browser*
+  - name: "*browser*"
     description: 本地浏览器或网页工具。
-  - name: mcp_local:*web*
+  - name: "*web*"
     description: 本地网页访问工具。
   - name: mcp_world:*browser*
     description: 外部浏览器自动化工具。

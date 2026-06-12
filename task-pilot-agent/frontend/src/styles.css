@@ -700,7 +700,7 @@ body.resizing-sidebar * {
 }
 
 .hero-block {
-  width: min(980px, 100%);
+  width: min(900px, 100%);
   display: grid;
   justify-items: center;
 }
@@ -716,19 +716,19 @@ body.resizing-sidebar * {
 }
 
 .composer-card {
-  width: min(960px, 100%);
+  width: min(880px, 100%);
   border: 1px solid #d9d9d7;
   border-radius: 20px;
   background: #ffffff;
-  padding: 14px 16px 12px;
+  padding: 12px 14px 10px;
   box-shadow: var(--shadow);
 }
 
 .composer-card textarea {
   width: 100%;
-  min-height: 86px;
-  max-height: 190px;
-  resize: vertical;
+  min-height: 58px;
+  max-height: 130px;
+  resize: none;
   border: 0;
   outline: 0;
   padding: 2px 4px;
@@ -757,7 +757,6 @@ body.resizing-sidebar * {
   flex-wrap: wrap;
 }
 
-.tool-button,
 .ghost-button,
 .primary-button,
 .danger-button {
@@ -768,12 +767,6 @@ body.resizing-sidebar * {
   color: var(--text-main);
   padding: 0 12px;
   font-weight: 620;
-}
-
-.tool-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .button-icon {

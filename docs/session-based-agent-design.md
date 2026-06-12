@@ -855,7 +855,7 @@ POST /agent/sessions/{session_id}/messages
   "content": "帮我搜索今天的行业新闻",
   "files": [],
   "agentId": "search_agent",
-  "selectedTools": ["mcp_local:web_search"],
+  "selectedTools": ["web_search"],
   "approvedTools": [],
   "outputStyle": "markdown",
   "mode": "react"
@@ -935,7 +935,7 @@ POST /agent/sessions/{session_id}/runs/{run_id}/approval
 ```json
 {
   "approved": true,
-  "approvedTools": ["mcp_local:code_interpreter"],
+  "approvedTools": ["code_interpreter"],
   "approvalType": "high_risk_tools",
   "reason": "用户确认本次允许",
   "rerun": true
@@ -1064,7 +1064,7 @@ GET /agent/sessions/{session_id}/tools?agent_id=general_agent
 {
   "items": [
     {
-      "id": "mcp_local:web_search",
+      "id": "web_search",
       "name": "web_search",
       "displayName": "网页搜索",
       "source": "mcp",
@@ -1076,7 +1076,7 @@ GET /agent/sessions/{session_id}/tools?agent_id=general_agent
   ],
   "unavailable": [
     {
-      "id": "mcp_local:shell_exec",
+      "id": "shell_exec",
       "displayName": "命令执行",
       "available": false,
       "reason": "当前 Agent 未授权或高风险工具未批准"
@@ -1165,8 +1165,8 @@ POST /agent/mcp/tools/{tool_id}/dry-run
 
 ```json
 {
-  "toolName": "mcp_local-web_search",
-  "requestedToolName": "mcp_local:web_search",
+  "toolName": "web_search",
+  "requestedToolName": "web_search",
   "agentId": "search_agent",
   "dryRun": true,
   "ok": true,
@@ -1315,7 +1315,7 @@ Agent Runtime
 
 | 字段 | 说明 |
 | --- | --- |
-| id | 稳定工具 ID，例如 `builtin:file_read`、`mcp_local:web_search` |
+| id | 稳定工具 ID，例如 `builtin:plan_tool`、`file_read`、`web_search`、`mcp_world:search` |
 | name | 给模型展示的调用名 |
 | display_name | 给用户展示的名称 |
 | description | 工具能力说明 |
@@ -1425,28 +1425,31 @@ MCP 配置来源：
 命名规则：
 
 ```text
-mcp_{server_name}:{tool_name}
+本地工具: {tool_name}
+远程 MCP 工具: mcp_{server_name}:{tool_name}
 ```
 
-兼容当前命名：
+当前本地工具命名：
 
 ```text
-mcp_local:web_search
-mcp_local:deepsearch
-mcp_local:file_read
+web_search
+deepsearch
+file_read
 ```
 
-也要支持市场或展示层的 hyphen 形式：
+远程或市场工具仍然可以使用带来源前缀的形式：
 
 ```text
-mcp_local-web_search
+mcp_world:web_search
+mcp_world-web_search
 ```
 
 工具匹配规则：
 
-- Agent 配置可以使用 colon 形式。
-- 前端展示可以使用 hyphen 形式。
-- 后端策略匹配两者都要识别为同一个工具。
+- 本地 MCP 工具对 Agent 暴露时不再带 `mcp_local` 前缀。
+- 远程 MCP 工具保留 server 前缀，避免不同 server 的同名工具冲突。
+- Agent 配置可以匹配本地原始名称，也可以匹配远程 colon/hyphen 形式。
+- 后端策略匹配需要识别远程工具的 colon/hyphen 两种形式。
 
 MCP 工具默认策略：
 
@@ -1472,8 +1475,8 @@ MCP ToolResult 标准结构：
   },
   "artifacts": [],
   "metadata": {
-    "toolId": "mcp_local:web_search",
-    "server": "mcp_local",
+    "toolId": "web_search",
+    "server": "local",
     "durationMs": 1234
   }
 }

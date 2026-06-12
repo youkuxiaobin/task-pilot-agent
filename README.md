@@ -246,7 +246,7 @@ sequenceDiagram
 
   Agent->>Tools: to_openai_tools()
   Tools-->>Agent: Tool schemas
-  Agent->>Tools: execute("mcp_local:file_read", args)
+  Agent->>Tools: execute("file_read", args)
   Tools->>Printer: tool_call
   Printer->>Store: add_event(tool_call)
   Tools->>Adapter: execute(args)
@@ -409,7 +409,7 @@ sequenceDiagram
   Runner->>Store: add_event(tool_policy_applied)
   Runner->>React: handle(ctx)
   React->>LLM: ask_tool_async(query, tools)
-  LLM-->>React: Select mcp_local:file_read
+  LLM-->>React: Select file_read
   React->>Tools: execute(file_read, path)
   Tools->>Store: add_event(tool_call)
   Tools->>Market: POST /call_tool
@@ -461,15 +461,15 @@ sequenceDiagram
     "payload": {
       "agentId": "task-pilot-agent",
       "availableTools": [
-        "mcp_local:file_read",
-        "mcp_local:file_list",
-        "mcp_local:file_stat"
+        "file_read",
+        "file_list",
+        "file_stat"
       ],
       "blockedTools": [
-        "mcp_local:shell_exec"
+        "shell_exec"
       ],
       "blockedToolReasons": {
-        "mcp_local:shell_exec": "high_risk_requires_approval"
+        "shell_exec": "high_risk_requires_approval"
       }
     }
   },
@@ -479,7 +479,7 @@ sequenceDiagram
     "payload": {
       "messageType": "tool_call",
       "resultMap": {
-        "tool": "mcp_local:file_read",
+        "tool": "file_read",
         "argumentsSummary": "{\"path\":\"/path/to/task-pilot-agent/README.md\"}",
         "taskId": "demo-readme-001",
         "agentId": "task-pilot-agent",
@@ -493,7 +493,7 @@ sequenceDiagram
     "payload": {
       "messageType": "tool_result",
       "resultMap": {
-        "tool": "mcp_local:file_read",
+        "tool": "file_read",
         "durationMs": 18,
         "failed": false,
         "resultSummary": "{\"path\":\"/path/to/task-pilot-agent/README.md\",\"bytes\":4096,\"content\":\"# TaskPilotAgent...\"}"

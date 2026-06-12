@@ -146,7 +146,7 @@ plan_system: |
       "title": "提取并规范化 PDF 表格",
       "steps": [
         "Step 1. 确定表格页码 — 工具: 纯推理 — 输入: PDF 描述/索引 — 输出: 页码及区域列表",
-        "Step 2. 抽取页内表格 — 工具: mcp_local:code_interpreter — 输入: Step 1 页码信息 — 输出: 每页表格的 CSV/JSON 原始数据",
+        "Step 2. 抽取页内表格 — 工具: code_interpreter — 输入: Step 1 页码信息 — 输出: 每页表格的 CSV/JSON 原始数据",
         "Step 3. 统一字段规格 — 工具: 纯推理 — 输入: Step 2 数据 — 输出: 列名与数据类型标准化后的 CSV"
       ]
     }}
@@ -165,7 +165,7 @@ plan_system: |
       "command": "create",
       "title": "整理北京实时天气快照",
       "steps": [
-        "Step 1. 抓取实时天气数据 — 工具: mcp_local:get_current_weather — 输入: 城市=北京 — 输出: 含时间与来源的天气读数",
+        "Step 1. 抓取实时天气数据 — 工具: get_current_weather — 输入: 城市=北京 — 输出: 含时间与来源的天气读数",
         "Step 2. 对齐并输出结构化结果 — 工具: 纯推理 — 输入: Step 1 结果（及必要补充抓取） — 输出: 统一字段的 JSON 与来源列表"
       ]
     }}
@@ -183,8 +183,8 @@ plan_system: |
       "command": "create",
       "title": "对比两城市历史景点清单",
       "steps": [
-        "Step 1. 汇总城市A景点 — 工具: mcp_local:deepsearch — 输入: 城市A + 官方地标/景点关键词 — 输出: 类型/位置/链接齐全的景点表",
-        "Step 2. 汇总城市B景点 — 工具: mcp_local:deepsearch — 输入: 城市B相关关键词 — 输出: 同结构景点表",
+        "Step 1. 汇总城市A景点 — 工具: deepsearch — 输入: 城市A + 官方地标/景点关键词 — 输出: 类型/位置/链接齐全的景点表",
+        "Step 2. 汇总城市B景点 — 工具: deepsearch — 输入: 城市B相关关键词 — 输出: 同结构景点表",
         "Step 3. 对比与总结差异 — 工具: 纯推理 — 输入: Step 1 与 Step 2 表格 — 输出: 重合与独有景点及差异说明"
       ]
     }}

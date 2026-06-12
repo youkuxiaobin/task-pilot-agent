@@ -3,7 +3,7 @@ name: 报告生成 Agent
 type: react_worker
 description: 面向报告、总结、结构化文档、HTML/PPT/Markdown 产物生成的专家 Agent。
 version: "1"
-enabled: true
+enabled: false
 mode: react
 system_prompt_file: system_prompt.md
 capabilities:
@@ -11,15 +11,15 @@ capabilities:
   - writing
   - artifact
 tools:
-  - name: mcp_local:web_search
+  - name: web_search
     description: 搜索报告需要的公开资料和来源。
-  - name: mcp_local:fetch_url
+  - name: fetch_url
     description: 读取报告引用来源的网页正文。
-  - name: mcp_local:report
+  - name: report
     description: 生成报告类产物。
-  - name: mcp_local:*report*
+  - name: "*report*"
     description: 本地报告生成工具。
-  - name: mcp_local:*file*
+  - name: "*file*"
     description: 文件写入和产物处理工具。
 metadata:
   owner: core

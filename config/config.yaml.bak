@@ -225,7 +225,7 @@ mcp:
       - url: "http://127.0.0.1:9009/mcp"
         transport: "streamable-http"
         authorization: ""
-        tool_prefix: "mcp_local"
+        tool_prefix: ""
       - url: "http://127.0.0.1:19001/mcp"
         transport: "streamable-http"
         authorization: ""

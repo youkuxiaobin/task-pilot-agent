@@ -27,6 +27,14 @@ def _safe_identifier(value: str, *, prefix: str = "item") -> str:
     return text or f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+def _mcp_manifest_key(url: str, tool_prefix: str) -> str:
+    if str(tool_prefix or "").strip():
+        return str(tool_prefix).strip()
+    if "/9009/" in str(url) or str(url).rstrip("/").endswith(":9009/mcp"):
+        return "local"
+    return _safe_identifier(url, prefix="mcp")
+
+
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         result: Dict[str, Any] = {}
@@ -139,7 +147,7 @@ async def mcp_manager_write_manifest(
     target = _resolve_path(output_path, work_dir=work_dir, require_workspace=True)
     manifest = {
         "mcpServers": {
-            item.tool_prefix: {
+            _mcp_manifest_key(item.url, item.tool_prefix): {
                 "url": item.url,
                 "transport": item.transport,
                 "authorizationConfigured": bool(reveal_secret(item.authorization)),

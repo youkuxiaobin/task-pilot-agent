@@ -157,7 +157,7 @@ class MCPTool(BaseTool):
             message = params.get("data") if isinstance(params, dict) else None
             if isinstance(message, str):
                 #print(f"##########report_agent message: {message} {self.name}")
-                if self.name == "mcp_local:report":
+                if self.name == "report":
                     
                     json_message = json.loads(message)
                     if "type" in json_message and json_message["type"] == "report_chunk":

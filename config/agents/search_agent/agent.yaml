@@ -3,7 +3,7 @@ name: 搜索研究 Agent
 type: react_worker
 description: 面向搜索研究、事实核验、来源整理和引用摘要的专家 Agent。
 version: "1"
-enabled: true
+enabled: false
 mode: react
 system_prompt_file: system_prompt.md
 capabilities:
@@ -11,18 +11,18 @@ capabilities:
   - research
   - citation
 tools:
-  - name: mcp_local:web_search
+  - name: web_search
     description: 轻量网页搜索，返回搜索结果和页面正文，不做深度答案生成。
-  - name: mcp_local:fetch_url
+  - name: fetch_url
     description: 读取指定 URL 的渲染后页面正文。
-  - name: mcp_local:web_reader
+  - name: web_reader
     description: 读取已知网页 URL 的正文内容。
-  - name: mcp_local:*search*
+  - name: "*search*"
     description: 本地搜索类工具。
   - name: mcp_world:*search*
     description: 外部搜索类扩展工具。
 denied_tools:
-  - mcp_local:deepsearch
+  - deepsearch
 metadata:
   owner: core
   role: specialist

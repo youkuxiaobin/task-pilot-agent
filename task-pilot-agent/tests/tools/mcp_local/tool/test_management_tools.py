@@ -50,7 +50,7 @@ async def test_create_subagent_defaults_to_task_workspace(tmp_path):
         "Draft Agent",
         "Drafts text",
         "You draft text.",
-        tools=["mcp_local:file_read"],
+        tools=["file_read"],
         work_dir=str(tmp_path),
     )
 

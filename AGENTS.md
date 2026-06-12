@@ -345,7 +345,7 @@ Requirements:
 - The default general Agent must have basic file capabilities: read file, write file, list directory, stat file, create directory, copy, move, and delete.
 - File read can read user-provided local paths. Write, delete, and move tools must be restricted to the task work directory by default.
 - Shell or command execution is high risk. It must be controlled by tool policy and permission flags, and must not be exposed by default.
-- MCP Market tool names can use hyphen form like `mcp_local-file_read`; Agent config can use colon form like `mcp_local:file_read`; policy matching must support both.
+- Local MCP tools are exposed without the old `mcp_local` prefix, for example `file_read`; remote MCP tool names can still use source-prefixed colon or hyphen forms such as `mcp_world:web_search` or `mcp_world-web_search`, and policy matching must support both remote forms.
 
 ### 5. Sandbox Runtime
 
@@ -544,7 +544,7 @@ tools:
       timeout_seconds: 30
 
   denied:
-    - mcp_local:shell
+    - shell
 
 handoffs:
   allowed:
@@ -599,14 +599,14 @@ capabilities:
 
 tools:
   allowed:
-    - id: mcp_local:deepsearch
+    - id: deepsearch
       alias: Deep Search
       purpose: Search public web pages and sources.
       when_to_use: Use when the task needs recent information, external sources, or factual verification.
       risk_level: low
       timeout_seconds: 120
 
-    - id: mcp_local:web_reader
+    - id: web_reader
       alias: Web Reader
       purpose: Read page body from a given URL.
       when_to_use: Use when a URL is already known and content extraction is needed.
@@ -614,8 +614,8 @@ tools:
       timeout_seconds: 60
 
   denied:
-    - mcp_local:file_write
-    - mcp_local:shell
+    - file_write
+    - shell
 
 handoffs:
   allowed:
@@ -984,7 +984,7 @@ mcp:
   mcp_market:
     mcp_servers:
       - url: "http://127.0.0.1:9009/mcp"
-        tool_prefix: "mcp_local"
+        tool_prefix: ""
 ```
 
 ### Config Priority
