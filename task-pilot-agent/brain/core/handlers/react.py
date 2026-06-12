@@ -7,87 +7,13 @@ from brain.core.agents.ReActAgentImp import ReActAgentImp
 from brain.core.agents.summary_agent import SummaryAgent
 from brain.core.context import AgentContext
 from brain.core.handlers.base import AgentHandlerService
+from brain.core.planning_policy import FINANCIAL_REPORT_SIGNALS, PLAN_TOOL_NAME, should_use_plan
 from brain.models.requests import AgentRequest
 from config.config import agentSettings
 from llm.manager import store as prompt_store
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-PLAN_TOOL_NAME = "builtin:plan_tool"
-
-EXPLICIT_PLAN_TRIGGERS = (
-    "一步步",
-    "分步骤",
-    "详细",
-    "完整",
-    "全面",
-    "调研",
-    "研究",
-    "报告",
-    "方案",
-    "计划",
-    "规划",
-    "实现并测试",
-    "开发并测试",
-    "step by step",
-    "multi-step",
-    "comprehensive",
-    "research",
-    "report",
-    "implementation plan",
-    "plan",
-)
-
-COMPLEX_TASK_SIGNALS = (
-    "搜索",
-    "读取",
-    "对比",
-    "比较",
-    "分析",
-    "总结",
-    "生成",
-    "实现",
-    "开发",
-    "修复",
-    "测试",
-    "文件",
-    "数据",
-    "网页",
-    "浏览器",
-    "search",
-    "read",
-    "compare",
-    "analyze",
-    "summarize",
-    "generate",
-    "implement",
-    "build",
-    "fix",
-    "test",
-    "file",
-    "data",
-    "browser",
-)
-
-FINANCIAL_REPORT_SIGNALS = (
-    "财报",
-    "财年",
-    "年报",
-    "季报",
-    "业绩",
-    "营收",
-    "收入",
-    "利润",
-    "净利润",
-    "ebita",
-    "ebitda",
-    "financial report",
-    "annual report",
-    "earnings",
-    "revenue",
-    "profit",
-)
 
 
 class ReactHandler(AgentHandlerService):
@@ -104,7 +30,6 @@ class ReactHandler(AgentHandlerService):
         return mode.lower() == "react"
 
     async def handle(self, ctx: AgentContext, req: AgentRequest) -> None:
-        summary_agent = SummaryAgent(ctx)
         react_agent = ReActAgentImp(ctx, self._prompt, self._max_steps)
 
         self._emit_phase(ctx, "react", "started", agent="react")
@@ -134,8 +59,14 @@ class ReactHandler(AgentHandlerService):
         if final_answer and not any("最终答案" in item for item in evidence):
             evidence.append(f"最终答案：{final_answer}")
 
+        if await self._should_return_direct_answer(ctx, final_answer):
+            self._emit_phase(ctx, "summary", "skipped", agent="summary", reason="simple_direct_answer")
+            ctx.printer.send(None, "result", final_answer, None, True)
+            return
+
         summary_step_index = await self._mark_summary_step_running(ctx)
         try:
+            summary_agent = SummaryAgent(ctx)
             self._emit_phase(ctx, "summary", "started", agent="summary")
             final_text = await summary_agent.summarize(ctx.query, [], evidence)
         except Exception:
@@ -253,11 +184,29 @@ class ReactHandler(AgentHandlerService):
             return tool_collection.get_tool(PLAN_TOOL_NAME)
         return getattr(tool_collection, "tool_map", {}).get(PLAN_TOOL_NAME)
 
+    async def _should_return_direct_answer(self, ctx: AgentContext, final_answer: Optional[str]) -> bool:
+        if not final_answer:
+            return False
+        if await should_use_plan(ctx):
+            return False
+        return not self._has_existing_plan(ctx)
+
+    def _has_existing_plan(self, ctx: AgentContext) -> bool:
+        plan_tool = self._get_plan_tool(ctx)
+        if plan_tool is None or not hasattr(plan_tool, "plan_dict"):
+            return False
+        try:
+            plan = plan_tool.plan_dict()
+        except Exception:
+            logger.exception("failed to inspect plan state for request %s", ctx.requestId)
+            return False
+        return isinstance(plan, dict) and bool(plan.get("steps"))
+
     async def _maybe_create_initial_plan(self, ctx: AgentContext) -> Optional[Dict[str, Any]]:
         tool_collection = getattr(ctx, "toolCollection", None)
         if not tool_collection or PLAN_TOOL_NAME not in getattr(tool_collection, "tool_map", {}):
             return None
-        if not _query_needs_plan(getattr(ctx, "query", "") or ""):
+        if not await should_use_plan(ctx):
             return None
 
         title, steps = _initial_plan_title_and_steps(ctx)
@@ -300,21 +249,6 @@ class ReactHandler(AgentHandlerService):
             "input": create_payload,
             "observation": observation,
         }
-
-
-def _query_needs_plan(query: str) -> bool:
-    text = " ".join(str(query or "").strip().lower().split())
-    if not text:
-        return False
-    if any(signal in text for signal in FINANCIAL_REPORT_SIGNALS):
-        return True
-    if any(trigger in text for trigger in EXPLICIT_PLAN_TRIGGERS):
-        return True
-    signal_count = sum(1 for signal in COMPLEX_TASK_SIGNALS if signal in text)
-    if signal_count >= 2:
-        return True
-    return len(text) >= 120 and signal_count >= 1
-
 
 def _initial_plan_title_and_steps(ctx: AgentContext) -> Tuple[str, List[str]]:
     query = getattr(ctx, "query", "") or ""

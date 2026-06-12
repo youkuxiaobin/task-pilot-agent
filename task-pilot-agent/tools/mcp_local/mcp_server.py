@@ -19,12 +19,42 @@ from tools.mcp_local.tool.filesystem import (
     copy_file as filesystem_copy_file,
     create_directory as filesystem_create_directory,
     delete_path as filesystem_delete_path,
+    edit_file as filesystem_edit_file,
     file_stat as filesystem_file_stat,
+    glob_paths as filesystem_glob_paths,
+    grep_files as filesystem_grep_files,
     list_directory as filesystem_list_directory,
     move_file as filesystem_move_file,
     read_file as filesystem_read_file,
     shell_exec as filesystem_shell_exec,
     write_file as filesystem_write_file,
+)
+from tools.mcp_local.tool.image_generation import text_to_image as text_to_image_run
+from tools.mcp_local.tool.management_tools import (
+    config_read as config_read_run,
+    config_update as config_update_run,
+    create_subagent as create_subagent_run,
+    discover_channels as discover_channels_run,
+    install_skill as install_skill_run,
+    knowledge_add as knowledge_add_run,
+    knowledge_delete as knowledge_delete_run,
+    knowledge_search as knowledge_search_run,
+    load_skill as load_skill_run,
+    mcp_manager_add_server as mcp_manager_add_server_run,
+    mcp_manager_list_servers as mcp_manager_list_servers_run,
+    mcp_manager_write_manifest as mcp_manager_write_manifest_run,
+    memory_add as memory_add_run,
+    memory_delete as memory_delete_run,
+    memory_search as memory_search_run,
+    search_skills as search_skills_run,
+    send_message as send_message_run,
+)
+from tools.mcp_local.tool.process_manager import (
+    list_process_commands as list_process_commands_run,
+    poll_process_command as poll_process_command_run,
+    start_process_command as start_process_command_run,
+    stop_process_command as stop_process_command_run,
+    write_process_command as write_process_command_run,
 )
 from tools.mcp_local.util.file_util import upload_file as upload_file_util, _FILE_SERVER_BASE
 from tools.mcp_local.model.context import RequestIdCtx
@@ -155,22 +185,16 @@ async def code_interpreter(
 			input_content=normalized_input,
 		)
 
-#@mcp.tool(
-#    name="browser_agent",
-#    description=("浏览器智能体，可以自动调用浏览器完成任务，返回任务的结果。\n"
-#        "\n"
-#        "功能：\n"
-#        "- 自动调用浏览器完成任务，返回任务的结果。\n"
-#        "\n"
-#        "参数说明：\n"
-#        "- task (str): 必填，说明需要完成的任务。\n"
-#        ),
-#)
-#async def browser_agent(
-#    task: str,
-#) -> Dict[str, Any]:
-#    ret = await BrowserAgent().run(task)
-#    return ret.model_dump()
+@mcp.tool(
+    name="browser_agent",
+    description=(
+        "浏览器智能体，可以在浏览器沙箱中打开网页、点击、填写表单并返回任务结果。"
+        "适合需要真实页面交互的浏览器任务。"
+    ),
+)
+async def browser_agent(task: str) -> Dict[str, Any]:
+    ret = await BrowserAgent().run(task)
+    return ret.model_dump()
 
 @mcp.tool(name="audio_tool", description="音频工具，可以分析音频文件")
 async def audio_tool(path: str, query: str) -> str:
@@ -236,6 +260,28 @@ async def file_write(
 
 
 @mcp.tool(
+    name="file_edit",
+    description="基于精确字符串匹配做文件局部替换。目标文件必须位于任务工作目录内。",
+)
+async def file_edit(
+    path: str,
+    old_text: str,
+    new_text: str,
+    expected_replacements: int = 1,
+    encoding: str = "utf-8",
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_edit_file(
+        path,
+        old_text,
+        new_text,
+        expected_replacements=expected_replacements,
+        encoding=encoding,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(
     name="file_list",
     description="列出目录内容。支持 Linux/macOS/Windows 路径，支持递归和最大返回数量限制。",
 )
@@ -249,6 +295,46 @@ async def file_list(
         path,
         recursive=recursive,
         max_entries=max_entries,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(name="file_glob", description="按通配符在目录下搜索文件或目录。")
+async def file_glob(
+    pattern: str,
+    root: str = ".",
+    include_hidden: bool = False,
+    max_results: int = 200,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_glob_paths(
+        pattern,
+        root=root,
+        include_hidden=include_hidden,
+        max_results=max_results,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(name="file_grep", description="在文件内容中搜索文本或正则表达式。")
+async def file_grep(
+    query: str,
+    root: str = ".",
+    file_pattern: str = "*",
+    regex: bool = False,
+    case_sensitive: bool = False,
+    max_results: int = 200,
+    context_lines: int = 0,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await filesystem_grep_files(
+        query,
+        root=root,
+        file_pattern=file_pattern,
+        regex=regex,
+        case_sensitive=case_sensitive,
+        max_results=max_results,
+        context_lines=context_lines,
         work_dir=work_dir,
     )
 
@@ -326,6 +412,191 @@ async def shell_exec(
         max_output_chars=max_output_chars,
         work_dir=work_dir,
     )
+
+
+@mcp.tool(name="process_command_start", description="启动长生命周期命令行进程。高风险工具，默认不应启用。")
+async def process_command_start(
+    command: str,
+    working_dir: str = ".",
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await start_process_command_run(command, working_dir=working_dir, work_dir=work_dir)
+
+
+@mcp.tool(name="process_command_poll", description="查看长生命周期命令行进程状态和最近输出。")
+async def process_command_poll(process_id: str, max_output_chars: int = 12000) -> Dict[str, Any]:
+    return await poll_process_command_run(process_id, max_output_chars=max_output_chars)
+
+
+@mcp.tool(name="process_command_write", description="向长生命周期命令行进程写入标准输入。高风险工具，默认不应启用。")
+async def process_command_write(process_id: str, input_text: str) -> Dict[str, Any]:
+    return await write_process_command_run(process_id, input_text)
+
+
+@mcp.tool(name="process_command_stop", description="停止长生命周期命令行进程。")
+async def process_command_stop(process_id: str, kill: bool = False) -> Dict[str, Any]:
+    return await stop_process_command_run(process_id, kill=kill)
+
+
+@mcp.tool(name="process_command_list", description="列出当前仍由工具管理的长生命周期进程。")
+async def process_command_list() -> Dict[str, Any]:
+    return await list_process_commands_run()
+
+
+@mcp.tool(name="text_to_image", description="根据文本描述生成图片，并把图片保存到任务工作目录。")
+async def text_to_image(
+    prompt: str,
+    size: str = "1024x1024",
+    output_path: Optional[str] = None,
+    model: Optional[str] = None,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await text_to_image_run(
+        prompt,
+        size=size,
+        output_path=output_path,
+        model=model,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(name="config_read", description="读取当前运行配置，默认会隐藏敏感值。")
+async def config_read(section: Optional[str] = None, include_sensitive: bool = False) -> Dict[str, Any]:
+    return await config_read_run(section=section, include_sensitive=include_sensitive)
+
+
+@mcp.tool(name="config_update", description="修改应用或 Agent 配置。高风险工具，默认需要显式放开。")
+async def config_update(
+    target: str,
+    field_path: str,
+    value: Any,
+    agent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await config_update_run(target, field_path, value, agent_id=agent_id)
+
+
+@mcp.tool(name="mcp_manager_list_servers", description="列出当前配置的 MCP Server。")
+async def mcp_manager_list_servers() -> Dict[str, Any]:
+    return await mcp_manager_list_servers_run()
+
+
+@mcp.tool(name="mcp_manager_write_manifest", description="把当前 MCP 配置导出为 mcp.json 到任务工作目录。")
+async def mcp_manager_write_manifest(
+    output_path: str = "mcp.json",
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await mcp_manager_write_manifest_run(output_path=output_path, work_dir=work_dir)
+
+
+@mcp.tool(name="mcp_manager_add_server", description="向应用配置追加 MCP Server。高风险工具，默认需要显式放开。")
+async def mcp_manager_add_server(
+    url: str,
+    tool_prefix: str,
+    transport: str = "streamable-http",
+    authorization: str = "",
+) -> Dict[str, Any]:
+    return await mcp_manager_add_server_run(
+        url,
+        tool_prefix,
+        transport=transport,
+        authorization=authorization,
+    )
+
+
+@mcp.tool(name="discover_channels", description="发现当前可用的消息发送渠道。")
+async def discover_channels() -> Dict[str, Any]:
+    return await discover_channels_run()
+
+
+@mcp.tool(name="message_send", description="向本地任务流或配置的外部 webhook 发送消息。")
+async def message_send(
+    channel: str,
+    message: str,
+    ctx: Context[ServerSession, None],
+    title: str = "",
+    webhook_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    result = await send_message_run(channel, message, title=title, webhook_url=webhook_url)
+    if channel == "local_task" and ctx is not None:
+        await ctx.info(message)
+    return result
+
+
+@mcp.tool(name="skill_search", description="搜索当前可用 Agent 能力和任务工作目录内安装的技能。")
+async def skill_search(query: str = "", limit: int = 20, work_dir: Optional[str] = None) -> Dict[str, Any]:
+    return await search_skills_run(query=query, limit=limit, work_dir=work_dir)
+
+
+@mcp.tool(name="skill_load", description="加载一个已存在的 Agent 能力说明或任务本地技能说明。")
+async def skill_load(skill_id: str, work_dir: Optional[str] = None) -> Dict[str, Any]:
+    return await load_skill_run(skill_id, work_dir=work_dir)
+
+
+@mcp.tool(name="skill_install", description="把技能说明安装到任务工作目录，供本次任务后续使用。")
+async def skill_install(skill_id: str, content: str, work_dir: Optional[str] = None) -> Dict[str, Any]:
+    return await install_skill_run(skill_id, content, work_dir=work_dir)
+
+
+@mcp.tool(name="create_subagent", description="创建子 Agent 配置。默认只写入任务工作目录，不注册为运行时 Agent。")
+async def create_subagent(
+    agent_id: str,
+    name: str,
+    description: str,
+    system_prompt: str,
+    tools: Optional[List[str]] = None,
+    enable_in_registry: bool = False,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await create_subagent_run(
+        agent_id,
+        name,
+        description,
+        system_prompt,
+        tools=tools,
+        enable_in_registry=enable_in_registry,
+        work_dir=work_dir,
+    )
+
+
+@mcp.tool(name="memory_search", description="按当前用户、Agent 或 run 范围搜索长期记忆。")
+async def memory_search(
+    query: str,
+    user_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    limit: int = 10,
+) -> Dict[str, Any]:
+    return await memory_search_run(query, user_id=user_id, agent_id=agent_id, run_id=run_id, limit=limit)
+
+
+@mcp.tool(name="memory_add", description="写入长期记忆。")
+async def memory_add(
+    content: str,
+    user_id: str,
+    agent_id: str,
+    run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await memory_add_run(content, user_id=user_id, agent_id=agent_id, run_id=run_id)
+
+
+@mcp.tool(name="memory_delete", description="删除长期记忆。")
+async def memory_delete(memory_id: str) -> Dict[str, Any]:
+    return await memory_delete_run(memory_id)
+
+
+@mcp.tool(name="knowledge_search", description="查询知识库内容。")
+async def knowledge_search(query: str, limit: int = 10) -> Dict[str, Any]:
+    return await knowledge_search_run(query, limit=limit)
+
+
+@mcp.tool(name="knowledge_add", description="写入知识库内容。")
+async def knowledge_add(content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return await knowledge_add_run(content, metadata=metadata)
+
+
+@mcp.tool(name="knowledge_delete", description="删除知识库内容。")
+async def knowledge_delete(document_id: str) -> Dict[str, Any]:
+    return await knowledge_delete_run(document_id)
 
 async def _accumulate_report_stream(
     task: str,

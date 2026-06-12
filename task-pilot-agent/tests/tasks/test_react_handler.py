@@ -50,12 +50,23 @@ class FakeReactAgent:
 
 
 class FakeSummaryAgent:
+    calls = 0
+
     def __init__(self, ctx) -> None:
         self.ctx = ctx
 
     async def summarize(self, _query, _plan_steps, _evidence):
+        FakeSummaryAgent.calls += 1
         self.ctx.printer.send("summary-1", "result", "summary answer", None, True)
         return "summary answer"
+
+
+async def fake_plan_needed(_ctx, query=None, **_kwargs):
+    return True
+
+
+async def fake_plan_not_needed(_ctx, query=None, **_kwargs):
+    return False
 
 
 class FakeSearchTool(BaseTool):
@@ -128,8 +139,10 @@ def test_react_handler_auto_creates_plan_for_complex_request(monkeypatch):
 
     react_module = importlib.reload(react_module)
     FakeReactAgent.instances = []
+    FakeSummaryAgent.calls = 0
     monkeypatch.setattr(react_module, "ReActAgentImp", FakeReactAgent)
     monkeypatch.setattr(react_module, "SummaryAgent", FakeSummaryAgent)
+    monkeypatch.setattr(react_module, "should_use_plan", fake_plan_needed)
 
     query = "请完整调研 web_search 的设计，分析如何拆开 deepsearch，并给出实现和测试方案"
     ctx, printer = _ctx(query)
@@ -146,6 +159,7 @@ def test_react_handler_auto_creates_plan_for_complex_request(monkeypatch):
     assert agent.history[0]["action"] == "builtin:plan_tool"
     assert agent.history[0]["input"]["command"] == "create"
     assert "step_status" in agent.history[0]["observation"]
+    assert FakeSummaryAgent.calls == 1
 
 
 def test_react_handler_does_not_force_plan_for_simple_request(monkeypatch):
@@ -153,8 +167,10 @@ def test_react_handler_does_not_force_plan_for_simple_request(monkeypatch):
 
     react_module = importlib.reload(react_module)
     FakeReactAgent.instances = []
+    FakeSummaryAgent.calls = 0
     monkeypatch.setattr(react_module, "ReActAgentImp", FakeReactAgent)
     monkeypatch.setattr(react_module, "SummaryAgent", FakeSummaryAgent)
+    monkeypatch.setattr(react_module, "should_use_plan", fake_plan_not_needed)
 
     query = "你好"
     ctx, printer = _ctx(query)
@@ -165,6 +181,9 @@ def test_react_handler_does_not_force_plan_for_simple_request(monkeypatch):
     assert "plan_created" not in message_types
     assert "plan_step_started" not in message_types
     assert FakeReactAgent.instances[0].history == []
+    result_events = [event for event in printer.events if event["message_type"] == "result"]
+    assert result_events[-1]["message"] == "react answer"
+    assert FakeSummaryAgent.calls == 0
 
 
 def test_react_handler_auto_creates_plan_for_financial_report_question(monkeypatch):
@@ -172,8 +191,10 @@ def test_react_handler_auto_creates_plan_for_financial_report_question(monkeypat
 
     react_module = importlib.reload(react_module)
     FakeReactAgent.instances = []
+    FakeSummaryAgent.calls = 0
     monkeypatch.setattr(react_module, "ReActAgentImp", FakeReactAgent)
     monkeypatch.setattr(react_module, "SummaryAgent", FakeSummaryAgent)
+    monkeypatch.setattr(react_module, "should_use_plan", fake_plan_needed)
 
     query = "2025年阿里财报如何"
     ctx, printer = _ctx(query)
@@ -186,6 +207,7 @@ def test_react_handler_auto_creates_plan_for_financial_report_question(monkeypat
     plan_created = next(event for event in printer.events if event["message_type"] == "plan_created")
     assert "财报" in plan_created["message"]["steps"][0]
     assert FakeReactAgent.instances[0].history[0]["action"] == "builtin:plan_tool"
+    assert FakeSummaryAgent.calls == 1
 
 
 def test_react_agent_syncs_tool_result_into_running_plan_step():

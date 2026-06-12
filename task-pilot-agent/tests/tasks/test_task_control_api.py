@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 
 @pytest.fixture()
@@ -637,9 +638,15 @@ def test_session_message_api_adds_user_message_and_starts_run(app_modules, monke
             "session-chat",
             app.AgentSessionMessageReq(
                 content="search this",
-                mode="react",
-                run_environment="sandbox",
-                selected_tools=["mcp_local:web_search"],
+                files=[],
+                options={
+                    "agent_id": "search_agent",
+                    "language": "en",
+                    "output_style": "html",
+                    "mode": "react",
+                    "run_environment": "sandbox",
+                    "selected_tools": ["mcp_local:web_search"],
+                },
             ),
             current_user=current_user,
         )
@@ -655,16 +662,22 @@ def test_session_message_api_adds_user_message_and_starts_run(app_modules, monke
     assert background_req.trace_id == payload["runId"]
     assert background_req.conversation_id == "session-chat"
     assert background_req.session_message_id == payload["message"]["messageId"]
+    assert background_req.agent_id == "search_agent"
+    assert background_req.language == "en"
+    assert background_req.outputStyle == "html"
+    assert background_req.mode == "react"
     assert background_req.selected_tools == ["mcp_local:web_search"]
+    assert background_req.run_environment == "sandbox"
     created_background[0].close()
 
     updated_session = app.serialize_session(session_store.get_session("session-chat"))
     assert updated_session["status"] == app.AgentSessionStatus.RUNNING
     assert updated_session["currentRunId"] == payload["runId"]
     assert updated_session["lastMessageId"] == payload["message"]["messageId"]
+    assert updated_session["agentId"] == "search_agent"
 
 
-def test_session_api_accepts_documented_camel_case_fields(app_modules, monkeypatch):
+def test_session_create_update_accept_documented_camel_case_and_message_uses_options(app_modules, monkeypatch):
     app, _tasks = app_modules
     current_user = SimpleNamespace(user_id="user-1")
     created_background = []
@@ -705,11 +718,13 @@ def test_session_api_accepts_documented_camel_case_fields(app_modules, monkeypat
             "session-camel",
             app.AgentSessionMessageReq(
                 content="search with documented fields",
-                agentId="search_agent",
-                mode="react",
-                runEnvironment="sandbox",
-                selectedTools=["mcp_local:web_search"],
-                approvedTools=["mcp_local:code_interpreter"],
+                options={
+                    "agent_id": "search_agent",
+                    "mode": "react",
+                    "run_environment": "sandbox",
+                    "selected_tools": ["mcp_local:web_search"],
+                    "approved_tools": ["mcp_local:code_interpreter"],
+                },
             ),
             current_user=current_user,
         )
@@ -727,6 +742,24 @@ def test_session_api_accepts_documented_camel_case_fields(app_modules, monkeypat
     assert background_req.approved_tools == ["mcp_local:code_interpreter"]
     assert background_req.run_environment == "sandbox"
     created_background[0].close()
+
+
+def test_session_message_request_rejects_legacy_flat_fields(app_modules):
+    app, _tasks = app_modules
+
+    with pytest.raises(ValidationError):
+        app.AgentSessionMessageReq(
+            content="legacy message",
+            uploadFile=[],
+            agentId="search_agent",
+            selectedTools=["mcp_local:web_search"],
+        )
+
+    with pytest.raises(ValidationError):
+        app.AgentSessionMessageReq(
+            content="legacy option casing",
+            options={"outputStyle": "html"},
+        )
 
 
 def test_autoagent_uses_recent_session_messages_as_model_context(app_modules, monkeypatch):

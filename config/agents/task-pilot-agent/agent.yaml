@@ -101,6 +101,47 @@ tools:
           type: string
         todoList:
           type: object
+  - name: builtin:handoff
+    description: 把子任务交给预先配置好的专业 Agent。
+    input_schema:
+      type: object
+      properties:
+        target_agent_id:
+          type: string
+        task:
+          type: string
+        mode:
+          type: string
+        outputStyle:
+          type: string
+      required:
+        - target_agent_id
+        - task
+    output_schema:
+      type: object
+      properties:
+        taskId:
+          type: string
+        status:
+          type: string
+  - name: builtin:request_input
+    description: 缺少关键信息时请求用户补充输入，并让任务进入等待输入状态。
+    input_schema:
+      type: object
+      properties:
+        prompt:
+          type: string
+        reason:
+          type: string
+      required:
+        - prompt
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+        taskId:
+          type: string
   - name: mcp_local:file_read
     description: 读取 Linux/macOS/Windows 本机文件内容。
   - name: mcp_local:file_list
@@ -144,10 +185,41 @@ tools:
     policy:
       risk: high
       requires_explicit_enable: true
+  - name: mcp_local:process_command_*
+    description: 管理长生命周期命令行进程，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:config_update
+    description: 修改运行配置，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:mcp_manager_add_server
+    description: 修改 MCP Server 配置，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:create_subagent
+    description: 创建子 Agent 配置；注册到运行时需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:skill_install
+    description: 安装任务本地技能说明。
+    policy:
+      risk: medium
   - name: "mcp_*:*"
     description: 允许使用当前工具市场中可用的 MCP 工具。
 denied_tools:
   - mcp_local:deepsearch
+handoffs:
+  allowed:
+    - search_agent
+    - browser_agent
+    - data_agent
+    - code_agent
+    - report_agent
 metadata:
   owner: core
   compatibility: legacy

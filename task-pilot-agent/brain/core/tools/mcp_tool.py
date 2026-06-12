@@ -75,6 +75,10 @@ class MCPTool(BaseTool):
             "trace_id": getattr(self.context, "requestId", None),
             "task_id": getattr(self.context, "task_id", None),
             "work_dir": getattr(self.context, "work_dir", None),
+            "user_id": getattr(self.context, "user_id", None),
+            "agent_id": getattr(self.context, "agent_id", None),
+            "run_id": getattr(self.context, "run_id", None),
+            "session_id": getattr(self.context, "sessionId", None),
         }
         for key, value in defaults.items():
             if key in properties and key not in arguments and value:

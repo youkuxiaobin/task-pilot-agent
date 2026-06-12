@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fnmatch
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 DEFAULT_MAX_READ_BYTES = 128 * 1024
 DEFAULT_MAX_OUTPUT_CHARS = 12_000
+DEFAULT_MAX_SEARCH_RESULTS = 200
 
 
 def _workspace_root(work_dir: Optional[str]) -> Path:
@@ -132,6 +135,38 @@ async def write_file(
     }
 
 
+async def edit_file(
+    path: str,
+    old_text: str,
+    new_text: str,
+    *,
+    expected_replacements: int = 1,
+    encoding: str = "utf-8",
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    target = _resolve_path(path, work_dir=work_dir, require_workspace=True, must_exist=True)
+    if not target.is_file():
+        raise IsADirectoryError(str(target))
+    if old_text == "":
+        raise ValueError("old_text is required")
+
+    content = target.read_text(encoding=encoding or "utf-8")
+    count = content.count(old_text)
+    expected = int(expected_replacements or 1)
+    if count == 0:
+        raise ValueError("old_text was not found")
+    if expected > 0 and count != expected:
+        raise ValueError(f"expected {expected} replacement(s), found {count}")
+
+    updated = content.replace(old_text, new_text, count if expected <= 0 else expected)
+    target.write_text(updated, encoding=encoding or "utf-8")
+    return {
+        "path": str(target),
+        "replacements": count if expected <= 0 else expected,
+        "size": target.stat().st_size,
+    }
+
+
 async def list_directory(
     path: str = ".",
     *,
@@ -159,6 +194,120 @@ async def list_directory(
         "recursive": bool(recursive),
         "truncated": truncated,
         "entries": entries,
+    }
+
+
+async def glob_paths(
+    pattern: str,
+    *,
+    root: str = ".",
+    include_hidden: bool = False,
+    max_results: int = DEFAULT_MAX_SEARCH_RESULTS,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    if not str(pattern or "").strip():
+        raise ValueError("pattern is required")
+
+    root_path = _resolve_path(root or ".", work_dir=work_dir, must_exist=True)
+    if not root_path.is_dir():
+        raise NotADirectoryError(str(root_path))
+
+    safe_limit = max(1, min(int(max_results or DEFAULT_MAX_SEARCH_RESULTS), 2000))
+    results: List[Dict[str, Any]] = []
+    truncated = False
+    for item in root_path.rglob("*"):
+        relative = item.relative_to(root_path).as_posix()
+        if not include_hidden and any(part.startswith(".") for part in item.relative_to(root_path).parts):
+            continue
+        if not fnmatch.fnmatch(relative, pattern) and not fnmatch.fnmatch(item.name, pattern):
+            continue
+        if len(results) >= safe_limit:
+            truncated = True
+            break
+        results.append(_file_entry(item))
+
+    results.sort(key=lambda entry: entry["path"])
+    return {
+        "root": str(root_path),
+        "pattern": pattern,
+        "truncated": truncated,
+        "matches": results,
+    }
+
+
+async def grep_files(
+    query: str,
+    *,
+    root: str = ".",
+    file_pattern: str = "*",
+    regex: bool = False,
+    case_sensitive: bool = False,
+    max_results: int = DEFAULT_MAX_SEARCH_RESULTS,
+    context_lines: int = 0,
+    work_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    if not str(query or "").strip():
+        raise ValueError("query is required")
+
+    root_path = _resolve_path(root or ".", work_dir=work_dir, must_exist=True)
+    if root_path.is_file():
+        candidates = [root_path]
+        search_root = root_path.parent
+    elif root_path.is_dir():
+        candidates = [item for item in root_path.rglob("*") if item.is_file()]
+        search_root = root_path
+    else:
+        raise FileNotFoundError(str(root_path))
+
+    flags = 0 if case_sensitive else re.IGNORECASE
+    compiled = re.compile(query, flags=flags) if regex else None
+    needle = query if case_sensitive else query.lower()
+    safe_limit = max(1, min(int(max_results or DEFAULT_MAX_SEARCH_RESULTS), 2000))
+    safe_context = max(0, min(int(context_lines or 0), 5))
+    matches: List[Dict[str, Any]] = []
+    truncated = False
+
+    for file_path in candidates:
+        rel = file_path.relative_to(search_root).as_posix() if file_path != search_root else file_path.name
+        if not fnmatch.fnmatch(rel, file_pattern) and not fnmatch.fnmatch(file_path.name, file_pattern):
+            continue
+        try:
+            raw = file_path.read_bytes()
+        except OSError:
+            continue
+        if b"\x00" in raw[:4096]:
+            continue
+        text = raw[:1024 * 1024].decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            haystack = line if case_sensitive else line.lower()
+            found = bool(compiled.search(line)) if compiled else (needle in haystack)
+            if not found:
+                continue
+            if len(matches) >= safe_limit:
+                truncated = True
+                break
+            start = max(0, index - safe_context)
+            end = min(len(lines), index + safe_context + 1)
+            matches.append(
+                {
+                    "path": str(file_path),
+                    "lineNumber": index + 1,
+                    "line": line,
+                    "context": lines[start:end] if safe_context else [],
+                }
+            )
+        if truncated:
+            break
+
+    return {
+        "root": str(root_path),
+        "query": query,
+        "filePattern": file_pattern,
+        "regex": bool(regex),
+        "caseSensitive": bool(case_sensitive),
+        "truncated": truncated,
+        "matches": matches,
     }
 
 

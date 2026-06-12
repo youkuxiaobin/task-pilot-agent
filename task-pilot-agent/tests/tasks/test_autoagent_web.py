@@ -211,7 +211,8 @@ def test_task_detail_is_continuous_chat_window():
     assert "if (source === 'home') resetConversationState()" in submit_block
     assert "await ensureCurrentSession(text)" in submit_block
     assert "content: text" in submit_block
-    assert "uploadFile: uploadedFiles" in submit_block
+    assert "files: uploadedFiles" in submit_block
+    assert "options: {" in submit_block
     assert "/messages" in submit_block
     assert "/messages?${params}" in source
     assert "const params = new URLSearchParams({ limit: '50', before })" in source
@@ -419,13 +420,14 @@ def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     assert "agent_id: selectedAgentId.value || undefined" in submit_block
     assert "await ensureCurrentSession(text)" in submit_block
     assert "language: language.value === 'en' ? 'en' : 'ch'" in submit_block
-    assert "uploadFile: uploadedFiles" in submit_block
+    assert "files: uploadedFiles" in submit_block
+    assert "options: {" in submit_block
     assert "if (advancedOpen.value)" in submit_block
-    assert "payload.outputStyle = outputStyle.value || undefined" in submit_block
-    assert "payload.mode = runMode.value || undefined" in submit_block
-    assert "payload.run_environment = runEnvironment.value || undefined" in submit_block
-    assert "payload.selected_tools = selected" in submit_block
-    assert "payload.approved_tools = approved" in submit_block
+    assert "payload.options.output_style = outputStyle.value || undefined" in submit_block
+    assert "payload.options.mode = runMode.value || undefined" in submit_block
+    assert "payload.options.run_environment = runEnvironment.value || undefined" in submit_block
+    assert "payload.options.selected_tools = selected" in submit_block
+    assert "payload.options.approved_tools = approved" in submit_block
     mode_select = source.split("<select v-model=\"runMode\">", 1)[1].split("</select>", 1)[0]
     assert mode_select.index("<option value=\"react\">ReAct</option>") < mode_select.index("Legacy Plan Executor")
 

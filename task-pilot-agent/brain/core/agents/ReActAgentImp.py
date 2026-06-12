@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from brain.core.agents.base_agent import AgentState
 from brain.core.agents.react_agent import ReActAgent
 from brain.core.context import AgentContext
+from brain.core.planning_policy import PLAN_TOOL_NAME
 from config.config import agentSettings
 from llm.manager import react_mgr
 from llm.types import LLMMessage, RoleType, ToolCall
@@ -13,7 +14,6 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-PLAN_TOOL_NAME = "builtin:plan_tool"
 DUPLICATE_GUARDED_TOOL_TOKENS = (
     "web_search",
     "deepsearch",

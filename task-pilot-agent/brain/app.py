@@ -5,6 +5,7 @@ import json
 import asyncio
 import time
 import uuid
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,6 +77,35 @@ SESSION_STREAM_IDLE_SLEEP_SECONDS = 0.25
 agentRegistry = AgentRegistry()
 runningAgentTasks: Dict[str, asyncio.Task] = {}
 
+
+@dataclass
+class AutoAgentRequestPrep:
+    request: GptQueryReq
+    messages: List[AgentMessage]
+    trace_id: str
+    agent_config: Optional[AgentConfig]
+    resolved_mode: str
+    selected_tools: Optional[List[str]]
+    approved_tools: Optional[List[str]]
+    agent_snapshot: Optional[Dict[str, Any]]
+
+
+@dataclass
+class AutoAgentRunState:
+    task_id: str
+    trace_id: str
+    task_store: Optional[TaskStore] = None
+    session_store: Optional[SessionStore] = None
+    session_id: Optional[str] = None
+    user_message_id: Optional[str] = None
+    assistant_message_id: Optional[str] = None
+    latest_input: str = ""
+    input_files: List[Dict[str, Any]] = field(default_factory=list)
+    created_task_payload: Dict[str, Any] = field(default_factory=dict)
+    session_history_message_count: int = 0
+    last_result: Dict[str, Any] = field(default_factory=lambda: {"output": None, "chunks": []})
+    printer: Optional[SSEPrinter] = None
+
 def _normalize_tool_selection(selected_tools: Any) -> Optional[List[str]]:
     if selected_tools is None:
         return None
@@ -93,24 +123,45 @@ def _first_not_none(*values: Any) -> Any:
     return None
 
 
+def _request_option_value(req: Any, option_name: str, *legacy_names: str) -> Any:
+    options = getattr(req, "options", None)
+    values: List[Any] = []
+    if options is not None:
+        values.append(getattr(options, option_name, None))
+    values.extend(getattr(req, name, None) for name in legacy_names)
+    return _first_not_none(*values)
+
+
 def _request_agent_id(req: Any) -> Optional[str]:
-    return _first_not_none(getattr(req, "agent_id", None), getattr(req, "agentId", None))
+    return _request_option_value(req, "agent_id", "agent_id", "agentId")
+
+
+def _request_language(req: Any) -> Optional[str]:
+    return _request_option_value(req, "language", "language")
+
+
+def _request_output_style(req: Any) -> Optional[str]:
+    return _request_option_value(req, "output_style", "outputStyle")
+
+
+def _request_mode(req: Any) -> Optional[str]:
+    return _request_option_value(req, "mode", "mode")
 
 
 def _request_selected_tools(req: Any) -> Optional[List[str]]:
     return _normalize_tool_selection(
-        _first_not_none(getattr(req, "selected_tools", None), getattr(req, "selectedTools", None))
+        _request_option_value(req, "selected_tools", "selected_tools", "selectedTools")
     )
 
 
 def _request_approved_tools(req: Any) -> Optional[List[str]]:
     return _normalize_tool_selection(
-        _first_not_none(getattr(req, "approved_tools", None), getattr(req, "approvedTools", None))
+        _request_option_value(req, "approved_tools", "approved_tools", "approvedTools")
     )
 
 
 def _request_run_environment(req: Any) -> Optional[str]:
-    return _first_not_none(getattr(req, "run_environment", None), getattr(req, "runEnvironment", None))
+    return _request_option_value(req, "run_environment", "run_environment", "runEnvironment")
 
 
 def _merge_tool_selection(*tool_groups: Any) -> List[str]:
@@ -1007,6 +1058,812 @@ def _fill_request_defaults(request: GptQueryReq) -> None:
     )
     request.language = _normalize_language(request.language or getattr(agentSettings, "lang", "ch"))
     fill_output_styles(request)
+
+
+def _prepare_autoagent_request(req: GptQueryReq) -> AutoAgentRequestPrep:
+    request = _clone_gpt_request(req)
+    has_explicit_conversation_id = bool(str(request.conversation_id or "").strip())
+    trace_id = request.trace_id or str(uuid.uuid4())
+    request.trace_id = trace_id
+    configure_log_context(trace_id=trace_id)
+
+    messages = _validate_user_message(request)
+    _fill_request_defaults(request)
+    if not has_explicit_conversation_id:
+        request.conversation_id = trace_id
+
+    agent_config = _resolve_agent_config(request.agent_id)
+    resolved_mode = request.mode or (agent_config.mode if agent_config else None) or DEFAULT_AGENT_MODE
+    selected_tools = _normalize_tool_selection(request.selected_tools)
+    approved_tools = _normalize_tool_selection(request.approved_tools)
+    agent_snapshot = agent_config.to_runtime_snapshot(approved_tools=approved_tools) if agent_config else None
+    return AutoAgentRequestPrep(
+        request=request,
+        messages=messages,
+        trace_id=trace_id,
+        agent_config=agent_config,
+        resolved_mode=resolved_mode,
+        selected_tools=selected_tools,
+        approved_tools=approved_tools,
+        agent_snapshot=agent_snapshot,
+    )
+
+
+def _autoagent_run_metadata(
+    prep: AutoAgentRequestPrep,
+    state: AutoAgentRunState,
+) -> Dict[str, Any]:
+    request = prep.request
+    agent_config = prep.agent_config
+    return {
+        "source": "autoagent",
+        "agentConfigId": agent_config.id if agent_config else None,
+        "agentSnapshot": prep.agent_snapshot,
+        "selectedTools": prep.selected_tools,
+        "approvedTools": prep.approved_tools,
+        "inputFiles": state.input_files,
+        "runEnvironment": request.run_environment,
+        "language": request.language,
+        "sessionMessageId": state.user_message_id,
+        "sessionHistoryMessageCount": state.session_history_message_count,
+    }
+
+
+def _initialize_autoagent_run(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    *,
+    task_store: TaskStore,
+    session_store: SessionStore,
+    printer: SSEPrinter,
+) -> None:
+    request = prep.request
+    messages = prep.messages
+    state.task_store = task_store
+    state.session_store = session_store
+    state.printer = printer
+    state.user_message_id = request.session_message_id
+    state.latest_input = (messages[-1].content or "").strip()
+    state.input_files = _serialize_file_items(messages[-1].uploadFile if messages else None)
+    state.session_id = request.conversation_id or state.trace_id
+    request.conversation_id = state.session_id
+    printer.session_id = state.session_id
+    printer.run_id = state.task_id
+    printer.seq_provider = lambda: _next_session_event_seq(
+        session_store,
+        task_store,
+        state.session_id or state.task_id,
+        request.user_id,
+    )
+
+    session_record = session_store.create_session(
+        session_id=state.session_id,
+        user_id=request.user_id,
+        title=_session_title_from_content(state.latest_input),
+        agent_id=request.agent_id,
+        metadata={"source": "autoagent"},
+    )
+    _assert_session_user(session_record, request.user_id)
+    if not state.user_message_id:
+        user_message = session_store.add_message(
+            state.session_id,
+            run_id=state.task_id,
+            user_id=request.user_id,
+            role=AgentMessageRole.USER,
+            content=state.latest_input,
+            metadata={
+                "source": "autoagent",
+                "inputFiles": state.input_files,
+            },
+        )
+        state.user_message_id = user_message.message_id
+        request.session_message_id = state.user_message_id
+
+    session_store.update_session(
+        state.session_id,
+        agent_id=request.agent_id,
+        status=AgentSessionStatus.RUNNING,
+        current_run_id=state.task_id,
+        last_message_id=state.user_message_id,
+        last_message_preview=state.latest_input,
+    )
+
+    original_message_count = len(messages)
+    messages = _build_session_model_messages(
+        session_store,
+        state.session_id,
+        messages,
+        state.user_message_id,
+    )
+    prep.messages = messages
+    request.messages = messages
+    state.session_history_message_count = max(len(messages) - original_message_count, 0)
+
+    existing_task = task_store.get_task(state.task_id)
+    metadata = _autoagent_run_metadata(prep, state)
+    created_task = task_store.create_task(
+        task_id=state.task_id,
+        trace_id=state.trace_id,
+        conversation_id=request.conversation_id,
+        user_id=request.user_id,
+        agent_id=request.agent_id,
+        mode=prep.resolved_mode,
+        output_style=request.outputStyle,
+        input_text=state.latest_input,
+        metadata=metadata,
+    )
+    state.created_task_payload = serialize_task(created_task)
+    persisted_metadata = (
+        state.created_task_payload.get("metadata")
+        if isinstance(state.created_task_payload.get("metadata"), dict)
+        else {}
+    )
+    _sync_session_run(
+        session_store,
+        run_id=state.task_id,
+        session_id=state.session_id,
+        user_id=request.user_id,
+        user_message_id=state.user_message_id,
+        trace_id=state.trace_id,
+        agent_id=request.agent_id,
+        mode=prep.resolved_mode,
+        output_style=request.outputStyle,
+        status=AgentTaskStatus.QUEUED,
+        input_text=state.latest_input,
+        work_dir=state.created_task_payload.get("workDir"),
+        metadata=metadata,
+    )
+
+    event_input_files = (
+        persisted_metadata.get("inputFiles")
+        if existing_task and isinstance(persisted_metadata, dict)
+        else state.input_files
+    )
+    lifecycle_event = "task_resumed" if existing_task else "task_created"
+    lifecycle_source = "resume" if existing_task else "autoagent"
+    lifecycle_payload = {
+        "mode": prep.resolved_mode,
+        "outputStyle": request.outputStyle,
+        "conversationId": request.conversation_id,
+        "agentConfigId": prep.agent_config.id if prep.agent_config else None,
+        "agentSnapshot": prep.agent_snapshot,
+        "selectedTools": prep.selected_tools,
+        "approvedTools": prep.approved_tools,
+        "inputFiles": event_input_files,
+        "runEnvironment": request.run_environment,
+        "language": request.language,
+        "workDir": state.created_task_payload.get("workDir"),
+        "sessionHistoryMessageCount": state.session_history_message_count,
+    }
+    if existing_task:
+        lifecycle_payload["status"] = AgentTaskStatus.RUNNING
+    task_store.add_event(
+        state.task_id,
+        lifecycle_event,
+        lifecycle_payload,
+        trace_id=state.trace_id,
+        source=lifecycle_source,
+    )
+    if state.user_message_id:
+        task_store.add_event(
+            state.task_id,
+            "user_message_created",
+            _message_event_payload(
+                session_id=state.session_id,
+                run_id=state.task_id,
+                message_id=state.user_message_id,
+                role=AgentMessageRole.USER,
+                content=state.latest_input,
+                input_files=event_input_files,
+            ),
+            trace_id=state.trace_id,
+            source="session",
+            message_id=state.user_message_id,
+        )
+
+    state.assistant_message_id = str(uuid.uuid4())
+
+
+def _record_autoagent_stream_event(state: AutoAgentRunState, event_data: Dict[str, Any]) -> None:
+    result_text = _extract_result_text(event_data)
+    if result_text is not None:
+        event_data["assistantMessageId"] = state.assistant_message_id
+        if _is_result_text_chunk(event_data):
+            state.last_result["chunks"].append(result_text)
+            state.last_result["output"] = "".join(state.last_result["chunks"])
+        else:
+            state.last_result["chunks"] = [result_text]
+            state.last_result["output"] = result_text
+    try:
+        assert state.task_store is not None
+        persisted_event = state.task_store.add_event(
+            state.task_id,
+            str(event_data.get("messageType") or "stream_event"),
+            event_data,
+            trace_id=state.trace_id,
+            source="sse",
+            message_id=str(event_data.get("messageId") or ""),
+        )
+        persisted_event_payload = serialize_event(persisted_event)
+        event_data["id"] = persisted_event_payload["id"]
+        event_data["eventId"] = persisted_event_payload["eventId"]
+        event_data["event_id"] = persisted_event_payload["event_id"]
+        state.task_store.increment_usage_metrics(state.task_id, _usage_increments_from_event(event_data))
+        for artifact in _extract_remote_artifacts(event_data):
+            artifact_record = state.task_store.add_remote_artifact(
+                state.task_id,
+                artifact["url"],
+                filename=artifact["filename"],
+                description=artifact["description"],
+                mime_type=artifact.get("mimeType"),
+                file_size=artifact.get("fileSize") or 0,
+                metadata=artifact.get("metadata"),
+            )
+            state.task_store.add_event(
+                state.task_id,
+                "task_artifact_added",
+                _artifact_event_payload(state.session_id or "", state.task_id, artifact_record),
+                trace_id=state.trace_id,
+                source="artifact",
+            )
+    except Exception:
+        logger.exception("failed to persist task event for task %s", state.task_id)
+
+
+def _attach_autoagent_event_sink(state: AutoAgentRunState) -> None:
+    assert state.printer is not None
+    state.printer.event_sink = lambda event_data: _record_autoagent_stream_event(state, event_data)
+
+
+def _mark_autoagent_running(state: AutoAgentRunState, prep: AutoAgentRequestPrep) -> None:
+    assert state.task_store is not None
+    assert state.session_store is not None
+    assert state.session_id is not None
+    assert state.assistant_message_id is not None
+    request = prep.request
+    agent_config = prep.agent_config
+    state.task_store.update_status(state.task_id, AgentTaskStatus.RUNNING)
+    _sync_session_run(
+        state.session_store,
+        run_id=state.task_id,
+        status=AgentTaskStatus.RUNNING,
+        work_dir=state.created_task_payload.get("workDir"),
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "task_running",
+        {"status": AgentTaskStatus.RUNNING},
+        trace_id=state.trace_id,
+        source="autoagent",
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "agent_started",
+        {
+            "agentId": request.agent_id,
+            "agentConfigId": agent_config.id if agent_config else None,
+            "agentType": agent_config.type if agent_config else None,
+            "agentName": agent_config.name if agent_config else None,
+            "agentSnapshot": prep.agent_snapshot,
+            "mode": prep.resolved_mode,
+            "runEnvironment": request.run_environment,
+            "language": request.language,
+        },
+        trace_id=state.trace_id,
+        source="agent",
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "assistant_message_started",
+        _message_event_payload(
+            session_id=state.session_id,
+            run_id=state.task_id,
+            message_id=state.assistant_message_id,
+            role=AgentMessageRole.ASSISTANT,
+            content="",
+            status="started",
+        ),
+        trace_id=state.trace_id,
+        source="session",
+        message_id=state.assistant_message_id,
+    )
+
+
+def _build_autoagent_context(state: AutoAgentRunState, prep: AutoAgentRequestPrep) -> AgentContext:
+    assert state.printer is not None
+    request = prep.request
+    ctx = AgentContext(
+        requestId=state.trace_id,
+        sessionId=state.session_id or request.conversation_id,
+        query="",
+        task=None,
+        printer=state.printer,
+        toolCollection=None,
+        dateInfo=time.strftime("%Y-%m-%d"),
+        isStream=True,
+        streamMessageType=None,
+        user_id=request.user_id,
+        agent_id=request.agent_id,
+        run_id=state.task_id,
+        outputStyle=request.outputStyle,
+        mode=prep.resolved_mode,
+        task_id=state.task_id,
+        work_dir=state.created_task_payload.get("workDir"),
+        agent_system_prompt=prep.agent_config.system_prompt if prep.agent_config else None,
+        agent_memory=prep.agent_config.memory if prep.agent_config else {},
+        selected_tools=prep.selected_tools,
+        approved_tools=prep.approved_tools,
+        run_environment=request.run_environment or "local",
+        language=request.language or "ch",
+    )
+    _convert_agent_messages(ctx, prep.messages)
+    logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
+    return ctx
+
+
+async def _load_autoagent_memory_and_runtime_events(
+    state: AutoAgentRunState,
+    ctx: AgentContext,
+) -> None:
+    assert state.task_store is not None
+    assert state.printer is not None
+    memory_context_payload = await _load_task_memory_context(ctx, state.latest_input)
+    state.task_store.add_event(
+        state.task_id,
+        "memory_context_loaded",
+        memory_context_payload,
+        trace_id=state.trace_id,
+        source="memory",
+    )
+    state.printer.send(None, "task", _memory_context_status_text(memory_context_payload), None, True)
+    state.task_store.add_event(
+        state.task_id,
+        "runtime_boundary_applied",
+        {
+            "runEnvironment": ctx.run_environment,
+            "workDir": ctx.work_dir,
+            "writableRoots": [ctx.work_dir] if ctx.work_dir else [],
+            "artifactPolicy": "task_workspace_only",
+        },
+        trace_id=state.trace_id,
+        source="runtime",
+    )
+
+
+async def _apply_autoagent_tool_policy(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    ctx: AgentContext,
+) -> tuple[ToolCollection, List[str], Dict[str, str]]:
+    assert state.task_store is not None
+    tc = await build_tool_collection(ctx)
+    ctx.toolCollection = tc
+    blocked_tools = sorted(set(tc.blocked_tools))
+    blocked_tool_reasons = _blocked_tool_reasons(
+        blocked_tools,
+        prep.agent_config,
+        prep.selected_tools,
+        prep.approved_tools,
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "tool_policy_applied",
+        {
+            "agentId": ctx.agent_id,
+            "selectedTools": prep.selected_tools,
+            "approvedTools": prep.approved_tools,
+            "availableTools": sorted(tc.tool_map.keys()),
+            "blockedTools": blocked_tools,
+            "blockedToolReasons": blocked_tool_reasons,
+            "runEnvironment": prep.request.run_environment,
+        },
+        trace_id=state.trace_id,
+        source="policy",
+    )
+    return tc, blocked_tools, blocked_tool_reasons
+
+
+def _maybe_wait_for_autoagent_tool_approval(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    blocked_tools: List[str],
+    blocked_tool_reasons: Dict[str, str],
+) -> bool:
+    assert state.task_store is not None
+    assert state.printer is not None
+    assert state.assistant_message_id is not None
+    request = prep.request
+    approval_requests = _approval_requests_from_blocked_tools(
+        blocked_tools,
+        blocked_tool_reasons,
+        prep.agent_config,
+        prep.selected_tools,
+    )
+    if not approval_requests:
+        return False
+
+    approval_event = state.task_store.add_event(
+        state.task_id,
+        "approval_requested",
+        {
+            "approvalType": "high_risk_tools",
+            "requests": approval_requests,
+            "selectedTools": prep.selected_tools,
+            "approvedTools": prep.approved_tools,
+        },
+        trace_id=state.trace_id,
+        source="policy",
+    )
+    approval_event_payload = serialize_event(approval_event)
+    waiting_message_text = _approval_waiting_message(approval_requests, request.language)
+    state.task_store.update_status(state.task_id, AgentTaskStatus.WAITING_APPROVAL)
+    _sync_session_run(
+        state.session_store,
+        run_id=state.task_id,
+        status=AgentTaskStatus.WAITING_APPROVAL,
+        assistant_message_id=state.assistant_message_id,
+        output_text=waiting_message_text,
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "task_waiting_approval",
+        {
+            "status": AgentTaskStatus.WAITING_APPROVAL,
+            "approvalRequestEventId": approval_event.id,
+            "approvalEventId": approval_event_payload.get("eventId"),
+        },
+        trace_id=state.trace_id,
+        source="policy",
+    )
+    if state.session_store is not None and state.session_id:
+        assistant_message = state.session_store.add_message(
+            state.session_id,
+            message_id=state.assistant_message_id,
+            run_id=state.task_id,
+            user_id=request.user_id,
+            role=AgentMessageRole.ASSISTANT,
+            content=waiting_message_text,
+            status=AgentSessionStatus.WAITING_APPROVAL,
+            metadata={
+                "source": "approval",
+                "taskStatus": AgentTaskStatus.WAITING_APPROVAL,
+                "waitingApproval": True,
+                "approvalRequestEventId": approval_event.id,
+                "approvalEventId": approval_event_payload.get("eventId"),
+                "approvalType": "high_risk_tools",
+                "approvalRequests": approval_requests,
+            },
+        )
+        state.assistant_message_id = assistant_message.message_id
+        state.task_store.add_event(
+            state.task_id,
+            "assistant_message_completed",
+            _message_event_payload(
+                session_id=state.session_id,
+                run_id=state.task_id,
+                message_id=state.assistant_message_id,
+                role=AgentMessageRole.ASSISTANT,
+                content=waiting_message_text,
+                status=AgentSessionStatus.WAITING_APPROVAL,
+            ),
+            trace_id=state.trace_id,
+            source="session",
+            message_id=state.assistant_message_id,
+        )
+    state.printer.send(None, "task", waiting_message_text, None, True)
+    _update_session_status(
+        state.session_store,
+        state.session_id,
+        status=AgentSessionStatus.WAITING_APPROVAL,
+        current_run_id=state.task_id,
+        last_message_id=state.assistant_message_id,
+        last_message_preview=waiting_message_text,
+    )
+    return True
+
+
+def _record_autoagent_failure(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    error_message: str,
+    *,
+    printer_result: Any,
+    workspace_artifact_dir: Optional[str] = None,
+) -> None:
+    request = prep.request
+    agent_config = prep.agent_config
+    if state.printer is not None:
+        state.printer.send(None, "result", printer_result, None, True)
+    if state.task_store is not None and workspace_artifact_dir:
+        _register_workspace_artifacts(
+            state.task_store,
+            state.task_id,
+            state.trace_id,
+            workspace_artifact_dir,
+            session_id=state.session_id,
+        )
+    if state.task_store is not None:
+        state.task_store.update_status(state.task_id, AgentTaskStatus.FAILED, error_message=error_message)
+        _sync_session_run(
+            state.session_store,
+            run_id=state.task_id,
+            status=AgentTaskStatus.FAILED,
+            error_message=error_message,
+            output_text=printer_result if isinstance(printer_result, str) else error_message,
+        )
+        state.task_store.add_event(
+            state.task_id,
+            "agent_failed",
+            {
+                "agentId": request.agent_id,
+                "agentConfigId": agent_config.id if agent_config else None,
+                "error": error_message,
+            },
+            trace_id=state.trace_id,
+            source="agent",
+        )
+        _sync_plan_terminal_status(
+            state.task_store,
+            state.task_id,
+            trace_id=state.trace_id,
+            terminal_status="failed",
+            reason=error_message,
+            source="autoagent",
+        )
+        state.task_store.add_event(
+            state.task_id,
+            "task_failed",
+            {"error": error_message},
+            trace_id=state.trace_id,
+            source="autoagent",
+        )
+    _update_session_status(
+        state.session_store,
+        state.session_id,
+        status=AgentSessionStatus.IDLE,
+        current_run_id="",
+        last_message_preview=printer_result if isinstance(printer_result, str) else error_message,
+    )
+
+
+def _mark_autoagent_waiting_input(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    ctx: AgentContext,
+) -> None:
+    assert state.task_store is not None
+    assert state.assistant_message_id is not None
+    waiting_message_text = str(
+        state.last_result["output"]
+        or ctx.waiting_input_prompt
+        or "waiting input"
+    )
+    current_task = state.task_store.get_task(state.task_id)
+    if not current_task or current_task.status != AgentTaskStatus.WAITING_INPUT:
+        state.task_store.request_user_input(
+            state.task_id,
+            waiting_message_text,
+            trace_id=state.trace_id,
+            source="autoagent",
+        )
+    _sync_session_run(
+        state.session_store,
+        run_id=state.task_id,
+        status=AgentTaskStatus.WAITING_INPUT,
+        assistant_message_id=state.assistant_message_id,
+        output_text=waiting_message_text,
+    )
+    if state.session_store is not None and state.session_id:
+        assistant_message = state.session_store.add_message(
+            state.session_id,
+            message_id=state.assistant_message_id,
+            run_id=state.task_id,
+            user_id=prep.request.user_id,
+            role=AgentMessageRole.ASSISTANT,
+            content=waiting_message_text,
+            status=AgentSessionStatus.WAITING_INPUT,
+            metadata={
+                "source": "autoagent",
+                "taskStatus": AgentTaskStatus.WAITING_INPUT,
+                "waitingInput": True,
+            },
+        )
+        state.assistant_message_id = assistant_message.message_id
+        state.task_store.add_event(
+            state.task_id,
+            "assistant_message_completed",
+            _message_event_payload(
+                session_id=state.session_id,
+                run_id=state.task_id,
+                message_id=state.assistant_message_id,
+                role=AgentMessageRole.ASSISTANT,
+                content=waiting_message_text,
+                status=AgentSessionStatus.WAITING_INPUT,
+            ),
+            trace_id=state.trace_id,
+            source="session",
+            message_id=state.assistant_message_id,
+        )
+    _update_session_status(
+        state.session_store,
+        state.session_id,
+        status=AgentSessionStatus.WAITING_INPUT,
+        current_run_id=state.task_id,
+        last_message_id=state.assistant_message_id,
+        last_message_preview=waiting_message_text,
+    )
+
+
+def _complete_autoagent_success(state: AutoAgentRunState, prep: AutoAgentRequestPrep) -> None:
+    assert state.task_store is not None
+    assert state.assistant_message_id is not None
+    request = prep.request
+    agent_config = prep.agent_config
+    output_text = state.last_result["output"]
+    state.task_store.update_status(
+        state.task_id,
+        AgentTaskStatus.COMPLETED,
+        output_text=output_text,
+    )
+    _sync_session_run(
+        state.session_store,
+        run_id=state.task_id,
+        status=AgentTaskStatus.COMPLETED,
+        assistant_message_id=state.assistant_message_id,
+        output_text=output_text,
+    )
+    completed_assistant_message_id: Optional[str] = None
+    if state.session_store is not None and state.session_id and output_text is not None:
+        assistant_message = state.session_store.add_message(
+            state.session_id,
+            message_id=state.assistant_message_id,
+            run_id=state.task_id,
+            user_id=request.user_id,
+            role=AgentMessageRole.ASSISTANT,
+            content=str(output_text),
+            metadata={
+                "source": "autoagent",
+                "taskStatus": AgentTaskStatus.COMPLETED,
+            },
+        )
+        state.assistant_message_id = assistant_message.message_id
+        completed_assistant_message_id = state.assistant_message_id
+        state.task_store.add_event(
+            state.task_id,
+            "assistant_message_completed",
+            _message_event_payload(
+                session_id=state.session_id,
+                run_id=state.task_id,
+                message_id=state.assistant_message_id,
+                role=AgentMessageRole.ASSISTANT,
+                content=str(output_text or ""),
+                status="final",
+            ),
+            trace_id=state.trace_id,
+            source="session",
+            message_id=state.assistant_message_id,
+        )
+    _update_session_status(
+        state.session_store,
+        state.session_id,
+        status=AgentSessionStatus.IDLE,
+        current_run_id="",
+        last_message_id=completed_assistant_message_id,
+        last_message_preview=output_text or state.latest_input,
+    )
+    _maybe_update_session_summary(
+        state.session_store,
+        state.session_id,
+        task_store=state.task_store,
+        task_id=state.task_id,
+        trace_id=state.trace_id,
+    )
+    _sync_plan_terminal_status(
+        state.task_store,
+        state.task_id,
+        trace_id=state.trace_id,
+        terminal_status="completed",
+        reason="run completed",
+        source="autoagent",
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "agent_completed",
+        {
+            "agentId": request.agent_id,
+            "agentConfigId": agent_config.id if agent_config else None,
+            "status": AgentTaskStatus.COMPLETED,
+        },
+        trace_id=state.trace_id,
+        source="agent",
+    )
+    state.task_store.add_event(
+        state.task_id,
+        "task_completed",
+        {"status": AgentTaskStatus.COMPLETED},
+        trace_id=state.trace_id,
+        source="autoagent",
+    )
+
+
+async def _run_autoagent_handler(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    ctx: AgentContext,
+    handler: Any,
+) -> None:
+    try:
+        await handler.handle(ctx, prep.request)
+        assert state.task_store is not None
+        _register_workspace_artifacts(
+            state.task_store,
+            state.task_id,
+            state.trace_id,
+            ctx.work_dir,
+            session_id=state.session_id,
+        )
+        if ctx.waiting_for_input:
+            _mark_autoagent_waiting_input(state, prep, ctx)
+            return
+        _complete_autoagent_success(state, prep)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception("autoagent handler failed for request %s", ctx.requestId)
+        _record_autoagent_failure(
+            state,
+            prep,
+            str(exc),
+            printer_result=f"autoagent error: {exc}",
+            workspace_artifact_dir=ctx.work_dir,
+        )
+
+
+def _cancel_autoagent_run(state: AutoAgentRunState, prep: AutoAgentRequestPrep) -> None:
+    request = prep.request
+    agent_config = prep.agent_config
+    if state.printer is not None:
+        state.printer.send(None, "result", "task cancelled", None, True)
+    if state.task_store is not None:
+        state.task_store.update_status(state.task_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
+        _sync_session_run(
+            state.session_store,
+            run_id=state.task_id,
+            status=AgentTaskStatus.CANCELLED,
+            error_message="task cancelled",
+            output_text="task cancelled",
+        )
+        state.task_store.add_event(
+            state.task_id,
+            "agent_cancelled",
+            {
+                "agentId": request.agent_id,
+                "agentConfigId": agent_config.id if agent_config else None,
+                "status": AgentTaskStatus.CANCELLED,
+            },
+            trace_id=state.trace_id,
+            source="agent",
+        )
+        _sync_plan_terminal_status(
+            state.task_store,
+            state.task_id,
+            trace_id=state.trace_id,
+            terminal_status="cancelled",
+            reason="task cancelled",
+            source="autoagent",
+        )
+        state.task_store.add_event(
+            state.task_id,
+            "task_cancelled",
+            {"status": AgentTaskStatus.CANCELLED},
+            trace_id=state.trace_id,
+            source="autoagent",
+        )
+    _update_session_status(
+        state.session_store,
+        state.session_id,
+        status=AgentSessionStatus.IDLE,
+        current_run_id="",
+        last_message_preview="task cancelled",
+    )
 
 
 def _current_user_id(current_user: Any, fallback_user_id: Optional[str] = None) -> Optional[str]:
@@ -2489,35 +3346,18 @@ def _deserialize_file_items(files: Any) -> List[FileItem]:
 
 
 async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> None:
-    request = _clone_gpt_request(req)
-    has_explicit_conversation_id = bool(str(request.conversation_id or "").strip())
-    trace_id = request.trace_id or str(uuid.uuid4())
-    request.trace_id = trace_id
-    configure_log_context(trace_id=trace_id)
-
     try:
         try:
-            messages = _validate_user_message(request)
+            prep = _prepare_autoagent_request(req)
         except ValueError as exc:
             logger.warning(str(exc))
             return
 
-        _fill_request_defaults(request)
-        if not has_explicit_conversation_id:
-            request.conversation_id = trace_id
-        agent_config = _resolve_agent_config(request.agent_id)
-        resolved_mode = request.mode or (agent_config.mode if agent_config else None) or DEFAULT_AGENT_MODE
-        selected_tools = _normalize_tool_selection(request.selected_tools)
-        approved_tools = _normalize_tool_selection(request.approved_tools)
-        agent_snapshot = agent_config.to_runtime_snapshot(approved_tools=approved_tools) if agent_config else None
-
+        request = prep.request
+        trace_id = prep.trace_id
         task_id = trace_id
-        last_result: Dict[str, Any] = {"output": None, "chunks": []}
+        state = AutoAgentRunState(task_id=task_id, trace_id=trace_id)
         printer = SSEPrinter(enqueue, trace_id, task_id=task_id, run_id=task_id)
-        task_store: Optional[TaskStore] = None
-        session_store: Optional[SessionStore] = None
-        session_id: Optional[str] = None
-        user_message_id: Optional[str] = request.session_message_id
         worker_task = asyncio.current_task()
 
         try:
@@ -2525,753 +3365,44 @@ async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> No
                 runningAgentTasks[task_id] = worker_task
             task_store = TaskStore()
             session_store = SessionStore()
-            latest_input = (messages[-1].content or "").strip()
-            input_files = _serialize_file_items(messages[-1].uploadFile if messages else None)
-            session_id = request.conversation_id or trace_id
-            request.conversation_id = session_id
-            printer.session_id = session_id
-            printer.run_id = task_id
-            printer.seq_provider = lambda: _next_session_event_seq(
-                session_store,
-                task_store,
-                session_id or task_id,
-                request.user_id,
-            )
-            session_record = session_store.create_session(
-                session_id=session_id,
-                user_id=request.user_id,
-                title=_session_title_from_content(latest_input),
-                agent_id=request.agent_id,
-                metadata={"source": "autoagent"},
-            )
-            _assert_session_user(session_record, request.user_id)
-            if not user_message_id:
-                user_message = session_store.add_message(
-                    session_id,
-                    run_id=task_id,
-                    user_id=request.user_id,
-                    role=AgentMessageRole.USER,
-                    content=latest_input,
-                    metadata={
-                        "source": "autoagent",
-                        "inputFiles": input_files,
-                    },
-                )
-                user_message_id = user_message.message_id
-                request.session_message_id = user_message_id
-            session_store.update_session(
-                session_id,
-                agent_id=request.agent_id,
-                status=AgentSessionStatus.RUNNING,
-                current_run_id=task_id,
-                last_message_id=user_message_id,
-                last_message_preview=latest_input,
-            )
-            original_message_count = len(messages)
-            messages = _build_session_model_messages(
-                session_store,
-                session_id,
-                messages,
-                user_message_id,
-            )
-            request.messages = messages
-            session_history_message_count = max(len(messages) - original_message_count, 0)
-            existing_task = task_store.get_task(task_id)
-            created_task = task_store.create_task(
-                task_id=task_id,
-                trace_id=trace_id,
-                conversation_id=request.conversation_id,
-                user_id=request.user_id,
-                agent_id=request.agent_id,
-                mode=resolved_mode,
-                output_style=request.outputStyle,
-                input_text=latest_input,
-                metadata={
-                    "source": "autoagent",
-                    "agentConfigId": agent_config.id if agent_config else None,
-                    "agentSnapshot": agent_snapshot,
-                    "selectedTools": selected_tools,
-                    "approvedTools": approved_tools,
-                    "inputFiles": input_files,
-                    "runEnvironment": request.run_environment,
-                    "language": request.language,
-                    "sessionMessageId": user_message_id,
-                    "sessionHistoryMessageCount": session_history_message_count,
-                },
-            )
-            created_task_payload = serialize_task(created_task)
-            persisted_metadata = (
-                created_task_payload.get("metadata")
-                if isinstance(created_task_payload.get("metadata"), dict)
-                else {}
-            )
-            _sync_session_run(
-                session_store,
-                run_id=task_id,
-                session_id=session_id,
-                user_id=request.user_id,
-                user_message_id=user_message_id,
-                trace_id=trace_id,
-                agent_id=request.agent_id,
-                mode=resolved_mode,
-                output_style=request.outputStyle,
-                status=AgentTaskStatus.QUEUED,
-                input_text=latest_input,
-                work_dir=created_task_payload.get("workDir"),
-                metadata={
-                    "source": "autoagent",
-                    "agentConfigId": agent_config.id if agent_config else None,
-                    "agentSnapshot": agent_snapshot,
-                    "selectedTools": selected_tools,
-                    "approvedTools": approved_tools,
-                    "inputFiles": input_files,
-                    "runEnvironment": request.run_environment,
-                    "language": request.language,
-                    "sessionMessageId": user_message_id,
-                    "sessionHistoryMessageCount": session_history_message_count,
-                },
-            )
-            event_input_files = (
-                persisted_metadata.get("inputFiles")
-                if existing_task and isinstance(persisted_metadata, dict)
-                else input_files
-            )
-            lifecycle_event = "task_resumed" if existing_task else "task_created"
-            lifecycle_source = "resume" if existing_task else "autoagent"
-            lifecycle_payload = {
-                "mode": resolved_mode,
-                "outputStyle": request.outputStyle,
-                "conversationId": request.conversation_id,
-                "agentConfigId": agent_config.id if agent_config else None,
-                "agentSnapshot": agent_snapshot,
-                "selectedTools": selected_tools,
-                "approvedTools": approved_tools,
-                "inputFiles": event_input_files,
-                "runEnvironment": request.run_environment,
-                "language": request.language,
-                "workDir": created_task_payload.get("workDir"),
-                "sessionHistoryMessageCount": session_history_message_count,
-            }
-            if existing_task:
-                lifecycle_payload["status"] = AgentTaskStatus.RUNNING
-            task_store.add_event(
-                task_id,
-                lifecycle_event,
-                lifecycle_payload,
-                trace_id=trace_id,
-                source=lifecycle_source,
-            )
-            if user_message_id:
-                task_store.add_event(
-                    task_id,
-                    "user_message_created",
-                    _message_event_payload(
-                        session_id=session_id,
-                        run_id=task_id,
-                        message_id=user_message_id,
-                        role=AgentMessageRole.USER,
-                        content=latest_input,
-                        input_files=event_input_files,
-                    ),
-                    trace_id=trace_id,
-                    source="session",
-                    message_id=user_message_id,
-                )
-
-            assistant_message_id = str(uuid.uuid4())
-
-            def record_stream_event(event_data: Dict[str, Any]) -> None:
-                result_text = _extract_result_text(event_data)
-                if result_text is not None:
-                    event_data["assistantMessageId"] = assistant_message_id
-                    if _is_result_text_chunk(event_data):
-                        last_result["chunks"].append(result_text)
-                        last_result["output"] = "".join(last_result["chunks"])
-                    else:
-                        last_result["chunks"] = [result_text]
-                        last_result["output"] = result_text
-                try:
-                    assert task_store is not None
-                    persisted_event = task_store.add_event(
-                        task_id,
-                        str(event_data.get("messageType") or "stream_event"),
-                        event_data,
-                        trace_id=trace_id,
-                        source="sse",
-                        message_id=str(event_data.get("messageId") or ""),
-                    )
-                    persisted_event_payload = serialize_event(persisted_event)
-                    event_data["id"] = persisted_event_payload["id"]
-                    event_data["eventId"] = persisted_event_payload["eventId"]
-                    event_data["event_id"] = persisted_event_payload["event_id"]
-                    task_store.increment_usage_metrics(task_id, _usage_increments_from_event(event_data))
-                    for artifact in _extract_remote_artifacts(event_data):
-                        artifact_record = task_store.add_remote_artifact(
-                            task_id,
-                            artifact["url"],
-                            filename=artifact["filename"],
-                            description=artifact["description"],
-                            mime_type=artifact.get("mimeType"),
-                            file_size=artifact.get("fileSize") or 0,
-                            metadata=artifact.get("metadata"),
-                        )
-                        task_store.add_event(
-                            task_id,
-                            "task_artifact_added",
-                            _artifact_event_payload(session_id or "", task_id, artifact_record),
-                            trace_id=trace_id,
-                            source="artifact",
-                        )
-                except Exception:
-                    logger.exception("failed to persist task event for task %s", task_id)
-
-            printer.event_sink = record_stream_event
-            task_store.update_status(task_id, AgentTaskStatus.RUNNING)
-            _sync_session_run(
-                session_store,
-                run_id=task_id,
-                status=AgentTaskStatus.RUNNING,
-                work_dir=created_task_payload.get("workDir"),
-            )
-            task_store.add_event(
-                task_id,
-                "task_running",
-                {"status": AgentTaskStatus.RUNNING},
-                trace_id=trace_id,
-                source="autoagent",
-            )
-            task_store.add_event(
-                task_id,
-                "agent_started",
-                {
-                    "agentId": request.agent_id,
-                    "agentConfigId": agent_config.id if agent_config else None,
-                    "agentType": agent_config.type if agent_config else None,
-                    "agentName": agent_config.name if agent_config else None,
-                    "agentSnapshot": agent_snapshot,
-                    "mode": resolved_mode,
-                    "runEnvironment": request.run_environment,
-                    "language": request.language,
-                },
-                trace_id=trace_id,
-                source="agent",
-            )
-            task_store.add_event(
-                task_id,
-                "assistant_message_started",
-                _message_event_payload(
-                    session_id=session_id,
-                    run_id=task_id,
-                    message_id=assistant_message_id,
-                    role=AgentMessageRole.ASSISTANT,
-                    content="",
-                    status="started",
-                ),
-                trace_id=trace_id,
-                source="session",
-                message_id=assistant_message_id,
-            )
-            ctx = AgentContext(
-                requestId=trace_id,
-                sessionId=session_id or request.conversation_id,
-                query="",
-                task=None,
+            state.task_store = task_store
+            state.session_store = session_store
+            _initialize_autoagent_run(
+                state,
+                prep,
+                task_store=task_store,
+                session_store=session_store,
                 printer=printer,
-                toolCollection=None,
-                dateInfo=time.strftime("%Y-%m-%d"),
-                isStream=True,
-                streamMessageType=None,
-                user_id=request.user_id,
-                agent_id=request.agent_id,
-                run_id=task_id,
-                outputStyle=request.outputStyle,
-                mode=resolved_mode,
-                task_id=task_id,
-                work_dir=created_task_payload.get("workDir"),
-                agent_system_prompt=agent_config.system_prompt if agent_config else None,
-                agent_memory=agent_config.memory if agent_config else {},
-                selected_tools=selected_tools,
-                approved_tools=approved_tools,
-                run_environment=request.run_environment or "local",
-                language=request.language or "ch",
             )
-            _convert_agent_messages(ctx, messages)
-            logger.debug("request context prepared: request_id=%s mode=%s", ctx.requestId, ctx.mode)
-
-            memory_context_payload = await _load_task_memory_context(ctx, latest_input)
-            task_store.add_event(
-                task_id,
-                "memory_context_loaded",
-                memory_context_payload,
-                trace_id=trace_id,
-                source="memory",
-            )
-            printer.send(None, "task", _memory_context_status_text(memory_context_payload), None, True)
-
-            task_store.add_event(
-                task_id,
-                "runtime_boundary_applied",
-                {
-                    "runEnvironment": ctx.run_environment,
-                    "workDir": ctx.work_dir,
-                    "writableRoots": [ctx.work_dir] if ctx.work_dir else [],
-                    "artifactPolicy": "task_workspace_only",
-                },
-                trace_id=trace_id,
-                source="runtime",
-            )
-
-            tc = await build_tool_collection(ctx)
-            ctx.toolCollection = tc
-            blocked_tools = sorted(set(tc.blocked_tools))
-            blocked_tool_reasons = _blocked_tool_reasons(
-                blocked_tools,
-                agent_config,
-                selected_tools,
-                approved_tools,
-            )
-            task_store.add_event(
-                task_id,
-                "tool_policy_applied",
-                {
-                    "agentId": ctx.agent_id,
-                    "selectedTools": selected_tools,
-                    "approvedTools": approved_tools,
-                    "availableTools": sorted(tc.tool_map.keys()),
-                    "blockedTools": blocked_tools,
-                    "blockedToolReasons": blocked_tool_reasons,
-                    "runEnvironment": request.run_environment,
-                },
-                trace_id=trace_id,
-                source="policy",
-            )
-            approval_requests = _approval_requests_from_blocked_tools(
-                blocked_tools,
-                blocked_tool_reasons,
-                agent_config,
-                selected_tools,
-            )
-            if approval_requests:
-                approval_event = task_store.add_event(
-                    task_id,
-                    "approval_requested",
-                    {
-                        "approvalType": "high_risk_tools",
-                        "requests": approval_requests,
-                        "selectedTools": selected_tools,
-                        "approvedTools": approved_tools,
-                    },
-                    trace_id=trace_id,
-                    source="policy",
-                )
-                approval_event_payload = serialize_event(approval_event)
-                waiting_message_text = _approval_waiting_message(approval_requests, request.language)
-                task_store.update_status(task_id, AgentTaskStatus.WAITING_APPROVAL)
-                _sync_session_run(
-                    session_store,
-                    run_id=task_id,
-                    status=AgentTaskStatus.WAITING_APPROVAL,
-                    assistant_message_id=assistant_message_id,
-                    output_text=waiting_message_text,
-                )
-                task_store.add_event(
-                    task_id,
-                    "task_waiting_approval",
-                    {
-                        "status": AgentTaskStatus.WAITING_APPROVAL,
-                        "approvalRequestEventId": approval_event.id,
-                        "approvalEventId": approval_event_payload.get("eventId"),
-                    },
-                    trace_id=trace_id,
-                    source="policy",
-                )
-                if session_store is not None and session_id:
-                    assistant_message = session_store.add_message(
-                        session_id,
-                        message_id=assistant_message_id,
-                        run_id=task_id,
-                        user_id=request.user_id,
-                        role=AgentMessageRole.ASSISTANT,
-                        content=waiting_message_text,
-                        status=AgentSessionStatus.WAITING_APPROVAL,
-                        metadata={
-                            "source": "approval",
-                            "taskStatus": AgentTaskStatus.WAITING_APPROVAL,
-                            "waitingApproval": True,
-                            "approvalRequestEventId": approval_event.id,
-                            "approvalEventId": approval_event_payload.get("eventId"),
-                            "approvalType": "high_risk_tools",
-                            "approvalRequests": approval_requests,
-                        },
-                    )
-                    assistant_message_id = assistant_message.message_id
-                    task_store.add_event(
-                        task_id,
-                        "assistant_message_completed",
-                        _message_event_payload(
-                            session_id=session_id,
-                            run_id=task_id,
-                            message_id=assistant_message_id,
-                            role=AgentMessageRole.ASSISTANT,
-                            content=waiting_message_text,
-                            status=AgentSessionStatus.WAITING_APPROVAL,
-                        ),
-                        trace_id=trace_id,
-                        source="session",
-                        message_id=assistant_message_id,
-                    )
-                printer.send(None, "task", waiting_message_text, None, True)
-                _update_session_status(
-                    session_store,
-                    session_id,
-                    status=AgentSessionStatus.WAITING_APPROVAL,
-                    current_run_id=task_id,
-                    last_message_id=assistant_message_id,
-                    last_message_preview=waiting_message_text,
-                )
+            _attach_autoagent_event_sink(state)
+            _mark_autoagent_running(state, prep)
+            ctx = _build_autoagent_context(state, prep)
+            await _load_autoagent_memory_and_runtime_events(state, ctx)
+            _, blocked_tools, blocked_tool_reasons = await _apply_autoagent_tool_policy(state, prep, ctx)
+            if _maybe_wait_for_autoagent_tool_approval(state, prep, blocked_tools, blocked_tool_reasons):
                 return
 
             handler = agentFactory.get_handler(ctx, request)  # type: ignore[arg-type]
             if not handler:
                 error_message = "unknown agentType"
-                printer.send(None, "result", {"taskSummary": error_message}, None, True)
-                task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=error_message)
-                _sync_session_run(
-                    session_store,
-                    run_id=task_id,
-                    status=AgentTaskStatus.FAILED,
-                    error_message=error_message,
-                    output_text=error_message,
-                )
-                task_store.add_event(
-                    task_id,
-                    "agent_failed",
-                    {
-                        "agentId": request.agent_id,
-                        "agentConfigId": agent_config.id if agent_config else None,
-                        "error": error_message,
-                    },
-                    trace_id=trace_id,
-                    source="agent",
-                )
-                _sync_plan_terminal_status(
-                    task_store,
-                    task_id,
-                    trace_id=trace_id,
-                    terminal_status="failed",
-                    reason=error_message,
-                    source="autoagent",
-                )
-                task_store.add_event(
-                    task_id,
-                    "task_failed",
-                    {"error": error_message},
-                    trace_id=trace_id,
-                    source="autoagent",
-                )
-                _update_session_status(
-                    session_store,
-                    session_id,
-                    status=AgentSessionStatus.IDLE,
-                    current_run_id="",
-                    last_message_preview=error_message,
+                _record_autoagent_failure(
+                    state,
+                    prep,
+                    error_message,
+                    printer_result={"taskSummary": error_message},
                 )
                 return
-
-            try:
-                await handler.handle(ctx, request)
-                _register_workspace_artifacts(
-                    task_store,
-                    task_id,
-                    trace_id,
-                    ctx.work_dir,
-                    session_id=session_id,
-                )
-                if ctx.waiting_for_input:
-                    waiting_message_text = str(
-                        last_result["output"]
-                        or ctx.waiting_input_prompt
-                        or "waiting input"
-                    )
-                    current_task = task_store.get_task(task_id)
-                    if not current_task or current_task.status != AgentTaskStatus.WAITING_INPUT:
-                        task_store.request_user_input(
-                            task_id,
-                            waiting_message_text,
-                            trace_id=trace_id,
-                            source="autoagent",
-                        )
-                    _sync_session_run(
-                        session_store,
-                        run_id=task_id,
-                        status=AgentTaskStatus.WAITING_INPUT,
-                        assistant_message_id=assistant_message_id,
-                        output_text=waiting_message_text,
-                    )
-                    if session_store is not None and session_id:
-                        assistant_message = session_store.add_message(
-                            session_id,
-                            message_id=assistant_message_id,
-                            run_id=task_id,
-                            user_id=request.user_id,
-                            role=AgentMessageRole.ASSISTANT,
-                            content=waiting_message_text,
-                            status=AgentSessionStatus.WAITING_INPUT,
-                            metadata={
-                                "source": "autoagent",
-                                "taskStatus": AgentTaskStatus.WAITING_INPUT,
-                                "waitingInput": True,
-                            },
-                        )
-                        assistant_message_id = assistant_message.message_id
-                        task_store.add_event(
-                            task_id,
-                            "assistant_message_completed",
-                            _message_event_payload(
-                                session_id=session_id,
-                                run_id=task_id,
-                                message_id=assistant_message_id,
-                                role=AgentMessageRole.ASSISTANT,
-                                content=waiting_message_text,
-                                status=AgentSessionStatus.WAITING_INPUT,
-                            ),
-                            trace_id=trace_id,
-                            source="session",
-                            message_id=assistant_message_id,
-                        )
-                    _update_session_status(
-                        session_store,
-                        session_id,
-                        status=AgentSessionStatus.WAITING_INPUT,
-                        current_run_id=task_id,
-                        last_message_id=assistant_message_id,
-                        last_message_preview=waiting_message_text,
-                    )
-                    return
-                task_store.update_status(
-                    task_id,
-                    AgentTaskStatus.COMPLETED,
-                    output_text=last_result["output"],
-                )
-                _sync_session_run(
-                    session_store,
-                    run_id=task_id,
-                    status=AgentTaskStatus.COMPLETED,
-                    assistant_message_id=assistant_message_id,
-                    output_text=last_result["output"],
-                )
-                completed_assistant_message_id: Optional[str] = None
-                if session_store is not None and session_id and last_result["output"] is not None:
-                    assistant_message = session_store.add_message(
-                        session_id,
-                        message_id=assistant_message_id,
-                        run_id=task_id,
-                        user_id=request.user_id,
-                        role=AgentMessageRole.ASSISTANT,
-                        content=str(last_result["output"]),
-                        metadata={
-                            "source": "autoagent",
-                            "taskStatus": AgentTaskStatus.COMPLETED,
-                        },
-                    )
-                    assistant_message_id = assistant_message.message_id
-                    completed_assistant_message_id = assistant_message_id
-                    task_store.add_event(
-                        task_id,
-                        "assistant_message_completed",
-                        _message_event_payload(
-                            session_id=session_id,
-                            run_id=task_id,
-                            message_id=assistant_message_id,
-                            role=AgentMessageRole.ASSISTANT,
-                            content=str(last_result["output"] or ""),
-                            status="final",
-                        ),
-                        trace_id=trace_id,
-                        source="session",
-                        message_id=assistant_message_id,
-                    )
-                _update_session_status(
-                    session_store,
-                    session_id,
-                    status=AgentSessionStatus.IDLE,
-                    current_run_id="",
-                    last_message_id=completed_assistant_message_id,
-                    last_message_preview=last_result["output"] or latest_input,
-                )
-                _maybe_update_session_summary(
-                    session_store,
-                    session_id,
-                    task_store=task_store,
-                    task_id=task_id,
-                    trace_id=trace_id,
-                )
-                _sync_plan_terminal_status(
-                    task_store,
-                    task_id,
-                    trace_id=trace_id,
-                    terminal_status="completed",
-                    reason="run completed",
-                    source="autoagent",
-                )
-                task_store.add_event(
-                    task_id,
-                    "agent_completed",
-                    {
-                        "agentId": request.agent_id,
-                        "agentConfigId": agent_config.id if agent_config else None,
-                        "status": AgentTaskStatus.COMPLETED,
-                    },
-                    trace_id=trace_id,
-                    source="agent",
-                )
-                task_store.add_event(
-                    task_id,
-                    "task_completed",
-                    {"status": AgentTaskStatus.COMPLETED},
-                    trace_id=trace_id,
-                    source="autoagent",
-                )
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.exception("autoagent handler failed for request %s", ctx.requestId)
-                printer.send(None, "result", f"autoagent error: {exc}", None, True)
-                _register_workspace_artifacts(
-                    task_store,
-                    task_id,
-                    trace_id,
-                    ctx.work_dir,
-                    session_id=session_id,
-                )
-                task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=str(exc))
-                _sync_session_run(
-                    session_store,
-                    run_id=task_id,
-                    status=AgentTaskStatus.FAILED,
-                    error_message=str(exc),
-                    output_text=f"autoagent error: {exc}",
-                )
-                task_store.add_event(
-                    task_id,
-                    "agent_failed",
-                    {
-                        "agentId": request.agent_id,
-                        "agentConfigId": agent_config.id if agent_config else None,
-                        "error": str(exc),
-                    },
-                    trace_id=trace_id,
-                    source="agent",
-                )
-                _sync_plan_terminal_status(
-                    task_store,
-                    task_id,
-                    trace_id=trace_id,
-                    terminal_status="failed",
-                    reason=str(exc),
-                    source="autoagent",
-                )
-                task_store.add_event(
-                    task_id,
-                    "task_failed",
-                    {"error": str(exc)},
-                    trace_id=trace_id,
-                    source="autoagent",
-                )
-                _update_session_status(
-                    session_store,
-                    session_id,
-                    status=AgentSessionStatus.IDLE,
-                    current_run_id="",
-                    last_message_preview=f"autoagent error: {exc}",
-                )
+            await _run_autoagent_handler(state, prep, ctx, handler)
         except asyncio.CancelledError:
             logger.info("autoagent task cancelled for request %s", trace_id)
-            printer.send(None, "result", "task cancelled", None, True)
-            if task_store is not None:
-                task_store.update_status(task_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
-                _sync_session_run(
-                    session_store,
-                    run_id=task_id,
-                    status=AgentTaskStatus.CANCELLED,
-                    error_message="task cancelled",
-                    output_text="task cancelled",
-                )
-                task_store.add_event(
-                    task_id,
-                    "agent_cancelled",
-                    {
-                        "agentId": request.agent_id,
-                        "agentConfigId": agent_config.id if agent_config else None,
-                        "status": AgentTaskStatus.CANCELLED,
-                    },
-                    trace_id=trace_id,
-                    source="agent",
-                )
-                _sync_plan_terminal_status(
-                    task_store,
-                    task_id,
-                    trace_id=trace_id,
-                    terminal_status="cancelled",
-                    reason="task cancelled",
-                    source="autoagent",
-                )
-                task_store.add_event(
-                    task_id,
-                    "task_cancelled",
-                    {"status": AgentTaskStatus.CANCELLED},
-                    trace_id=trace_id,
-                    source="autoagent",
-                )
-            _update_session_status(
-                session_store,
-                session_id,
-                status=AgentSessionStatus.IDLE,
-                current_run_id="",
-                last_message_preview="task cancelled",
-            )
+            _cancel_autoagent_run(state, prep)
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.exception("autoagent pipeline failed for request %s", trace_id)
-            printer.send(None, "result", f"autoagent error: {exc}", None, True)
-            if task_store is not None:
-                task_store.update_status(task_id, AgentTaskStatus.FAILED, error_message=str(exc))
-                _sync_session_run(
-                    session_store,
-                    run_id=task_id,
-                    status=AgentTaskStatus.FAILED,
-                    error_message=str(exc),
-                    output_text=f"autoagent error: {exc}",
-                )
-                task_store.add_event(
-                    task_id,
-                    "agent_failed",
-                    {
-                        "agentId": request.agent_id,
-                        "agentConfigId": agent_config.id if agent_config else None,
-                        "error": str(exc),
-                    },
-                    trace_id=trace_id,
-                    source="agent",
-                )
-                _sync_plan_terminal_status(
-                    task_store,
-                    task_id,
-                    trace_id=trace_id,
-                    terminal_status="failed",
-                    reason=str(exc),
-                    source="autoagent",
-                )
-                task_store.add_event(
-                    task_id,
-                    "task_failed",
-                    {"error": str(exc)},
-                    trace_id=trace_id,
-                    source="autoagent",
-                )
-            _update_session_status(
-                session_store,
-                session_id,
-                status=AgentSessionStatus.IDLE,
-                current_run_id="",
-                last_message_preview=f"autoagent error: {exc}",
+            _record_autoagent_failure(
+                state,
+                prep,
+                str(exc),
+                printer_result=f"autoagent error: {exc}",
             )
         finally:
             if runningAgentTasks.get(task_id) is worker_task:
@@ -3673,8 +3804,9 @@ async def add_agent_session_message(
         raise HTTPException(status_code=400, detail="content is required")
 
     effective_user_id = _current_user_id(current_user, session_record.user_id) or ""
-    input_files = req.uploadFile or req.files or []
+    input_files = req.files or []
     serialized_files = _serialize_file_items(input_files)
+    req_language = _request_language(req)
 
     if session_record.status == AgentSessionStatus.WAITING_INPUT:
         run_id = session_record.current_run_id or ""
@@ -3692,7 +3824,7 @@ async def add_agent_session_message(
             if run_record is None:
                 raise HTTPException(status_code=404, detail="run not found")
             metadata = _run_record_metadata(run_record)
-            language = _normalize_language(req.language or (metadata.get("language") if metadata else None))
+            language = _normalize_language(req_language or (metadata.get("language") if metadata else None))
             user_message = store.add_message(
                 session_id,
                 run_id=run_id,
@@ -3768,7 +3900,7 @@ async def add_agent_session_message(
 
         task_payload = serialize_task(task)
         task_metadata = task_payload.get("metadata") if isinstance(task_payload.get("metadata"), dict) else {}
-        language = _normalize_language(req.language or (task_metadata.get("language") if task_metadata else None))
+        language = _normalize_language(req_language or (task_metadata.get("language") if task_metadata else None))
         user_message = store.add_message(
             session_id,
             run_id=run_id,
@@ -3839,6 +3971,8 @@ async def add_agent_session_message(
     selected_tools = _request_selected_tools(req)
     approved_tools = _request_approved_tools(req)
     run_environment = _request_run_environment(req)
+    output_style = _request_output_style(req)
+    mode = _request_mode(req)
     store.update_session(
         session_id,
         agent_id=agent_id,
@@ -3854,9 +3988,9 @@ async def add_agent_session_message(
         agent_id=agent_id,
         conversation_id=session_id,
         session_message_id=user_message.message_id,
-        language=req.language,
-        outputStyle=req.outputStyle,
-        mode=req.mode,
+        language=req_language,
+        outputStyle=output_style,
+        mode=mode,
         selected_tools=selected_tools,
         approved_tools=approved_tools,
         run_environment=run_environment,

@@ -5,6 +5,7 @@ from typing import Any, List, Optional
 
 from brain.core.agent_registry import AgentRegistry
 from brain.core.context import AgentContext
+from brain.core.planning_policy import PLAN_TOOL_NAME, should_use_plan
 from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool, HandoffStarter
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.builtin_request_input_tool import BuiltinRequestInputTool
@@ -88,7 +89,10 @@ class ToolGateway:
                 lambda tool_name: agent_config.allows_tool(tool_name, approved_tools=approved_tools)
                 and matches_tool_selection(selected_tools, tool_name)
             )
-            if agent_config.allows_tool("builtin:plan_tool", approved_tools=approved_tools):
+            if agent_config.allows_tool(PLAN_TOOL_NAME, approved_tools=approved_tools) and await _should_expose_plan_tool(
+                ctx,
+                selected_tools,
+            ):
                 tc.add_tool(BuiltinPlanTool(ctx))
             if agent_config.allows_tool("builtin:set_todo_list", approved_tools=approved_tools):
                 tc.add_tool(BuiltinTodoTool(ctx))
@@ -112,3 +116,9 @@ class ToolGateway:
         if not tc.tool_map:
             logger.warning("No MCP tools loaded; executor will have no available tools for this request.")
         return tc
+
+
+async def _should_expose_plan_tool(ctx: AgentContext, selected_tools: Optional[List[str]]) -> bool:
+    if selected_tools is not None:
+        return matches_tool_selection(selected_tools, PLAN_TOOL_NAME)
+    return await should_use_plan(ctx)

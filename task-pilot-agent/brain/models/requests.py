@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from brain.core.context import FileItem
 
 
@@ -66,21 +66,24 @@ class AgentSessionUpdateReq(BaseModel):
     metadata: Optional[dict] = None
 
 
-class AgentSessionMessageReq(BaseModel):
-    content: str
-    files: Optional[List[FileItem]] = None
-    uploadFile: Optional[List[FileItem]] = None
+class AgentRunOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     agent_id: Optional[str] = None
-    agentId: Optional[str] = None
     language: Optional[str] = None
-    outputStyle: Optional[str] = None
+    output_style: Optional[str] = None
     mode: Optional[str] = None
     selected_tools: Optional[List[str]] = None
-    selectedTools: Optional[List[str]] = None
     approved_tools: Optional[List[str]] = None
-    approvedTools: Optional[List[str]] = None
     run_environment: Optional[str] = None
-    runEnvironment: Optional[str] = None
+
+
+class AgentSessionMessageReq(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+    files: Optional[List[FileItem]] = None
+    options: Optional[AgentRunOptions] = None
 
 
 class AgentRunApprovalReq(BaseModel):

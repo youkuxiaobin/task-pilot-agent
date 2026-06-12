@@ -31,6 +31,10 @@ async def fake_handoff_starter(*_args, **_kwargs):
     return {"taskId": "child-task"}
 
 
+async def fake_should_use_plan(ctx, query=None, **_kwargs):
+    return bool(getattr(ctx, "needs_plan_for_test", False))
+
+
 def make_context(**overrides) -> AgentContext:
     values = {
         "requestId": "request-1",
@@ -50,8 +54,11 @@ def make_context(**overrides) -> AgentContext:
 
 
 def test_tool_gateway_builds_policy_filtered_collection(monkeypatch):
+    import brain.core.tools.gateway as gateway_module
+
     monkeypatch.delenv("APP_ALLOW_HIGH_RISK_TOOLS", raising=False)
     monkeypatch.delenv("ALLOW_HIGH_RISK_TOOLS", raising=False)
+    monkeypatch.setattr(gateway_module, "should_use_plan", fake_should_use_plan)
     agent = AgentConfig(
         id="gateway-agent",
         name="Gateway Agent",
@@ -70,7 +77,16 @@ def test_tool_gateway_builds_policy_filtered_collection(monkeypatch):
         mcp_fetcher_cls=FakeFetcher,
     )
 
-    blocked_collection = asyncio.run(gateway.build_collection(make_context()))
+    simple_ctx = make_context(query="simple request")
+    simple_ctx.needs_plan_for_test = False
+    simple_collection = asyncio.run(gateway.build_collection(simple_ctx))
+
+    assert "builtin:plan_tool" not in simple_collection.tool_map
+    assert "builtin:set_todo_list" in simple_collection.tool_map
+
+    complex_ctx = make_context(query="complex request")
+    complex_ctx.needs_plan_for_test = True
+    blocked_collection = asyncio.run(gateway.build_collection(complex_ctx))
 
     assert "builtin:plan_tool" in blocked_collection.tool_map
     assert "builtin:set_todo_list" in blocked_collection.tool_map
@@ -85,6 +101,12 @@ def test_tool_gateway_builds_policy_filtered_collection(monkeypatch):
 
     assert "mcp_local:code_interpreter" in approved_collection.tool_map
     assert approved_collection.blocked_tools == []
+
+    selected_collection = asyncio.run(
+        gateway.build_collection(make_context(query="你好", selected_tools=["builtin:plan_tool"]))
+    )
+
+    assert "builtin:plan_tool" in selected_collection.tool_map
 
 
 def test_tool_gateway_honors_per_request_selected_tools(monkeypatch):

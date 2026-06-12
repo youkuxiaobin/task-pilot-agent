@@ -1316,18 +1316,20 @@ async function submitConversationMessage(text, source) {
     const uploadedFiles = selectedFiles.value.length ? await uploadSelectedFiles(uploadRequestId) : []
     const payload = {
       content: text,
-      uploadFile: uploadedFiles,
-      agent_id: selectedAgentId.value || undefined,
-      language: language.value === 'en' ? 'en' : 'ch',
+      files: uploadedFiles,
+      options: {
+        agent_id: selectedAgentId.value || undefined,
+        language: language.value === 'en' ? 'en' : 'ch',
+      },
     }
     if (advancedOpen.value) {
-      payload.outputStyle = outputStyle.value || undefined
-      payload.mode = runMode.value || undefined
-      payload.run_environment = runEnvironment.value || undefined
+      payload.options.output_style = outputStyle.value || undefined
+      payload.options.mode = runMode.value || undefined
+      payload.options.run_environment = runEnvironment.value || undefined
       const selected = [...selectedToolNames.value]
       const approved = [...approvedToolNames.value]
-      if (toolSelectionTouched.value && selected.length) payload.selected_tools = selected
-      if (approved.length) payload.approved_tools = approved
+      if (toolSelectionTouched.value && selected.length) payload.options.selected_tools = selected
+      if (approved.length) payload.options.approved_tools = approved
     }
 
     if (source === 'chat') chatInput.value = ''
@@ -1348,7 +1350,7 @@ async function submitConversationMessage(text, source) {
       ...(currentTask.value || {}),
       taskId: currentTaskId.value,
       status: data.status || 'running',
-      agentId: payload.agent_id || defaultAgentId.value,
+      agentId: payload.options.agent_id || defaultAgentId.value,
     }
     updateActiveAssistant({ taskId: currentTaskId.value, status: 'running' })
     startSessionStream(currentSessionId.value)

@@ -175,6 +175,30 @@ tools:
     policy:
       risk: high
       requires_explicit_enable: true
+  - name: mcp_local:process_command_*
+    description: 管理长生命周期命令行进程，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:config_update
+    description: 修改运行配置，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:mcp_manager_add_server
+    description: 修改 MCP Server 配置，默认需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:create_subagent
+    description: 创建子 Agent 配置；注册到运行时需要显式打开高风险工具开关。
+    policy:
+      risk: high
+      requires_explicit_enable: true
+  - name: mcp_local:skill_install
+    description: 安装任务本地技能说明。
+    policy:
+      risk: medium
   - name: mcp_local:*
     description: 本地内置工具。
   - name: mcp_world:*
