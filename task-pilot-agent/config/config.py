@@ -129,12 +129,8 @@ class CoreSettings(BaseModel):
         resolved = raw_path if raw_path.is_absolute() else (Path.cwd() / raw_path).resolve()
         resolved.mkdir(parents=True, exist_ok=True)
         return resolved
-    # 修改为 Dict[str, str] 类型，支持 Map 格式
     output_styles: Dict[str, str] = Field({
-        "html": "",
         "markdown": ", 最后以 markdown 展示最终结果",
-        "table": ", 最后以excel 展示最终结果",
-        "ppt": ", 最后以 ppt 展示最终结果",
     })
     default_output_style: str = Field("markdown", description="默认输出样式")
     default_run_environment: str = Field("local", description="默认运行环境：local 或 sandbox")

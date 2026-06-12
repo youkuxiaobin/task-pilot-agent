@@ -7,10 +7,7 @@ core:
   agent_id: "task-pilot-agent"
   upload_dir: "./uploads"
   output_styles:
-    html: ""
     markdown: "，最后以 markdown 展示最终结果"
-    table: "，最后以excel 展示最终结果"
-    ppt: "，最后以 ppt 展示最终结果"
   default_output_style: "markdown"
   default_run_environment: "local"
   planer_max_steps: 10

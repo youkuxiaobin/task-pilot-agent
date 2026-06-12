@@ -65,14 +65,11 @@ const messages = {
     'sessions.search': '搜索会话',
     'home.title': '我能为你做什么？',
     'home.placeholder': '发起一个会话或提出任何问题',
-    'advanced.output': '输出格式',
     'advanced.mode': '运行模式',
     'advanced.followAgent': '跟随 Agent 配置',
     'advanced.environment': '运行环境',
     'advanced.local': '本地环境',
     'advanced.sandbox': '沙箱环境',
-    'advanced.tools': '本次工具',
-    'advanced.noTools': '当前 Agent 暂无工具配置',
     'task.detail': '运行详情',
     'task.artifacts': '产物',
     'task.noArtifacts': '暂无产物。',
@@ -218,14 +215,11 @@ const messages = {
     'sessions.search': 'Search conversations',
     'home.title': 'What can I do for you?',
     'home.placeholder': 'Start a chat or ask anything',
-    'advanced.output': 'Output format',
     'advanced.mode': 'Run mode',
     'advanced.followAgent': 'Follow Agent config',
     'advanced.environment': 'Runtime',
     'advanced.local': 'Local',
     'advanced.sandbox': 'Sandbox',
-    'advanced.tools': 'Tools for this run',
-    'advanced.noTools': 'No tools configured for this Agent',
     'task.detail': 'Run Detail',
     'task.artifacts': 'Artifacts',
     'task.noArtifacts': 'No artifacts yet.',
@@ -350,7 +344,6 @@ const running = ref(false)
 const streamController = ref(null)
 const query = ref('')
 const selectedAgentId = ref('')
-const outputStyle = ref('markdown')
 const runMode = ref('')
 const runEnvironment = ref('local')
 const advancedOpen = ref(false)
@@ -379,9 +372,6 @@ const mcpServers = ref([])
 const mcpToolCount = ref(0)
 const mcpSource = ref('')
 const mcpRefreshing = ref(false)
-const selectedToolNames = ref(new Set())
-const approvedToolNames = ref(new Set())
-const toolSelectionTouched = ref(false)
 const sessions = ref([])
 const sessionWebSocket = ref(null)
 const sessionEventSource = ref(null)
@@ -490,10 +480,20 @@ const mergedTimeline = computed(() => {
   return dedupeTimelineItems([...replay, ...liveTimeline.value].filter(Boolean))
 })
 
-const progressItems = computed(() => mergedTimeline.value.filter(shouldShowProgressItem).map((item, index) => enrichProgressItem(item, index)))
+const currentTimelineRunId = computed(() => (
+  currentTaskId.value
+  || currentTask.value?.taskId
+  || currentTask.value?.runId
+  || currentSession.value?.currentRunId
+  || ''
+))
+
+const activeTimelineItems = computed(() => mergedTimeline.value.filter(timelineItemMatchesCurrentRun))
+
+const progressItems = computed(() => activeTimelineItems.value.filter(shouldShowProgressItem).map((item, index) => enrichProgressItem(item, index)))
 
 const currentPlanPanel = computed(() => {
-  const plans = mergedTimeline.value
+  const plans = activeTimelineItems.value
     .filter((item) => item && isPlanEvent(item.type))
     .map((item) => planSnapshotFromEvent(item.type, item.raw || {}))
     .filter(Boolean)
@@ -699,8 +699,13 @@ function updateActiveAssistant(updates) {
 }
 
 function ensureActiveAssistantMessage(runId = '') {
-  const activeExists = chatMessages.value.some((message) => message.id === activeAssistantMessageId.value)
-  if (activeExists) return
+  const activeMessage = chatMessages.value.find((message) => message.id === activeAssistantMessageId.value)
+  if (
+    activeMessage
+    && (!runId || !activeMessage.taskId || activeMessage.taskId === runId)
+  ) {
+    return
+  }
   const existing = [...chatMessages.value].reverse().find((message) => (
     message.role === 'assistant'
     && (!runId || message.taskId === runId)
@@ -828,7 +833,7 @@ function seedChatFromSession(session, options = {}) {
     && (!processRunId || message.taskId === processRunId)
   ))
   const processOutput = String(latestRun?.output || replayedOutput || '').trim()
-  if (!hasAssistantForProcessRun && (processOutput || sessionHasVisibleProgressEvents())) {
+  if (!hasAssistantForProcessRun && (processOutput || sessionHasVisibleProgressEvents(processRunId))) {
     nextMessages.push({
       id: `process-${processRunId || chatMessageId('assistant')}`,
       role: 'assistant',
@@ -928,10 +933,10 @@ function sessionProcessRunId(session, latestRun) {
     || ''
 }
 
-function sessionHasVisibleProgressEvents() {
+function sessionHasVisibleProgressEvents(runId = '') {
   return currentEvents.value.some((event) => {
     const item = normalizeTimelineEvent(event)
-    return item && shouldShowProgressItem(item)
+    return item && timelineItemMatchesRun(item, runId || currentTimelineRunId.value) && shouldShowProgressItem(item)
   })
 }
 
@@ -1078,6 +1083,8 @@ function hasSessionEvent(event) {
 
 function mergeSessionEvent(event) {
   if (!event) return
+  const runId = eventRunId(event)
+  if (runId && currentTaskId.value && runId !== currentTaskId.value && running.value) return
   if (hasSessionEvent(event)) return
   currentEvents.value = [...currentEvents.value, event].sort((left, right) => {
     const leftSeq = Number(left.seq || 0)
@@ -1092,7 +1099,7 @@ function mergeSessionEvent(event) {
   const eventType = event.eventType || event.type
   const payload = event.payload || {}
   if (payload.taskId || event.runId) {
-    currentTaskId.value = payload.taskId || event.runId || currentTaskId.value
+    currentTaskId.value = runId || currentTaskId.value
     currentTask.value = {
       ...(currentTask.value || {}),
       taskId: currentTaskId.value,
@@ -1103,7 +1110,7 @@ function mergeSessionEvent(event) {
   if (eventType === 'result' || eventType === 'agent_stream') {
     const text = payload.result || ''
     finalAnswer.value += text
-    appendAssistantContent(text, eventRunId(event))
+    appendAssistantContent(text, runId)
   }
   if (eventType === 'waiting_input') {
     if (currentTask.value) currentTask.value.status = 'waiting_input'
@@ -1163,11 +1170,10 @@ async function handleSessionTransportPayload(payload, sessionId) {
   }
 }
 
-function startSessionStream(sessionId = currentSessionId.value) {
+function startSessionStream(sessionId = currentSessionId.value, afterSeq = maxSessionSeq()) {
   stopSessionStream()
   stopSessionPolling()
   if (!sessionId) return
-  const afterSeq = maxSessionSeq()
   sessionStreamExpectedClose = false
   if (typeof WebSocket !== 'undefined') {
     try {
@@ -1277,6 +1283,7 @@ async function submitConversationMessage(text, source) {
   }
 
   if (source === 'home') resetConversationState()
+  const streamAfterSeq = source === 'chat' ? maxSessionSeq() : 0
   const userMessage = {
     id: chatMessageId('user'),
     role: 'user',
@@ -1323,13 +1330,8 @@ async function submitConversationMessage(text, source) {
       },
     }
     if (advancedOpen.value) {
-      payload.options.output_style = outputStyle.value || undefined
       payload.options.mode = runMode.value || undefined
       payload.options.run_environment = runEnvironment.value || undefined
-      const selected = [...selectedToolNames.value]
-      const approved = [...approvedToolNames.value]
-      if (toolSelectionTouched.value && selected.length) payload.options.selected_tools = selected
-      if (approved.length) payload.options.approved_tools = approved
     }
 
     if (source === 'chat') chatInput.value = ''
@@ -1353,7 +1355,7 @@ async function submitConversationMessage(text, source) {
       agentId: payload.options.agent_id || defaultAgentId.value,
     }
     updateActiveAssistant({ taskId: currentTaskId.value, status: 'running' })
-    startSessionStream(currentSessionId.value)
+    startSessionStream(currentSessionId.value, streamAfterSeq)
   } catch (error) {
     if (error.name !== 'AbortError') {
       addNotification(withDetail('运行失败', 'Run failed', error.message), 'failed')
@@ -1855,11 +1857,6 @@ async function refreshToolCatalog() {
       ...(Array.isArray(data.items) ? data.items : []),
       ...(Array.isArray(data.blockedTools) ? data.blockedTools : []),
     ]
-    selectedToolNames.value = new Set(
-      toolCatalog.value.filter(shouldSelectToolByDefault).map((tool) => tool.name),
-    )
-    approvedToolNames.value = new Set()
-    toolSelectionTouched.value = false
   } catch (error) {
     toolCatalog.value = []
     addNotification(error.message, 'failed')
@@ -1895,26 +1892,8 @@ async function refreshMcpServers(options = {}) {
   }
 }
 
-function toggleTool(tool) {
-  const next = new Set(selectedToolNames.value)
-  if (next.has(tool.name)) next.delete(tool.name)
-  else next.add(tool.name)
-  selectedToolNames.value = next
-  toolSelectionTouched.value = true
-
-  const approval = new Set(approvedToolNames.value)
-  if (toolRequiresApproval(tool) && next.has(tool.name)) approval.add(tool.name)
-  else approval.delete(tool.name)
-  approvedToolNames.value = approval
-}
-
 function toolRequiresApproval(tool) {
   return Boolean(tool.requiresApproval) || tool.blockReason === 'high_risk_requires_enable' || tool.blockReason === 'high_risk_requires_approval'
-}
-
-function shouldSelectToolByDefault(tool) {
-  const risk = String(tool.riskLevel || tool.policy?.risk || '').toLowerCase()
-  return tool.allowed !== false && !toolRequiresApproval(tool) && !['high', 'critical'].includes(risk)
 }
 
 function toolRiskText(tool) {
@@ -1969,6 +1948,22 @@ function normalizeTimelineEvent(event) {
     time: event.createdAt || event.time || payload.messageTime || Date.now(),
     open: failed || eventType === 'task_failed' || eventType === 'agent_failed',
   }
+}
+
+function timelineItemRunId(item = {}) {
+  const raw = item.raw || {}
+  return item.runId || raw.runId || raw.taskId || raw.requestId || ''
+}
+
+function timelineItemMatchesRun(item, runId = '') {
+  const wanted = String(runId || '').trim()
+  if (!wanted) return true
+  const itemRunId = String(timelineItemRunId(item) || '').trim()
+  return !itemRunId || itemRunId === wanted
+}
+
+function timelineItemMatchesCurrentRun(item) {
+  return timelineItemMatchesRun(item, currentTimelineRunId.value)
 }
 
 function dedupeTimelineItems(items) {
@@ -2942,15 +2937,6 @@ onBeforeUnmount(() => {
 
             <div v-if="advancedOpen" class="advanced-panel">
               <label>
-                {{ t('advanced.output') }}
-                <select v-model="outputStyle">
-                  <option value="markdown">Markdown</option>
-                  <option value="html">HTML</option>
-                  <option value="table">Table</option>
-                  <option value="ppt">PPT</option>
-                </select>
-              </label>
-              <label>
                 {{ t('advanced.mode') }}
                 <select v-model="runMode">
                   <option value="">{{ t('advanced.followAgent') }}</option>
@@ -2965,20 +2951,6 @@ onBeforeUnmount(() => {
                   <option value="sandbox">{{ t('advanced.sandbox') }}</option>
                 </select>
               </label>
-              <div class="advanced-tools">
-                <div class="advanced-title">{{ t('advanced.tools') }}</div>
-                <div v-if="!toolCatalog.length" class="muted-text">{{ t('advanced.noTools') }}</div>
-                <label v-for="tool in toolCatalog.slice(0, 12)" :key="tool.name" class="tool-check">
-                  <input
-                    type="checkbox"
-                    :checked="selectedToolNames.has(tool.name)"
-                    :disabled="tool.allowed === false && !toolRequiresApproval(tool)"
-                    @change="toggleTool(tool)"
-                  />
-                  <span>{{ tool.name }}</span>
-                  <em>{{ toolRiskText(tool) }}</em>
-                </label>
-              </div>
             </div>
           </form>
         </div>

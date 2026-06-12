@@ -6,10 +6,7 @@ prompt_file: "../config/prompt.yaml"
 core:
   agent_id: "task-pilot-agent"
   output_styles:
-    html: ""
     markdown: "，最后以 markdown 展示最终结果"
-    table: "，最后以excel 展示最终结果"
-    ppt: "，最后以 ppt 展示最终结果"
   default_output_style: "markdown"
   planer_max_steps: 20
   planer_min_steps: 0

@@ -165,11 +165,13 @@ def test_task_detail_is_continuous_chat_window():
         "@click=\"loadOlderMessages\"",
         "class=\"chat-composer\"",
         "@keydown.enter.exact.prevent=\"submitChatMessage\"",
-        "appendAssistantContent(text, eventRunId(event))",
+        "appendAssistantContent(text, runId)",
         "appendAssistantContent(payload.result || '', payload.taskId || payload.runId || '')",
         "new URLSearchParams({ afterSeq: String(afterSeq), limit: '50' })",
         "new URLSearchParams({ limit: EVENT_REPLAY_LIMIT })",
         "const progressItems = computed",
+        "const currentTimelineRunId = computed",
+        "const activeTimelineItems = computed",
         "const currentPlanPanel = computed",
         "normalizePlanSnapshotForDisplay(plans[plans.length - 1])",
         "function planSnapshotFromEvent",
@@ -186,6 +188,8 @@ def test_task_detail_is_continuous_chat_window():
         "function artifactDisplayName",
         "function artifactTypeText",
         "function shouldShowProgressItem",
+        "function timelineItemMatchesCurrentRun",
+        "function timelineItemMatchesRun",
         "function sessionHasVisibleProgressEvents",
         "function sessionProcessRunId",
         "function sessionLatestEventRunId",
@@ -209,6 +213,7 @@ def test_task_detail_is_continuous_chat_window():
         assert marker in source
 
     assert "if (source === 'home') resetConversationState()" in submit_block
+    assert "const streamAfterSeq = source === 'chat' ? maxSessionSeq() : 0" in submit_block
     assert "await ensureCurrentSession(text)" in submit_block
     assert "content: text" in submit_block
     assert "files: uploadedFiles" in submit_block
@@ -218,6 +223,8 @@ def test_task_detail_is_continuous_chat_window():
     assert "const params = new URLSearchParams({ limit: '50', before })" in source
     assert "chatMessages.value = [...olderMessages, ...chatMessages.value]" in source
     assert "keepChat: true" in source
+    assert "runId && currentTaskId.value && runId !== currentTaskId.value && running.value" in source
+    assert "startSessionStream(currentSessionId.value, streamAfterSeq)" in source
     assert '@click="item.id === \'home\' ? newTask() : switchView(item.id)"' in source
     detail_block = source.split('<section v-else-if="activeView === \'taskDetail\'"', 1)[1].split(
         '<section v-else-if="activeView === \'tasks\'"', 1
@@ -275,6 +282,9 @@ def test_task_detail_is_continuous_chat_window():
     assert ".progress-main" in styles
     assert ".progress-state" in styles
     assert "dedupeTimelineItems([...replay, ...liveTimeline.value].filter(Boolean))" in source
+    assert "activeTimelineItems.value.filter(shouldShowProgressItem)" in source
+    assert "const plans = activeTimelineItems.value" in source
+    assert "timelineItemMatchesRun(item, runId || currentTimelineRunId.value)" in source
     assert "function timelineToolResultDedupeKey" in source
     assert "function stableTimelineValue" in source
     timeline_item_block = styles.split(".timeline-item {", 1)[1].split("}", 1)[0]
@@ -426,11 +436,11 @@ def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     assert "files: uploadedFiles" in submit_block
     assert "options: {" in submit_block
     assert "if (advancedOpen.value)" in submit_block
-    assert "payload.options.output_style = outputStyle.value || undefined" in submit_block
     assert "payload.options.mode = runMode.value || undefined" in submit_block
     assert "payload.options.run_environment = runEnvironment.value || undefined" in submit_block
-    assert "payload.options.selected_tools = selected" in submit_block
-    assert "payload.options.approved_tools = approved" in submit_block
+    assert "payload.options.output_style" not in submit_block
+    assert "payload.options.selected_tools" not in submit_block
+    assert "payload.options.approved_tools" not in submit_block
     mode_select = source.split("<select v-model=\"runMode\">", 1)[1].split("</select>", 1)[0]
     assert mode_select.index("<option value=\"react\">ReAct</option>") < mode_select.index("Legacy Plan Executor")
 
@@ -464,14 +474,19 @@ def test_vue_frontend_exposes_file_upload_agent_picker_and_advanced_settings():
         "removeFile(index)",
         "v-model=\"selectedAgentId\"",
         "高级设置",
-        "输出格式",
         "运行模式",
         "运行环境",
-        "本次工具",
-        "toggleTool(tool)",
-        "toolRequiresApproval(tool)",
     ]:
         assert marker in source
+    for marker in [
+        "输出格式",
+        "本次工具",
+        "v-model=\"outputStyle\"",
+        "toggleTool(tool)",
+        "selectedToolNames",
+        "approvedToolNames",
+    ]:
+        assert marker not in source
 
 
 def test_vue_tools_panel_shows_tool_source_risk_and_server():

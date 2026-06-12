@@ -31,10 +31,7 @@ core:
   agent_id: "task-pilot-agent"
   upload_dir: "./uploads"            # 上传/生成文件存放目录（相对启动目录）
   output_styles:
-    html: ""
     markdown: "，最后以 markdown 展示最终结果"
-    table: "，最后以excel 展示最终结果"
-    ppt: "，最后以 ppt 展示最终结果"
   default_output_style: "markdown"   # 请求未指定 outputStyle 时的默认值
   default_run_environment: "local"   # 页面不展示运行环境选择；请求未指定时使用 local/sandbox
   planer_max_steps: 20               # PlanningAgent 最大规划步数（字段名为 planer_* 是历史拼写）
