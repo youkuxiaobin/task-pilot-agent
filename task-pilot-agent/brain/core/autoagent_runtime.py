@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -9,8 +10,9 @@ from typing import Any, Callable, Dict, List, Optional
 from brain.core.agent_registry import AgentConfig
 from brain.core.context import AgentContext
 from brain.core.printer import SSEPrinter
+from brain.core.run_events import RunEventType
 from brain.core.sessions import AgentMessageRole, AgentSessionStatus, SessionStore
-from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_event, serialize_task
+from brain.core.tasks import FINAL_STATUSES, AgentTaskStatus, TaskStore, serialize_event, serialize_task
 from brain.core.tools.collection import ToolCollection
 from brain.models.requests import AgentMessage, GptQueryReq
 from utils.logger import clear_log_context, configure_log_context, get_logger
@@ -89,6 +91,8 @@ class AutoAgentRuntimeDeps:
     register_workspace_artifacts: Callable[..., None]
     sync_plan_terminal_status: Callable[..., None]
     maybe_update_session_summary: Callable[..., Optional[Dict[str, Any]]]
+    renew_background_run: Callable[[str], None]
+    background_lease_heartbeat_seconds: float = 30.0
 
 
 def _prepare_autoagent_request(req: GptQueryReq, deps: AutoAgentRuntimeDeps) -> AutoAgentRequestPrep:
@@ -251,7 +255,7 @@ def _initialize_autoagent_run(
         if existing_task and isinstance(persisted_metadata, dict)
         else state.input_files
     )
-    lifecycle_event = "task_resumed" if existing_task else "task_created"
+    lifecycle_event = RunEventType.TASK_RESUMED if existing_task else RunEventType.TASK_CREATED
     lifecycle_source = "resume" if existing_task else "autoagent"
     lifecycle_payload = {
         "mode": prep.resolved_mode,
@@ -279,7 +283,7 @@ def _initialize_autoagent_run(
     if state.user_message_id:
         task_store.add_event(
             state.task_id,
-            "user_message_created",
+            RunEventType.USER_MESSAGE_CREATED,
             deps.message_event_payload(
                 session_id=state.session_id,
                 run_id=state.task_id,
@@ -314,7 +318,7 @@ def _record_autoagent_stream_event(
         assert state.task_store is not None
         persisted_event = state.task_store.add_event(
             state.task_id,
-            str(event_data.get("messageType") or "stream_event"),
+            str(event_data.get("messageType") or RunEventType.STREAM_EVENT),
             event_data,
             trace_id=state.trace_id,
             source="sse",
@@ -337,7 +341,7 @@ def _record_autoagent_stream_event(
             )
             state.task_store.add_event(
                 state.task_id,
-                "task_artifact_added",
+                RunEventType.TASK_ARTIFACT_ADDED,
                 deps.artifact_event_payload(state.session_id or "", state.task_id, artifact_record),
                 trace_id=state.trace_id,
                 source="artifact",
@@ -351,14 +355,21 @@ def _attach_autoagent_event_sink(state: AutoAgentRunState, deps: AutoAgentRuntim
     state.printer.event_sink = lambda event_data: _record_autoagent_stream_event(state, deps, event_data)
 
 
-def _mark_autoagent_running(state: AutoAgentRunState, prep: AutoAgentRequestPrep, deps: AutoAgentRuntimeDeps) -> None:
+def _mark_autoagent_running(state: AutoAgentRunState, prep: AutoAgentRequestPrep, deps: AutoAgentRuntimeDeps) -> bool:
     assert state.task_store is not None
     assert state.session_store is not None
     assert state.session_id is not None
     assert state.assistant_message_id is not None
     request = prep.request
     agent_config = prep.agent_config
-    state.task_store.update_status(state.task_id, AgentTaskStatus.RUNNING)
+    started_task = state.task_store.start_task(state.task_id)
+    if not started_task or started_task.status != AgentTaskStatus.RUNNING:
+        logger.info(
+            "autoagent task %s did not start because current status is %s",
+            state.task_id,
+            getattr(started_task, "status", None),
+        )
+        return False
     deps.sync_session_run(
         state.session_store,
         run_id=state.task_id,
@@ -367,14 +378,14 @@ def _mark_autoagent_running(state: AutoAgentRunState, prep: AutoAgentRequestPrep
     )
     state.task_store.add_event(
         state.task_id,
-        "task_running",
+        RunEventType.TASK_RUNNING,
         {"status": AgentTaskStatus.RUNNING},
         trace_id=state.trace_id,
         source="autoagent",
     )
     state.task_store.add_event(
         state.task_id,
-        "agent_started",
+        RunEventType.AGENT_STARTED,
         {
             "agentId": request.agent_id,
             "agentConfigId": agent_config.id if agent_config else None,
@@ -390,7 +401,7 @@ def _mark_autoagent_running(state: AutoAgentRunState, prep: AutoAgentRequestPrep
     )
     state.task_store.add_event(
         state.task_id,
-        "assistant_message_started",
+        RunEventType.ASSISTANT_MESSAGE_STARTED,
         deps.message_event_payload(
             session_id=state.session_id,
             run_id=state.task_id,
@@ -403,6 +414,7 @@ def _mark_autoagent_running(state: AutoAgentRunState, prep: AutoAgentRequestPrep
         source="session",
         message_id=state.assistant_message_id,
     )
+    return True
 
 
 def _build_autoagent_context(
@@ -451,7 +463,7 @@ async def _load_autoagent_memory_and_runtime_events(
     memory_context_payload = await deps.load_task_memory_context(ctx, state.latest_input)
     state.task_store.add_event(
         state.task_id,
-        "memory_context_loaded",
+        RunEventType.MEMORY_CONTEXT_LOADED,
         memory_context_payload,
         trace_id=state.trace_id,
         source="memory",
@@ -459,7 +471,7 @@ async def _load_autoagent_memory_and_runtime_events(
     state.printer.send(None, "task", deps.memory_context_status_text(memory_context_payload), None, True)
     state.task_store.add_event(
         state.task_id,
-        "runtime_boundary_applied",
+        RunEventType.RUNTIME_BOUNDARY_APPLIED,
         {
             "runEnvironment": ctx.run_environment,
             "workDir": ctx.work_dir,
@@ -489,7 +501,7 @@ async def _apply_autoagent_tool_policy(
     )
     state.task_store.add_event(
         state.task_id,
-        "tool_policy_applied",
+        RunEventType.TOOL_POLICY_APPLIED,
         {
             "agentId": ctx.agent_id,
             "selectedTools": prep.selected_tools,
@@ -527,7 +539,7 @@ def _maybe_wait_for_autoagent_tool_approval(
 
     approval_event = state.task_store.add_event(
         state.task_id,
-        "approval_requested",
+        RunEventType.APPROVAL_REQUESTED,
         {
             "approvalType": "high_risk_tools",
             "requests": approval_requests,
@@ -549,7 +561,7 @@ def _maybe_wait_for_autoagent_tool_approval(
     )
     state.task_store.add_event(
         state.task_id,
-        "task_waiting_approval",
+        RunEventType.TASK_WAITING_APPROVAL,
         {
             "status": AgentTaskStatus.WAITING_APPROVAL,
             "approvalRequestEventId": approval_event.id,
@@ -580,7 +592,7 @@ def _maybe_wait_for_autoagent_tool_approval(
         state.assistant_message_id = assistant_message.message_id
         state.task_store.add_event(
             state.task_id,
-            "assistant_message_completed",
+            RunEventType.ASSISTANT_MESSAGE_COMPLETED,
             deps.message_event_payload(
                 session_id=state.session_id,
                 run_id=state.task_id,
@@ -593,7 +605,6 @@ def _maybe_wait_for_autoagent_tool_approval(
             source="session",
             message_id=state.assistant_message_id,
         )
-    state.printer.send(None, "task", waiting_message_text, None, True)
     deps.update_session_status(
         state.session_store,
         state.session_id,
@@ -637,7 +648,7 @@ def _record_autoagent_failure(
         )
         state.task_store.add_event(
             state.task_id,
-            "agent_failed",
+            RunEventType.AGENT_FAILED,
             {
                 "agentId": request.agent_id,
                 "agentConfigId": agent_config.id if agent_config else None,
@@ -656,7 +667,7 @@ def _record_autoagent_failure(
         )
         state.task_store.add_event(
             state.task_id,
-            "task_failed",
+            RunEventType.TASK_FAILED,
             {"error": error_message},
             trace_id=state.trace_id,
             source="autoagent",
@@ -716,7 +727,7 @@ def _mark_autoagent_waiting_input(
         state.assistant_message_id = assistant_message.message_id
         state.task_store.add_event(
             state.task_id,
-            "assistant_message_completed",
+            RunEventType.ASSISTANT_MESSAGE_COMPLETED,
             deps.message_event_payload(
                 session_id=state.session_id,
                 run_id=state.task_id,
@@ -779,7 +790,7 @@ def _complete_autoagent_success(
         completed_assistant_message_id = state.assistant_message_id
         state.task_store.add_event(
             state.task_id,
-            "assistant_message_completed",
+            RunEventType.ASSISTANT_MESSAGE_COMPLETED,
             deps.message_event_payload(
                 session_id=state.session_id,
                 run_id=state.task_id,
@@ -817,7 +828,7 @@ def _complete_autoagent_success(
     )
     state.task_store.add_event(
         state.task_id,
-        "agent_completed",
+        RunEventType.AGENT_COMPLETED,
         {
             "agentId": request.agent_id,
             "agentConfigId": agent_config.id if agent_config else None,
@@ -828,7 +839,7 @@ def _complete_autoagent_success(
     )
     state.task_store.add_event(
         state.task_id,
-        "task_completed",
+        RunEventType.TASK_COMPLETED,
         {"status": AgentTaskStatus.COMPLETED},
         trace_id=state.trace_id,
         source="autoagent",
@@ -884,7 +895,7 @@ def _cancel_autoagent_run(state: AutoAgentRunState, prep: AutoAgentRequestPrep, 
         )
         state.task_store.add_event(
             state.task_id,
-            "agent_cancelled",
+            RunEventType.AGENT_CANCELLED,
             {
                 "agentId": request.agent_id,
                 "agentConfigId": agent_config.id if agent_config else None,
@@ -903,7 +914,7 @@ def _cancel_autoagent_run(state: AutoAgentRunState, prep: AutoAgentRequestPrep, 
         )
         state.task_store.add_event(
             state.task_id,
-            "task_cancelled",
+            RunEventType.TASK_CANCELLED,
             {"status": AgentTaskStatus.CANCELLED},
             trace_id=state.trace_id,
             source="autoagent",
@@ -914,7 +925,17 @@ def _cancel_autoagent_run(state: AutoAgentRunState, prep: AutoAgentRequestPrep, 
         status=AgentSessionStatus.IDLE,
         current_run_id="",
         last_message_preview="task cancelled",
-    )
+        )
+
+
+async def _renew_background_lease_until_done(task_id: str, deps: AutoAgentRuntimeDeps) -> None:
+    interval = max(float(deps.background_lease_heartbeat_seconds or 0), 0.01)
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            deps.renew_background_run(task_id)
+    except asyncio.CancelledError:
+        raise
 
 
 async def run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None], deps: AutoAgentRuntimeDeps) -> None:
@@ -931,11 +952,24 @@ async def run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None], deps: 
         state = AutoAgentRunState(task_id=task_id, trace_id=trace_id)
         printer = SSEPrinter(enqueue, trace_id, task_id=task_id, run_id=task_id)
         worker_task = asyncio.current_task()
+        lease_heartbeat_task: Optional[asyncio.Task] = None
 
         try:
+            if deps.background_lease_heartbeat_seconds > 0:
+                lease_heartbeat_task = asyncio.get_running_loop().create_task(
+                    _renew_background_lease_until_done(task_id, deps)
+                )
             if worker_task:
                 deps.running_tasks[task_id] = worker_task
             task_store = TaskStore()
+            existing_task = task_store.get_task(task_id)
+            if existing_task and existing_task.status in FINAL_STATUSES:
+                logger.info(
+                    "autoagent task %s skipped because current status is %s",
+                    task_id,
+                    existing_task.status,
+                )
+                return
             session_store = SessionStore()
             state.task_store = task_store
             state.session_store = session_store
@@ -948,7 +982,8 @@ async def run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None], deps: 
                 printer=printer,
             )
             _attach_autoagent_event_sink(state, deps)
-            _mark_autoagent_running(state, prep, deps)
+            if not _mark_autoagent_running(state, prep, deps):
+                return
             ctx = _build_autoagent_context(state, prep, deps)
             await _load_autoagent_memory_and_runtime_events(state, deps, ctx)
             _, blocked_tools, blocked_tool_reasons = await _apply_autoagent_tool_policy(state, prep, deps, ctx)
@@ -980,6 +1015,10 @@ async def run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None], deps: 
                 printer_result=f"autoagent error: {exc}",
             )
         finally:
+            if lease_heartbeat_task is not None:
+                lease_heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await lease_heartbeat_task
             if deps.running_tasks.get(task_id) is worker_task:
                 deps.running_tasks.pop(task_id, None)
             printer.close()

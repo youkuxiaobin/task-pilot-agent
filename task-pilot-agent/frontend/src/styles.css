@@ -1116,16 +1116,6 @@ body.resizing-sidebar * {
   padding: 10px 0 22px;
 }
 
-.chat-history-control {
-  display: flex;
-  justify-content: center;
-  min-height: 34px;
-}
-
-.chat-history-control .ghost-button {
-  background: #ffffff;
-}
-
 .chat-message {
   display: grid;
   gap: 8px;
@@ -1279,6 +1269,34 @@ body.resizing-sidebar * {
   flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 18px;
+}
+
+.child-task-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.child-task-link {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 10px;
+  color: var(--text-main);
+  text-align: left;
+  background: #fff;
+}
+
+.child-task-link span,
+.child-task-link small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.child-task-link small {
+  color: var(--text-muted);
 }
 
 .conversation-waiting {

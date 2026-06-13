@@ -6,6 +6,11 @@ TaskPilotAgent is a FastAPI-based general-purpose Agent orchestration service. I
 
 It supports multiple model providers, including OpenAI, Claude/Codex, Gemini, and OpenAI-compatible services. Tools are aggregated through MCP, with both local tools and external MCP servers supported.
 
+## Reading The Code
+
+- Start with [`task-pilot-agent/CODE_INDEX.md`](task-pilot-agent/CODE_INDEX.md) for the current module map.
+- Read [`docs/agent-runtime-architecture.md`](docs/agent-runtime-architecture.md) for layer boundaries, Agent component relationships, and the refactoring direction.
+
 ## Agent Architecture
 
 TaskPilotAgent is organized around this product path:
@@ -60,7 +65,7 @@ flowchart LR
 | Tool collection | `task-pilot-agent/brain/core/tools/collection.py` | Expose tool schemas, execute tools, and emit tool events |
 | MCP adapter | `task-pilot-agent/brain/core/tools/mcp_tool.py` | Convert Agent tool calls into MCP Market calls |
 | Local MCP tools | `task-pilot-agent/tools/mcp_local/mcp_server.py` | Provide filesystem, search, code, report, weather, and media tools |
-| Web UI | `task-pilot-agent/brain/web/autoagent.html` | Create tasks, list tasks, show timeline, tool calls, and final output |
+| Web UI | `task-pilot-agent/frontend/src/App.vue` | Create sessions, submit messages, replay timelines, approve tools, inspect artifacts, and show final output |
 
 ## Component Flowcharts And Sequence Diagrams
 

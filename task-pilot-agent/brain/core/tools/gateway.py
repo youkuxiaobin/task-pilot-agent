@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import fnmatch
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-from brain.core.agent_registry import AgentRegistry
+from brain.core.agent_registry import AgentConfig, AgentRegistry, AgentToolSpec
 from brain.core.context import AgentContext
 from brain.core.planning_policy import PLAN_TOOL_NAME, should_use_plan
+from brain.core.tool_policy import (
+    matches_tool_selection,
+    normalize_tool_selection,
+)
 from brain.core.tools.builtin_handoff_tool import BuiltinHandoffTool, HandoffStarter
 from brain.core.tools.builtin_plan_tool import BuiltinPlanTool
 from brain.core.tools.builtin_request_input_tool import BuiltinRequestInputTool
@@ -17,39 +20,84 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def normalize_tool_selection(selected_tools: Any) -> Optional[List[str]]:
-    if selected_tools is None:
+def find_agent_tool_spec(agent_config: Optional[AgentConfig], tool_name: str) -> Optional[AgentToolSpec]:
+    if not agent_config:
         return None
-    if isinstance(selected_tools, str):
-        selected_tools = [selected_tools]
-    if not isinstance(selected_tools, list):
-        return []
-    return [str(tool).strip() for tool in selected_tools if str(tool).strip()]
+    exact = next((tool for tool in agent_config.tools if tool.name == tool_name), None)
+    if exact:
+        return exact
+    return next(
+        (
+            tool
+            for tool in agent_config.tools
+            if tool.name and matches_tool_selection([tool.name], tool_name)
+        ),
+        None,
+    )
 
 
-def matches_tool_selection(selected_patterns: Optional[List[str]], tool_name: str) -> bool:
-    if selected_patterns is None:
-        return True
-    if not selected_patterns:
-        return False
-    for pattern in selected_patterns:
-        if pattern in {"*", "all"}:
-            return True
-        for tool_candidate in _tool_name_variants(tool_name):
-            for pattern_candidate in _tool_name_variants(pattern):
-                if fnmatch.fnmatch(tool_candidate, pattern_candidate):
-                    return True
-    return False
+def blocked_tool_reasons(
+    blocked_tools: List[str],
+    agent_config: Optional[AgentConfig],
+    selected_tools: Optional[List[str]],
+    approved_tools: Optional[List[str]] = None,
+) -> Dict[str, str]:
+    normalized_selected = normalize_tool_selection(selected_tools)
+    normalized_approved = normalize_tool_selection(approved_tools)
+    reasons: Dict[str, str] = {}
+    for tool_name in blocked_tools:
+        if normalized_selected is not None and not matches_tool_selection(normalized_selected, tool_name):
+            reasons[tool_name] = "not_selected"
+            continue
+        if agent_config:
+            reasons[tool_name] = (
+                agent_config.tool_block_reason(tool_name, approved_tools=normalized_approved)
+                or "blocked_by_policy"
+            )
+        else:
+            reasons[tool_name] = "blocked_by_policy"
+    return reasons
 
 
-def _tool_name_variants(value: str) -> List[str]:
-    text = str(value or "")
-    variants = [text]
-    if ":" in text:
-        variants.append(text.replace(":", "-", 1))
-    if "-" in text:
-        variants.append(text.replace("-", ":", 1))
-    return list(dict.fromkeys(item for item in variants if item))
+def approval_requests_from_blocked_tools(
+    blocked_tools: List[str],
+    blocked_reasons: Dict[str, str],
+    agent_config: Optional[AgentConfig],
+    selected_tools: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    normalized_selected = normalize_tool_selection(selected_tools)
+    requests: List[Dict[str, Any]] = []
+    for tool_name in blocked_tools:
+        reason = blocked_reasons.get(tool_name) or ""
+        if reason != "high_risk_requires_approval":
+            continue
+        if normalized_selected is None or not matches_tool_selection(normalized_selected, tool_name):
+            continue
+        tool_spec = find_agent_tool_spec(agent_config, tool_name)
+        policy = dict(getattr(tool_spec, "policy", None) or {})
+        requests.append(
+            {
+                "tool": tool_name,
+                "reason": reason,
+                "approvalType": "high_risk_tools",
+                "riskLevel": str(policy.get("risk") or "high"),
+                "description": str(getattr(tool_spec, "description", "") or ""),
+                "policy": policy,
+            }
+        )
+    return requests
+
+
+def approval_waiting_message(approval_requests: List[Dict[str, Any]], language: Optional[str] = None) -> str:
+    tool_names = [
+        str(item.get("tool") or "").strip()
+        for item in approval_requests
+        if isinstance(item, dict) and str(item.get("tool") or "").strip()
+    ]
+    names = ", ".join(tool_names) or "high risk tools"
+    if str(language or "").lower().startswith("en"):
+        return f"Approval is required before using: {names}"
+    return f"需要审批工具：{names}"
 
 
 class ToolGateway:

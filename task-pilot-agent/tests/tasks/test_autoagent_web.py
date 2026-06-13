@@ -142,13 +142,24 @@ def test_task_detail_is_continuous_chat_window():
         "const chatHistoryLoading = ref(false)",
         "const EVENT_REPLAY_LIMIT = '10000'",
         "const visibleArtifacts = computed",
+        "const visibleChildTasks = computed",
+        "child-task-list",
+        "task.childTasks",
         "function createSessionId",
         "function resetConversationState",
         "async function submitChatMessage",
+        "function markComposerCompositionStart",
+        "function markComposerCompositionEnd",
+        "function composerEnterState",
+        "function shouldIgnoreComposerEnter",
+        "function handleComposerEnter",
+        "function handleChatComposerEnter",
+        "COMPOSER_COMPOSITION_SETTLE_MS",
         "async function loadOlderMessages",
         "function earliestBackendMessageId",
         "function backendMessageCount",
         "function appendAssistantContent",
+        "function assistantAnswerText",
         "function ensureActiveAssistantMessage",
         "function seedChatFromTask",
         "function resultTextFromEvents",
@@ -161,12 +172,12 @@ def test_task_detail_is_continuous_chat_window():
         ".filter(Boolean)",
         "chatMessages.value.push(userMessage, assistantMessage)",
         "v-for=\"(message, index) in chatMessages\"",
-        "class=\"chat-history-control\"",
-        "@click=\"loadOlderMessages\"",
         "class=\"chat-composer\"",
-        "@keydown.enter.exact.prevent=\"submitChatMessage\"",
+        "@compositionstart=\"markComposerCompositionStart\"",
+        "@compositionend=\"markComposerCompositionEnd\"",
+        "@keydown.enter.exact=\"handleChatComposerEnter\"",
         "appendAssistantContent(text, runId)",
-        "appendAssistantContent(payload.result || '', payload.taskId || payload.runId || '')",
+        "appendAssistantContent(text, payload.taskId || payload.runId || '')",
         "new URLSearchParams({ afterSeq: String(afterSeq), limit: '50' })",
         "new URLSearchParams({ limit: EVENT_REPLAY_LIMIT })",
         "const progressItems = computed",
@@ -203,7 +214,6 @@ def test_task_detail_is_continuous_chat_window():
         "conversation-plan-panel",
         "conversation-plan-list",
         "conversation-stream",
-        "chat-history-control",
         "conversation-progress",
         "progress-action-list",
         "progress-detail-row",
@@ -253,6 +263,10 @@ def test_task_detail_is_continuous_chat_window():
     assert 'v-for="(message, index) in chatMessages"' in detail_block
     assert "isProgressMessage(message, index) && progressItems.length" in detail_block
     assert 'v-else-if="!message.processOnly"' in detail_block
+    assert 'class="chat-history-control"' not in detail_block
+    assert '@click="loadOlderMessages"' not in detail_block
+    assert '@keydown.enter.exact.prevent="submitChatMessage"' not in detail_block
+    assert "parsed.answer ?? parsed.final_answer ?? parsed.finalAnswer" in source
     assert 'class="timeline-card"' not in detail_block
     assert 'class="chat-card"' not in detail_block
     assert "t('task.final')" not in detail_block
@@ -274,7 +288,7 @@ def test_task_detail_is_continuous_chat_window():
     assert ".conversation-plan-list" in styles
     assert ".plan-step" in styles
     assert ".conversation-stream" in styles
-    assert ".chat-history-control" in styles
+    assert ".chat-history-control" not in styles
     assert ".conversation-progress" in styles
     assert ".chat-bubble" in styles
     assert ".progress-action-list" in styles
@@ -356,6 +370,9 @@ def test_vue_home_composer_matches_manus_compact_scale():
     hero_block = styles.split(".hero-block {", 1)[1].split("}", 1)[0]
 
     assert 'rows="2"' in source
+    assert "function handleHomeComposerEnter" in source
+    assert '@keydown.enter.exact="handleHomeComposerEnter"' in source
+    assert '@keydown.enter.exact.prevent="submitTask"' not in source
     assert 'class="tool-button"' not in source
     assert "width: min(900px, 100%)" in hero_block
     assert "width: min(880px, 100%)" in composer_block
@@ -503,11 +520,10 @@ def test_vue_tools_panel_shows_tool_source_risk_and_server():
         "function toolSourceText(tool)",
         "function toolServerText(tool)",
         "function toolMetaRows(tool)",
-        "function shouldSelectToolByDefault(tool)",
+        "function toolRequiresApproval(tool)",
         "tool.riskLevel || tool.policy?.risk",
         "tool.requiresApproval",
-        "filter(shouldSelectToolByDefault)",
-        "!['high', 'critical'].includes(risk)",
+        "tool.blockReason === 'high_risk_requires_approval'",
         "class=\"tool-meta-list\"",
         "toolMetaRows(tool)",
     ]:
@@ -599,6 +615,7 @@ def test_backend_serves_vue_dist_assets_and_keeps_legacy_fallback():
 
 def test_backend_threads_language_to_agent_context_and_task_events():
     app_source = APP_PATH.read_text(encoding="utf-8")
+    runtime_source = (PROJECT_ROOT / "brain" / "core" / "autoagent_runtime.py").read_text(encoding="utf-8")
     context_source = (PROJECT_ROOT / "brain" / "core" / "context.py").read_text(encoding="utf-8")
     request_source = (PROJECT_ROOT / "brain" / "models" / "requests.py").read_text(encoding="utf-8")
 
@@ -606,12 +623,17 @@ def test_backend_threads_language_to_agent_context_and_task_events():
         "def _normalize_language",
         "request.language = _normalize_language",
         '"language": request.language',
-        "language=request.language or \"ch\"",
         "language_override",
         "User supplemental input",
         '"language": language',
     ]:
         assert marker in app_source
+
+    for marker in [
+        "language=request.language or \"ch\"",
+        "run_environment=request.run_environment or \"local\"",
+    ]:
+        assert marker in runtime_source
 
     for marker in [
         "language: str = \"ch\"",

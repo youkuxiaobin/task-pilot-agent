@@ -144,6 +144,9 @@ def test_retry_task_creates_new_task_from_saved_input(app_modules, monkeypatch):
 
     parent_events = store.list_events("retry-me")
     assert parent_events[-1].event_type == "task_retry_requested"
+    parent_payload = tasks.serialize_task(store.get_task("retry-me"))
+    assert parent_payload["childTasks"][0]["taskId"] == payload["taskId"]
+    assert parent_payload["childTasks"][0]["relationship"] == "retry"
     retry_events = store.list_events(payload["taskId"])
     assert retry_events[0].event_type == "task_queued"
     assert tasks.serialize_event(retry_events[0])["payload"]["parentTaskId"] == "retry-me"
@@ -3842,6 +3845,17 @@ def test_tool_result_search_urls_are_not_registered_as_remote_artifacts(app_modu
 
 def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     app, tasks = app_modules
+    store = tasks.TaskStore()
+    store.create_task(
+        task_id="parent-task",
+        trace_id="request-parent",
+        conversation_id="session-parent",
+        user_id="user-1",
+        agent_id="parent-agent",
+        mode="react",
+        output_style="markdown",
+        input_text="parent task",
+    )
     created_background = []
 
     configs = {
@@ -3912,7 +3926,6 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert payload["metadata"]["agentSnapshot"]["id"] == "child-agent"
     assert created_background
 
-    store = tasks.TaskStore()
     events = store.list_events(payload["taskId"])
     assert events[-1].event_type == "task_queued"
     assert tasks.serialize_event(events[-1])["payload"]["parentAgentId"] == "parent-agent"
@@ -3925,6 +3938,10 @@ def test_handoff_task_creates_allowed_child_task(app_modules, monkeypatch):
     assert tasks.serialize_event(parent_events[-1])["payload"]["approvedTools"] == ["mcp_local:code_interpreter"]
     assert tasks.serialize_event(parent_events[-1])["payload"]["language"] == "en"
     assert tasks.serialize_event(parent_events[-1])["payload"]["targetAgentSnapshot"]["id"] == "child-agent"
+    parent_payload = tasks.serialize_task(store.get_task("parent-task"))
+    assert parent_payload["childTasks"][0]["taskId"] == payload["taskId"]
+    assert parent_payload["childTasks"][0]["agentId"] == "child-agent"
+    assert parent_payload["childTasks"][0]["relationship"] == "handoff"
 
     with pytest.raises(ValueError, match="cannot hand off"):
         asyncio.run(app._start_handoff_task(parent_ctx, "blocked-agent", "blocked", {}))

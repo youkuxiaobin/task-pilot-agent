@@ -1,8 +1,7 @@
 from __future__ import annotations
-import fnmatch
-import inspect
 import json
 import asyncio
+import os
 import time
 import uuid
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
@@ -34,11 +33,34 @@ from brain.core.context import AgentContext, FileItem
 from brain.core.eval_runner import build_eval_run, evaluate_eval_task
 from brain.core.sanitization import sanitize_payload
 from brain.core.session_message_service import AgentSessionMessageDeps, add_session_message
+from brain.core.session_context import (
+    agent_message_from_session_message as _shared_agent_message_from_session_message,
+    build_session_model_messages as _shared_build_session_model_messages,
+    compose_session_summary as _shared_compose_session_summary,
+    deserialize_context_file_items as _shared_deserialize_context_file_items,
+    maybe_update_session_summary as _shared_maybe_update_session_summary,
+    merge_session_metadata as _shared_merge_session_metadata,
+    session_message_summary_line as _shared_session_message_summary_line,
+    session_summary_message as _shared_session_summary_message,
+    session_summary_text as _shared_session_summary_text,
+)
+from brain.core.task_memory_context import (
+    agent_memory_read_limits as _shared_agent_memory_read_limits,
+    coerce_score as _shared_coerce_score,
+    load_task_memory_context as _shared_load_task_memory_context,
+    memory_context_status_text as _shared_memory_context_status_text,
+    summarize_context_metadata as _shared_summarize_context_metadata,
+    summarize_context_result as _shared_summarize_context_result,
+    summarize_context_results as _shared_summarize_context_results,
+)
+from brain.core.task_recovery import recover_background_tasks as _recover_background_tasks
+from brain.core.task_runner import InProcessTaskRunner
 from brain.core.sessions import (
     AgentMessageRole,
     AgentSessionStatus,
     SessionStore,
     serialize_message,
+    serialize_run,
     serialize_run_event,
     serialize_session,
 )
@@ -61,9 +83,26 @@ from brain.core.session_view_service import (
     sync_plan_terminal_status as _sync_plan_terminal_status,
     load_session_run_records as load_session_run_records_for_view,
 )
-from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
+from brain.core.tasks import (
+    BACKGROUND_DISPATCH_DEFAULT_MAX_RECOVERY_ATTEMPTS,
+    AgentTaskStatus,
+    TaskStore,
+    serialize_artifact,
+    serialize_event,
+    serialize_task,
+)
+from brain.core.tool_policy import (
+    normalize_tool_selection as _shared_normalize_tool_selection,
+    tool_name_variants as _shared_tool_name_variants,
+)
 from brain.core.tools.collection import ToolCollection
-from brain.core.tools.gateway import ToolGateway
+from brain.core.tools.gateway import (
+    ToolGateway,
+    approval_requests_from_blocked_tools as _gateway_approval_requests_from_blocked_tools,
+    approval_waiting_message as _gateway_approval_waiting_message,
+    blocked_tool_reasons as _gateway_blocked_tool_reasons,
+    find_agent_tool_spec as _gateway_find_agent_tool_spec,
+)
 from brain.core.tools.mcp_tool import MCPToolFetcher
 from brain.core.handlers.factory import AgentHandlerFactory
 from brain.core.handlers.react import ReactHandler
@@ -87,6 +126,7 @@ WEB_ROOT = Path(__file__).resolve().parent / "web"
 FRONTEND_ROOT = Path(__file__).resolve().parents[1] / "frontend"
 FRONTEND_DIST = FRONTEND_ROOT / "dist"
 SESSION_CONTEXT_HISTORY_LIMIT = 20
+SESSION_CONTEXT_MAX_CHARS = 16_000
 SESSION_SUMMARY_TRIGGER_MESSAGE_COUNT = 30
 SESSION_SUMMARY_RECENT_MESSAGE_COUNT = 12
 SESSION_SUMMARY_MAX_MESSAGES = 200
@@ -94,19 +134,63 @@ SESSION_SUMMARY_MAX_CHARS = 3000
 DEFAULT_AGENT_MODE = "react"
 SESSION_STREAM_ACTIVE_SLEEP_SECONDS = 0.05
 SESSION_STREAM_IDLE_SLEEP_SECONDS = 0.25
+BACKGROUND_DISPATCH_LEASE_MS = 5 * 60 * 1000
+BACKGROUND_LEASE_HEARTBEAT_SECONDS = 30.0
+BACKGROUND_RECOVERY_MAX_ATTEMPTS = BACKGROUND_DISPATCH_DEFAULT_MAX_RECOVERY_ATTEMPTS
 
 agentRegistry = AgentRegistry()
 runningAgentTasks: Dict[str, asyncio.Task] = {}
+BACKGROUND_RUNNER_OWNER = f"{os.getpid()}:{uuid.uuid4()}"
+
+
+def _mark_background_run_started(run_id: str, _worker: Any = None) -> None:
+    try:
+        TaskStore().mark_background_dispatch_started(run_id, owner=BACKGROUND_RUNNER_OWNER)
+    except Exception:
+        logger.debug("failed to mark background run %s started", run_id, exc_info=True)
+
+
+def _mark_background_run_finished(run_id: str, _worker: Any = None) -> None:
+    try:
+        task = TaskStore().get_task(run_id)
+        TaskStore().mark_background_dispatch_finished(
+            run_id,
+            status=getattr(task, "status", None),
+            error_message=getattr(task, "error_message", None),
+        )
+    except Exception:
+        logger.debug("failed to mark background run %s finished", run_id, exc_info=True)
+
+
+def _renew_background_run(run_id: str) -> None:
+    try:
+        TaskStore().renew_background_dispatch(
+            run_id,
+            owner=BACKGROUND_RUNNER_OWNER,
+            lease_ms=BACKGROUND_DISPATCH_LEASE_MS,
+        )
+    except Exception:
+        logger.debug("failed to renew background run %s", run_id, exc_info=True)
+
+
+backgroundTaskRunner = InProcessTaskRunner(
+    runningAgentTasks,
+    create_task=lambda coro: asyncio.create_task(coro),
+    on_start=_mark_background_run_started,
+    on_done=_mark_background_run_finished,
+)
+
+
+def _start_background_run(run_id: str, coro: Any) -> Any:
+    return backgroundTaskRunner.start(run_id, coro)
+
+
+def _cancel_background_run(run_id: str, *, remove: bool = False) -> Optional[Any]:
+    return backgroundTaskRunner.cancel(run_id, remove=remove)
 
 
 def _normalize_tool_selection(selected_tools: Any) -> Optional[List[str]]:
-    if selected_tools is None:
-        return None
-    if isinstance(selected_tools, str):
-        selected_tools = [selected_tools]
-    if not isinstance(selected_tools, list):
-        return []
-    return [str(tool).strip() for tool in selected_tools if str(tool).strip()]
+    return _shared_normalize_tool_selection(selected_tools)
 
 
 def _first_not_none(*values: Any) -> Any:
@@ -172,37 +256,18 @@ def _merge_tool_selection(*tool_groups: Any) -> List[str]:
     return merged
 
 
-def _matches_selected_tool(selected_patterns: Optional[List[str]], tool_name: str) -> bool:
-    if selected_patterns is None:
-        return True
-    if not selected_patterns:
-        return False
-    for pattern in selected_patterns:
-        if pattern in {"*", "all"}:
-            return True
-        for tool_candidate in _tool_name_variants(tool_name):
-            for pattern_candidate in _tool_name_variants(pattern):
-                if fnmatch.fnmatch(tool_candidate, pattern_candidate):
-                    return True
-    return False
-
-
 def _blocked_tool_reasons(
     blocked_tools: List[str],
     agent_config: Optional[AgentConfig],
     selected_tools: Optional[List[str]],
     approved_tools: Optional[List[str]] = None,
 ) -> Dict[str, str]:
-    reasons: Dict[str, str] = {}
-    for tool_name in blocked_tools:
-        if selected_tools is not None and not _matches_selected_tool(selected_tools, tool_name):
-            reasons[tool_name] = "not_selected"
-            continue
-        if agent_config:
-            reasons[tool_name] = agent_config.tool_block_reason(tool_name, approved_tools=approved_tools) or "blocked_by_policy"
-        else:
-            reasons[tool_name] = "blocked_by_policy"
-    return reasons
+    return _gateway_blocked_tool_reasons(
+        blocked_tools,
+        agent_config,
+        selected_tools,
+        approved_tools=approved_tools,
+    )
 
 
 def _approval_requests_from_blocked_tools(
@@ -211,59 +276,20 @@ def _approval_requests_from_blocked_tools(
     agent_config: Optional[AgentConfig],
     selected_tools: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    requests: List[Dict[str, Any]] = []
-    for tool_name in blocked_tools:
-        reason = blocked_reasons.get(tool_name) or ""
-        if reason != "high_risk_requires_approval":
-            continue
-        if selected_tools is None or not _matches_selected_tool(selected_tools, tool_name):
-            continue
-        tool_spec = _find_agent_tool_spec(agent_config, tool_name)
-        policy = dict(getattr(tool_spec, "policy", None) or {})
-        requests.append(
-            {
-                "tool": tool_name,
-                "reason": reason,
-                "approvalType": "high_risk_tools",
-                "riskLevel": str(policy.get("risk") or "high"),
-                "description": str(getattr(tool_spec, "description", "") or ""),
-                "policy": policy,
-            }
-        )
-    return requests
+    return _gateway_approval_requests_from_blocked_tools(
+        blocked_tools,
+        blocked_reasons,
+        agent_config,
+        selected_tools=selected_tools,
+    )
 
 
 def _approval_waiting_message(approval_requests: List[Dict[str, Any]], language: Optional[str] = None) -> str:
-    tool_names = [
-        str(item.get("tool") or "").strip()
-        for item in approval_requests
-        if isinstance(item, dict) and str(item.get("tool") or "").strip()
-    ]
-    names = ", ".join(tool_names) or "high risk tools"
-    if str(language or "").lower().startswith("en"):
-        return f"Approval is required before using: {names}"
-    return f"需要审批工具：{names}"
+    return _gateway_approval_waiting_message(approval_requests, language)
 
 
 def _find_agent_tool_spec(agent_config: Optional[AgentConfig], tool_name: str) -> Any:
-    if not agent_config:
-        return None
-    exact = next((tool for tool in agent_config.tools if tool.name == tool_name), None)
-    if exact:
-        return exact
-    return next(
-        (
-            tool
-            for tool in agent_config.tools
-            if tool.name
-            and any(
-                fnmatch.fnmatch(tool_candidate, pattern_candidate)
-                for tool_candidate in _tool_name_variants(tool_name)
-                for pattern_candidate in _tool_name_variants(tool.name)
-            )
-        ),
-        None,
-    )
+    return _gateway_find_agent_tool_spec(agent_config, tool_name)
 
 
 def _serialize_tool_spec_fields(tool_spec: Any) -> Dict[str, Any]:
@@ -522,13 +548,7 @@ def _mcp_status_payload() -> Dict[str, Any]:
 
 
 def _tool_name_variants(value: str) -> List[str]:
-    text = str(value or "")
-    variants = [text]
-    if ":" in text:
-        variants.append(text.replace(":", "-", 1))
-    if "-" in text:
-        variants.append(text.replace("-", ":", 1))
-    return list(dict.fromkeys(item for item in variants if item))
+    return _shared_tool_name_variants(value)
 
 
 def _resolve_tool_name(tool_map: Dict[str, Any], requested_name: str) -> str:
@@ -565,175 +585,36 @@ def _truncate_for_event(value: Any, limit: int = 320) -> str:
 
 
 def _coerce_score(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return round(float(value), 4)
-    except (TypeError, ValueError):
-        return None
+    return _shared_coerce_score(value)
 
 
 def _summarize_context_metadata(value: Any) -> Dict[str, str]:
-    if not isinstance(value, dict):
-        return {}
-    summarized: Dict[str, str] = {}
-    for key, item in list(value.items())[:8]:
-        summarized[str(key)] = _truncate_for_event(item, 120)
-    return summarized
+    return _shared_summarize_context_metadata(value)
 
 
 def _summarize_context_result(item: Any, fallback_source: str) -> Dict[str, Any]:
-    if not isinstance(item, dict):
-        return {
-            "id": "",
-            "source": fallback_source,
-            "score": None,
-            "metadata": {},
-            "snippet": _truncate_for_event(item),
-        }
-
-    text_value = (
-        item.get("content")
-        or item.get("text")
-        or item.get("chunk")
-        or item.get("page_content")
-        or item.get("summary")
-        or ""
-    )
-    source = str(item.get("source") or fallback_source)
-    identifier = str(item.get("id") or item.get("document_id") or item.get("doc_id") or "")
-    return {
-        "id": _truncate_for_event(identifier, 128),
-        "source": _truncate_for_event(source, 128),
-        "score": _coerce_score(item.get("score")),
-        "metadata": _summarize_context_metadata(item.get("metadata")),
-        "snippet": _truncate_for_event(text_value),
-    }
+    return _shared_summarize_context_result(item, fallback_source)
 
 
 def _summarize_context_results(items: Any, fallback_source: str, limit: int = 5) -> List[Dict[str, Any]]:
-    if not isinstance(items, list):
-        return []
-    return [
-        _summarize_context_result(item, fallback_source)
-        for item in items[:limit]
-        if item is not None
-    ]
+    return _shared_summarize_context_results(items, fallback_source, limit=limit)
 
 
 def _agent_memory_read_limits(ctx: AgentContext) -> tuple[int, int]:
-    memory_config = ctx.agent_memory if isinstance(ctx.agent_memory, dict) else {}
-    if "read" not in memory_config:
-        return 5, 5
-    raw_scopes = memory_config.get("read")
-    if raw_scopes in (None, ""):
-        return 0, 0
-    if isinstance(raw_scopes, str):
-        scopes = {raw_scopes}
-    elif isinstance(raw_scopes, list):
-        scopes = {str(item) for item in raw_scopes}
-    else:
-        return 0, 0
-    normalized = {scope.strip().lower() for scope in scopes if scope.strip()}
-    if not normalized:
-        return 0, 0
-    if "*" in normalized or "all" in normalized:
-        return 5, 5
-
-    memory_scopes = {"memory", "task_history", "user_profile", "conversation_history"}
-    knowledge_scopes = {"knowledge", "knowledge_base", "rag", "documents", "files"}
-    memory_limit = 5 if normalized.intersection(memory_scopes) else 0
-    rag_limit = 5 if normalized.intersection(knowledge_scopes) else 0
-    return memory_limit, rag_limit
+    return _shared_agent_memory_read_limits(ctx)
 
 
 async def _load_task_memory_context(ctx: AgentContext, query: str) -> Dict[str, Any]:
-    search_config: Dict[str, Any] = {}
-    if hasattr(memory_manager, "get_search_config"):
-        try:
-            raw_config = memory_manager.get_search_config()
-            if isinstance(raw_config, dict):
-                search_config = raw_config
-        except Exception as exc:  # pragma: no cover - defensive
-            search_config = {"warning": exc.__class__.__name__}
-
-    memory_limit, rag_limit = _agent_memory_read_limits(ctx)
-    payload: Dict[str, Any] = {
-        "querySummary": _truncate_for_event(query, 160),
-        "scope": {
-            "userId": ctx.user_id,
-            "agentId": ctx.agent_id,
-            "runId": ctx.run_id,
-        },
-        "memoryEnabled": bool(search_config.get("memory_enabled", True)) and memory_limit > 0,
-        "ragEnabled": bool(search_config.get("rag_enabled", True)) and rag_limit > 0,
-        "memoryCount": 0,
-        "ragCount": 0,
-        "warningCount": 0,
-        "warnings": [],
-        "memoryResults": [],
-        "ragResults": [],
-    }
-
-    if not query.strip():
-        payload["warnings"] = [{"component": "memory_context", "reason": "empty_query"}]
-        payload["warningCount"] = 1
-        ctx.memory_context = sanitize_payload(payload)
-        return ctx.memory_context
-
-    if not payload["memoryEnabled"] and not payload["ragEnabled"]:
-        ctx.memory_context = sanitize_payload(payload)
-        return ctx.memory_context
-
-    try:
-        search_fn = getattr(memory_manager, "unified_search_async", None) or memory_manager.unified_search
-        raw_result = search_fn(
-            query=query,
-            user_id=ctx.user_id,
-            agent_id=ctx.agent_id,
-            run_id=ctx.run_id,
-            memory_limit=memory_limit if payload["memoryEnabled"] else 0,
-            rag_limit=rag_limit if payload["ragEnabled"] else 0,
-        )
-        if inspect.isawaitable(raw_result):
-            raw_result = await raw_result
-        if not isinstance(raw_result, dict):
-            raw_result = {}
-    except Exception as exc:  # pragma: no cover - should not block tasks
-        logger.warning("memory context lookup degraded for request %s: %s", ctx.requestId, exc.__class__.__name__)
-        raw_result = {
-            "memory_results": [],
-            "rag_results": [],
-            "warnings": [{"component": "memory_context", "reason": exc.__class__.__name__}],
-        }
-
-    memory_results = raw_result.get("memory_results") or []
-    rag_results = raw_result.get("rag_results") or []
-    warnings = raw_result.get("warnings") or []
-    if not isinstance(warnings, list):
-        warnings = [{"component": "memory_context", "reason": str(warnings)}]
-
-    payload["memoryCount"] = len(memory_results) if isinstance(memory_results, list) else 0
-    payload["ragCount"] = len(rag_results) if isinstance(rag_results, list) else 0
-    payload["warningCount"] = len(warnings)
-    payload["warnings"] = warnings[:5]
-    payload["memoryResults"] = _summarize_context_results(memory_results, "memory")
-    payload["ragResults"] = _summarize_context_results(rag_results, "knowledge")
-    sanitized_payload = sanitize_payload(payload)
-    ctx.memory_context = sanitized_payload if isinstance(sanitized_payload, dict) else {}
-    return ctx.memory_context
+    return await _shared_load_task_memory_context(
+        ctx,
+        query,
+        memory_manager=memory_manager,
+        logger=logger,
+    )
 
 
 def _memory_context_status_text(payload: Dict[str, Any]) -> str:
-    if payload.get("memoryEnabled") is False and payload.get("ragEnabled") is False:
-        return "上下文检索已按 Agent 配置关闭"
-    memory_count = int(payload.get("memoryCount") or 0)
-    rag_count = int(payload.get("ragCount") or 0)
-    warning_count = int(payload.get("warningCount") or 0)
-    status = f"上下文已检索：记忆 {memory_count} 条，知识库 {rag_count} 条"
-    if warning_count:
-        status += f"，降级 {warning_count} 项"
-    return status
+    return _shared_memory_context_status_text(payload)
 
 
 async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
@@ -1255,6 +1136,7 @@ def _approval_service_deps() -> ApprovalServiceDeps:
         deserialize_file_items=_deserialize_file_items,
         sync_session_run=_sync_session_run,
         run_autoagent=_run_autoagent,
+        start_background_run=_start_background_run,
     )
 
 
@@ -1316,9 +1198,7 @@ async def _archive_owned_session(
                 AgentTaskStatus.FAILED,
                 AgentTaskStatus.CANCELLED,
             }:
-                worker = runningAgentTasks.pop(run_id, None)
-                if worker and not worker.done():
-                    worker.cancel()
+                _cancel_background_run(run_id, remove=True)
                 task_store.update_status(run_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
                 _sync_session_run(
                     SessionStore(),
@@ -1348,9 +1228,7 @@ async def _archive_owned_session(
                     AgentTaskStatus.CANCELLED,
                 }
             ):
-                worker = runningAgentTasks.pop(run_id, None)
-                if worker and not worker.done():
-                    worker.cancel()
+                _cancel_background_run(run_id, remove=True)
                 session_store.update_run(
                     run_id,
                     status=AgentTaskStatus.CANCELLED,
@@ -1387,60 +1265,19 @@ async def _archive_owned_session(
 
 
 def _agent_message_from_session_message(record: Any) -> AgentMessage:
-    payload = serialize_message(record)
-    role = str(payload.get("role") or RoleType.USER.value).strip().lower()
-    if role not in {
-        RoleType.SYSTEM.value,
-        RoleType.USER.value,
-        RoleType.ASSISTANT.value,
-        RoleType.TOOL.value,
-    }:
-        role = RoleType.USER.value
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    input_files = metadata.get("inputFiles") if isinstance(metadata, dict) else None
-    files = _deserialize_file_items(input_files)
-    return AgentMessage(
-        role=role,
-        content=str(payload.get("content") or ""),
-        uploadFile=files or None,
-    )
+    return _shared_agent_message_from_session_message(record)
 
 
 def _session_summary_text(session_record: Optional[Any]) -> str:
-    if not session_record:
-        return ""
-    payload = serialize_session(session_record)
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    summary = metadata.get("summary") if isinstance(metadata, dict) else None
-    if isinstance(summary, dict):
-        return str(summary.get("text") or "").strip()
-    if isinstance(summary, str):
-        return summary.strip()
-    return ""
+    return _shared_session_summary_text(session_record)
 
 
 def _session_summary_message(summary_text: str) -> AgentMessage:
-    return AgentMessage(
-        role=RoleType.SYSTEM.value,
-        content=(
-            "会话摘要（较早内容，供延续上下文使用）：\n"
-            f"{summary_text.strip()}"
-        ),
-    )
+    return _shared_session_summary_message(summary_text)
 
 
 def _session_message_summary_line(record: Any) -> str:
-    role = str(getattr(record, "role", "") or "").strip().lower()
-    role_label = {
-        AgentMessageRole.USER: "用户",
-        AgentMessageRole.ASSISTANT: "助手",
-        AgentMessageRole.SYSTEM: "系统",
-        AgentMessageRole.TOOL: "工具",
-    }.get(role, role or "消息")
-    content = " ".join(str(getattr(record, "content", "") or "").split())
-    if not content:
-        return ""
-    return f"{role_label}: {_truncate_for_event(content, 220)}"
+    return _shared_session_message_summary_line(record)
 
 
 def _compose_session_summary(
@@ -1449,23 +1286,15 @@ def _compose_session_summary(
     existing_summary: str = "",
     max_chars: int = SESSION_SUMMARY_MAX_CHARS,
 ) -> str:
-    lines: List[str] = []
-    if existing_summary:
-        lines.append(_truncate_for_event(existing_summary, max(max_chars // 3, 400)))
-    for record in records:
-        line = _session_message_summary_line(record)
-        if line:
-            lines.append(line)
-    summary = "\n".join(lines).strip()
-    return _truncate_for_event(summary, max_chars) if summary else ""
+    return _shared_compose_session_summary(
+        records,
+        existing_summary=existing_summary,
+        max_chars=max_chars,
+    )
 
 
 def _merge_session_metadata(session_record: Any, patch: Dict[str, Any]) -> Dict[str, Any]:
-    payload = serialize_session(session_record)
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    merged = dict(metadata or {})
-    merged.update(patch)
-    return merged
+    return _shared_merge_session_metadata(session_record, patch)
 
 
 def _maybe_update_session_summary(
@@ -1476,46 +1305,17 @@ def _maybe_update_session_summary(
     task_id: Optional[str] = None,
     trace_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    if not session_store or not session_id:
-        return None
-    session_record = session_store.get_session(session_id)
-    if not session_record:
-        return None
-    messages = session_store.list_messages(session_id, limit=SESSION_SUMMARY_MAX_MESSAGES)
-    if len(messages) <= SESSION_SUMMARY_TRIGGER_MESSAGE_COUNT:
-        return None
-    recent_count = max(min(SESSION_SUMMARY_RECENT_MESSAGE_COUNT, len(messages)), 1)
-    summarized_records = messages[:-recent_count]
-    if not summarized_records:
-        return None
-    existing_summary = _session_summary_text(session_record)
-    summary_text = _compose_session_summary(
-        summarized_records,
-        existing_summary=existing_summary,
+    return _shared_maybe_update_session_summary(
+        session_store,
+        session_id,
+        task_store=task_store,
+        task_id=task_id,
+        trace_id=trace_id,
+        trigger_message_count=SESSION_SUMMARY_TRIGGER_MESSAGE_COUNT,
+        recent_message_count=SESSION_SUMMARY_RECENT_MESSAGE_COUNT,
+        max_messages=SESSION_SUMMARY_MAX_MESSAGES,
         max_chars=SESSION_SUMMARY_MAX_CHARS,
     )
-    if not summary_text:
-        return None
-    summary_payload = {
-        "text": summary_text,
-        "messageCount": len(messages),
-        "summarizedMessageCount": len(summarized_records),
-        "recentMessageCount": recent_count,
-        "lastMessageId": messages[-1].message_id,
-        "updatedAt": int(time.time() * 1000),
-        "strategy": "deterministic_recent_window",
-    }
-    updated_metadata = _merge_session_metadata(session_record, {"summary": summary_payload})
-    session_store.update_session(session_id, metadata=updated_metadata)
-    if task_store is not None and task_id:
-        task_store.add_event(
-            task_id,
-            "session_summary_updated",
-            summary_payload,
-            trace_id=trace_id or task_id,
-            source="memory",
-        )
-    return summary_payload
 
 
 def _build_session_model_messages(
@@ -1526,29 +1326,15 @@ def _build_session_model_messages(
     *,
     history_limit: Optional[int] = None,
 ) -> List[AgentMessage]:
-    current = list(current_messages or [])
-    if len(current) != 1 or not session_id or not current_message_id:
-        return current
-    try:
-        session_record = session_store.get_session(session_id)
-        history_records = session_store.list_messages(
-            session_id,
-            limit=500,
-            before_message_id=current_message_id,
-        )
-    except Exception:
-        logger.exception("failed to load session history for %s", session_id)
-        return current
-
-    effective_limit = max(min(history_limit if history_limit is not None else SESSION_CONTEXT_HISTORY_LIMIT, 50), 0)
-    selected_records = history_records[-effective_limit:] if effective_limit else []
-    history: List[AgentMessage] = []
-    summary_text = _session_summary_text(session_record)
-    if summary_text:
-        history.append(_session_summary_message(summary_text))
-    for record in selected_records:
-        history.append(_agent_message_from_session_message(record))
-    return history + current
+    return _shared_build_session_model_messages(
+        session_store,
+        session_id,
+        current_messages,
+        current_message_id,
+        history_limit=history_limit if history_limit is not None else SESSION_CONTEXT_HISTORY_LIMIT,
+        max_context_chars=SESSION_CONTEXT_MAX_CHARS,
+        logger=logger,
+    )
 
 
 def _convert_agent_messages(ctx: AgentContext, messages: Optional[List[AgentMessage]]) -> None:
@@ -1608,23 +1394,7 @@ def _serialize_file_items(files: Optional[List[FileItem]]) -> List[Dict[str, Any
 
 
 def _deserialize_file_items(files: Any) -> List[FileItem]:
-    if not isinstance(files, list):
-        return []
-    restored: List[FileItem] = []
-    for item in files:
-        if not isinstance(item, dict):
-            continue
-        restored.append(
-            FileItem(
-                fileName=str(item.get("fileName") or ""),
-                description=item.get("description"),
-                ossUrl=item.get("ossUrl"),
-                domainUrl=item.get("domainUrl"),
-                fileSize=item.get("fileSize"),
-                isInternalFile=bool(item.get("isInternalFile") or False),
-            )
-        )
-    return [item for item in restored if item.fileName]
+    return _shared_deserialize_context_file_items(files)
 
 
 
@@ -1661,11 +1431,31 @@ def _autoagent_runtime_deps() -> AutoAgentRuntimeDeps:
         register_workspace_artifacts=_register_workspace_artifacts,
         sync_plan_terminal_status=_sync_plan_terminal_status,
         maybe_update_session_summary=_maybe_update_session_summary,
+        renew_background_run=_renew_background_run,
+        background_lease_heartbeat_seconds=BACKGROUND_LEASE_HEARTBEAT_SECONDS,
     )
 
 
 async def _run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None]) -> None:
     await run_autoagent(req, enqueue, _autoagent_runtime_deps())
+
+
+def recover_incomplete_agent_tasks(
+    *,
+    limit: int = 50,
+    lease_ms: int = BACKGROUND_DISPATCH_LEASE_MS,
+    max_attempts: int = BACKGROUND_RECOVERY_MAX_ATTEMPTS,
+) -> Dict[str, Any]:
+    return _recover_background_tasks(
+        store=TaskStore(),
+        owner=BACKGROUND_RUNNER_OWNER,
+        start_background_run=_start_background_run,
+        run_autoagent=_run_autoagent,
+        deserialize_file_items=_deserialize_file_items,
+        limit=limit,
+        lease_ms=lease_ms,
+        max_attempts=max_attempts,
+    )
 
 
 @agent_router.get("/agents")
@@ -2057,6 +1847,7 @@ def _session_message_deps() -> AgentSessionMessageDeps:
         resume_session_run_after_input=_resume_session_run_after_input,
         resume_task_after_input=_resume_task_after_input,
         run_autoagent=_run_autoagent,
+        start_background_run=_start_background_run,
     )
 
 
@@ -2350,9 +2141,7 @@ async def cancel_agent_session_run(
     )
 
     if task is None:
-        worker = runningAgentTasks.pop(run_id, None)
-        if worker and not worker.done():
-            worker.cancel()
+        _cancel_background_run(run_id, remove=True)
         updated_run = session_store.update_run(
             run_id,
             status=AgentTaskStatus.CANCELLED,
@@ -2675,7 +2464,7 @@ def _start_eval_task(eval_run: Any) -> None:
         mode=eval_run.mode,
         messages=[AgentMessage(role=RoleType.USER.value, content=eval_run.input_text)],
     )
-    asyncio.create_task(_run_autoagent(req, lambda _data: None))
+    _start_background_run(eval_run.task_id, _run_autoagent(req, lambda _data: None))
 
 
 @agent_router.post("/agents/{agent_id}/evals/run")
@@ -2860,7 +2649,7 @@ async def create_agent_task(
         trace_id=trace_id,
         source="api",
     )
-    asyncio.create_task(_run_autoagent(request, lambda _data: None))
+    _start_background_run(trace_id, _run_autoagent(request, lambda _data: None))
     return serialize_task(task)
 
 
@@ -2944,6 +2733,12 @@ async def _start_handoff_task(
         source="handoff",
     )
     if parent_ctx.task_id:
+        store.link_child_task(
+            parent_ctx.task_id,
+            trace_id,
+            relationship="handoff",
+            source="handoff",
+        )
         store.add_event(
             parent_ctx.task_id,
             "task_handoff_requested",
@@ -2963,7 +2758,7 @@ async def _start_handoff_task(
             trace_id=parent_ctx.requestId,
             source="handoff",
         )
-    asyncio.create_task(_run_autoagent(request, lambda _data: None))
+    _start_background_run(trace_id, _run_autoagent(request, lambda _data: None))
     return serialize_task(task)
 
 
@@ -3122,9 +2917,7 @@ async def cancel_agent_task(
     }:
         return serialize_task(task)
 
-    worker = runningAgentTasks.get(task_id)
-    if worker and not worker.done():
-        worker.cancel()
+    _cancel_background_run(task_id)
 
     store.update_status(task_id, AgentTaskStatus.CANCELLED, error_message="task cancelled")
     store.add_event(
@@ -3157,9 +2950,7 @@ async def delete_agent_task(
         raise HTTPException(status_code=404, detail="task not found")
     _ensure_task_owner(task, current_user)
 
-    worker = runningAgentTasks.pop(task_id, None)
-    if worker and not worker.done():
-        worker.cancel()
+    _cancel_background_run(task_id, remove=True)
 
     deleted = store.delete_task(task_id)
     if not deleted:
@@ -3238,6 +3029,12 @@ async def retry_agent_task(
         trace_id=task.trace_id,
         source="api",
     )
+    store.link_child_task(
+        task.task_id,
+        retry_trace_id,
+        relationship="retry",
+        source="api",
+    )
 
     retry_req = GptQueryReq(
         trace_id=retry_trace_id,
@@ -3258,7 +3055,7 @@ async def retry_agent_task(
             )
         ],
     )
-    asyncio.create_task(_run_autoagent(retry_req, lambda _data: None))
+    _start_background_run(retry_trace_id, _run_autoagent(retry_req, lambda _data: None))
     retry_task = store.get_task(retry_trace_id)
     return serialize_task(retry_task) if retry_task else {"taskId": retry_trace_id}
 
@@ -3301,7 +3098,7 @@ async def add_agent_task_input(
             trace_id=task.trace_id,
             source="api",
         )
-        asyncio.create_task(_resume_task_after_input(task_id, req.content, language_override=language))
+        _start_background_run(task_id, _resume_task_after_input(task_id, req.content, language_override=language))
     updated_task = store.get_task(task_id) or task
     return {"task": serialize_task(updated_task), "event": serialize_event(event)}
 
@@ -3491,12 +3288,14 @@ async def autoagent_ws(websocket: WebSocket) -> None:
         return
 
     req.user_id = _current_user_id(current_user, req.user_id)
+    if not req.trace_id:
+        req.trace_id = str(uuid.uuid4())
     queue: asyncio.Queue[str] = asyncio.Queue()
 
     def enqueue(data: str) -> None:
         queue.put_nowait(data)
 
-    worker = asyncio.create_task(_run_autoagent(req, enqueue))
+    worker = _start_background_run(req.trace_id, _run_autoagent(req, enqueue))
     detached = False
     try:
         while True:

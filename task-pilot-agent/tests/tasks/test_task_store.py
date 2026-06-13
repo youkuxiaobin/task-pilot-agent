@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any, List
 
@@ -243,9 +244,233 @@ def test_task_store_records_lifecycle_events_and_redacts_sensitive_payload(task_
     serialized_event = task_modules.serialize_event(events[0])
     assert serialized_event["eventId"] == f"evt_{events[0].id}"
     assert serialized_event["event_id"] == serialized_event["eventId"]
+    assert serialized_event["eventSchemaVersion"] == 1
+    assert serialized_event["eventCategory"] == "tool"
+    assert serialized_event["eventAlias"] == "tool_call_started"
     event_payload = serialized_event["payload"]
     assert event_payload["args"]["query"] == "public info"
     assert event_payload["args"]["authorization"] == "***"
+
+
+def test_task_store_start_task_does_not_reopen_final_task(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="start-queued", trace_id="trace-start-queued")
+
+    started = store.start_task("start-queued")
+    assert started is not None
+    assert started.status == task_modules.AgentTaskStatus.RUNNING
+    assert started.started_at is not None
+
+    store.create_task(task_id="start-cancelled", trace_id="trace-start-cancelled")
+    store.update_status("start-cancelled", task_modules.AgentTaskStatus.CANCELLED)
+
+    skipped = store.start_task("start-cancelled")
+    assert skipped is not None
+    assert skipped.status == task_modules.AgentTaskStatus.CANCELLED
+    assert store.get_task("start-cancelled").status == task_modules.AgentTaskStatus.CANCELLED
+
+
+def test_task_store_background_dispatch_lease_and_recovery_claim(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="dispatch-active", trace_id="trace-dispatch-active")
+    store.create_task(task_id="dispatch-stale", trace_id="trace-dispatch-stale")
+    store.create_task(task_id="dispatch-final", trace_id="trace-dispatch-final")
+
+    store.mark_background_dispatch_started("dispatch-active", owner="worker-a", lease_ms=60_000)
+    stale = store.mark_background_dispatch_started("dispatch-stale", owner="worker-a", lease_ms=1)
+    assert stale is not None
+    store.update_status("dispatch-stale", task_modules.AgentTaskStatus.RUNNING)
+    store.update_status("dispatch-final", task_modules.AgentTaskStatus.COMPLETED)
+    time.sleep(0.01)
+
+    claimed = store.claim_recoverable_background_tasks(owner="worker-b", limit=10, lease_ms=60_000)
+    claimed_ids = [item.task_id for item in claimed]
+
+    assert claimed_ids == ["dispatch-stale"]
+    claimed_payload = task_modules.serialize_task(store.get_task("dispatch-stale"))
+    dispatch = claimed_payload["metadata"]["backgroundDispatch"]
+    assert claimed_payload["status"] == task_modules.AgentTaskStatus.QUEUED
+    assert dispatch["status"] == "recovering"
+    assert dispatch["owner"] == "worker-b"
+    assert dispatch["previousStatus"] == task_modules.AgentTaskStatus.RUNNING
+
+    active_payload = task_modules.serialize_task(store.get_task("dispatch-active"))
+    assert active_payload["metadata"]["backgroundDispatch"]["owner"] == "worker-a"
+
+    recovering_claimed = store.claim_recoverable_background_tasks(
+        owner="worker-c",
+        limit=10,
+        lease_ms=60_000,
+    )
+    assert recovering_claimed == []
+
+
+def test_task_store_background_dispatch_finish_clears_active_lease(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="dispatch-finish", trace_id="trace-dispatch-finish")
+    store.mark_background_dispatch_started("dispatch-finish", owner="worker-a", lease_ms=60_000)
+    store.update_status("dispatch-finish", task_modules.AgentTaskStatus.COMPLETED, output_text="done")
+
+    finished = store.mark_background_dispatch_finished("dispatch-finish")
+
+    payload = task_modules.serialize_task(finished)
+    dispatch = payload["metadata"]["backgroundDispatch"]
+    assert dispatch["status"] == task_modules.AgentTaskStatus.COMPLETED
+    assert dispatch["leaseExpiresAt"] == 0
+    assert dispatch["finishedAt"]
+
+
+def test_task_store_background_dispatch_renew_requires_same_owner(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="dispatch-renew", trace_id="trace-dispatch-renew")
+    started = store.mark_background_dispatch_started("dispatch-renew", owner="worker-a", lease_ms=1)
+    assert started is not None
+    original_payload = task_modules.serialize_task(started)
+    original_expires_at = original_payload["metadata"]["backgroundDispatch"]["leaseExpiresAt"]
+    time.sleep(0.01)
+
+    wrong_owner = store.renew_background_dispatch("dispatch-renew", owner="worker-b", lease_ms=60_000)
+    wrong_owner_payload = task_modules.serialize_task(wrong_owner)
+    assert wrong_owner_payload["metadata"]["backgroundDispatch"]["leaseExpiresAt"] == original_expires_at
+
+    renewed = store.renew_background_dispatch("dispatch-renew", owner="worker-a", lease_ms=60_000)
+    renewed_payload = task_modules.serialize_task(renewed)
+    dispatch = renewed_payload["metadata"]["backgroundDispatch"]
+    assert dispatch["status"] == "running"
+    assert dispatch["owner"] == "worker-a"
+    assert dispatch["renewedAt"]
+    assert dispatch["leaseExpiresAt"] > original_expires_at
+
+
+def test_task_store_fails_exhausted_background_recoveries(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="dispatch-exhausted", trace_id="trace-dispatch-exhausted")
+    store.mark_background_dispatch_started("dispatch-exhausted", owner="worker-a", lease_ms=1)
+    store.update_status("dispatch-exhausted", task_modules.AgentTaskStatus.RUNNING)
+    time.sleep(0.01)
+
+    first_recovery = store.claim_recoverable_background_tasks(
+        owner="worker-b",
+        lease_ms=1,
+        max_attempts=3,
+    )
+    assert [item.task_id for item in first_recovery] == ["dispatch-exhausted"]
+    time.sleep(0.01)
+
+    second_recovery = store.claim_recoverable_background_tasks(
+        owner="worker-c",
+        lease_ms=1,
+        max_attempts=3,
+    )
+    assert [item.task_id for item in second_recovery] == ["dispatch-exhausted"]
+    time.sleep(0.01)
+
+    failed = store.fail_exhausted_background_recoveries(owner="worker-d", max_attempts=3)
+
+    assert [item.task_id for item in failed] == ["dispatch-exhausted"]
+    payload = task_modules.serialize_task(store.get_task("dispatch-exhausted"))
+    dispatch = payload["metadata"]["backgroundDispatch"]
+    assert payload["status"] == task_modules.AgentTaskStatus.FAILED
+    assert payload["error"] == task_modules.BACKGROUND_DISPATCH_EXHAUSTED_ERROR
+    assert dispatch["status"] == "failed"
+    assert dispatch["owner"] == "worker-d"
+    assert dispatch["attempt"] == 3
+    assert dispatch["maxAttempts"] == 3
+    assert dispatch["leaseExpiresAt"] == 0
+
+    reclaimed = store.claim_recoverable_background_tasks(
+        owner="worker-e",
+        lease_ms=60_000,
+        max_attempts=3,
+    )
+    assert reclaimed == []
+
+
+def test_task_store_links_child_tasks_for_replay(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(
+        task_id="parent-task",
+        trace_id="trace-parent-task",
+        user_id="user-1",
+        agent_id="parent-agent",
+        input_text="parent",
+    )
+    store.create_task(
+        task_id="child-task",
+        trace_id="trace-child-task",
+        user_id="user-1",
+        agent_id="child-agent",
+        input_text="child",
+        metadata={"parentTaskId": "parent-task", "parentAgentId": "parent-agent"},
+    )
+
+    linked = store.link_child_task("parent-task", "child-task", relationship="handoff", source="handoff")
+
+    parent_payload = task_modules.serialize_task(linked)
+    child_payload = task_modules.serialize_task(store.get_task("child-task"))
+    assert parent_payload["childTasks"] == [
+        {
+            "taskId": "child-task",
+            "runId": "child-task",
+            "traceId": "trace-child-task",
+            "agentId": "child-agent",
+            "status": task_modules.AgentTaskStatus.QUEUED,
+            "relationship": "handoff",
+            "source": "handoff",
+            "createdAt": child_payload["createdAt"],
+            "updatedAt": child_payload["updatedAt"],
+        }
+    ]
+    assert child_payload["parentTaskId"] == "parent-task"
+    assert child_payload["parentAgentId"] == "parent-agent"
+
+
+def test_task_store_persists_latest_plan_snapshot_from_plan_events(task_modules):
+    store = task_modules.TaskStore()
+    store.create_task(task_id="plan-snapshot", trace_id="trace-plan-snapshot")
+
+    store.add_event(
+        "plan-snapshot",
+        "plan_created",
+        {
+            "messageType": "plan_created",
+            "plan": {
+                "title": "Research Plan",
+                "steps": ["Search", "Summarize"],
+                "step_status": ["not_started", "not_started"],
+                "notes": ["", ""],
+            },
+        },
+        trace_id="trace-plan-snapshot",
+        source="sse",
+    )
+    created_payload = task_modules.serialize_task(store.get_task("plan-snapshot"))
+    assert created_payload["latestPlan"]["title"] == "Research Plan"
+    assert created_payload["latestPlanEventType"] == "plan_created"
+
+    store.add_event(
+        "plan-snapshot",
+        "plan_step_completed",
+        {
+            "messageType": "plan_step_completed",
+            "plan": {
+                "title": "Research Plan",
+                "steps": ["Search", "Summarize"],
+                "step_status": ["completed", "not_started"],
+                "notes": ["found sources", ""],
+                "evidence": [[{"url": "https://example.test/source", "api_key": "hidden"}], []],
+            },
+        },
+        trace_id="trace-plan-snapshot",
+        source="sse",
+    )
+    completed_payload = task_modules.serialize_task(store.get_task("plan-snapshot"))
+    assert completed_payload["latestPlan"]["step_status"] == ["completed", "not_started"]
+    assert completed_payload["latestPlan"]["evidence"][0][0]["url"] == "https://example.test/source"
+    assert completed_payload["latestPlan"]["evidence"][0][0]["api_key"] == "***"
+    assert completed_payload["metadata"]["latestPlan"]["evidence"][0][0]["api_key"] == "***"
+    assert completed_payload["latestPlanEventType"] == "plan_step_completed"
+    assert isinstance(completed_payload["latestPlanUpdatedAt"], int)
 
 
 def test_task_store_mirrors_session_run_events(task_modules):
@@ -975,6 +1200,73 @@ def test_autoagent_persists_task_lifecycle_and_stream_events(task_modules, monke
     plan_completed_payload = task_modules.serialize_event(plan_completed_event)["payload"]
     assert plan_completed_payload["plan"]["planStatus"] == "completed"
     assert plan_completed_payload["plan"]["step_status"] == ["completed", "completed"]
+    completed_task_payload = task_modules.serialize_task(store.get_task("trace-autoagent"))
+    assert completed_task_payload["latestPlan"]["planStatus"] == "completed"
+    assert completed_task_payload["latestPlanEventType"] == "plan_completed"
+
+
+def test_autoagent_renews_background_dispatch_lease(task_modules, monkeypatch):
+    pytest.importorskip("fastapi")
+
+    import brain.app as app_module
+    from brain.core.tools.collection import ToolCollection
+
+    app_module = importlib.reload(app_module)
+    store = task_modules.TaskStore()
+    store.create_task(
+        task_id="trace-renew-autoagent",
+        trace_id="trace-renew-autoagent",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        output_style="markdown",
+        input_text="renew lease",
+    )
+    started = store.mark_background_dispatch_started(
+        "trace-renew-autoagent",
+        owner=app_module.BACKGROUND_RUNNER_OWNER,
+        lease_ms=1,
+    )
+    original_dispatch = task_modules.serialize_task(started)["metadata"]["backgroundDispatch"]
+    time.sleep(0.01)
+
+    async def fake_build_tool_collection(_ctx):
+        return ToolCollection()
+
+    class FakeMemoryManager:
+        def get_search_config(self):
+            return {"memory_enabled": False, "rag_enabled": False}
+
+    class FakeHandler:
+        async def handle(self, ctx, _request):
+            await asyncio.sleep(0.05)
+            ctx.printer.send("result-1", "result", "done", None, False)
+
+    monkeypatch.setattr(app_module, "BACKGROUND_LEASE_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(app_module, "build_tool_collection", fake_build_tool_collection)
+    monkeypatch.setattr(app_module, "memory_manager", FakeMemoryManager())
+    monkeypatch.setattr(app_module.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
+
+    output: List[str] = []
+    req = app_module.GptQueryReq(
+        trace_id="trace-renew-autoagent",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        outputStyle="markdown",
+        messages=[app_module.AgentMessage(role="user", content="renew lease")],
+    )
+
+    asyncio.run(app_module._run_autoagent(req, output.append))
+
+    renewed_payload = task_modules.serialize_task(store.get_task("trace-renew-autoagent"))
+    dispatch = renewed_payload["metadata"]["backgroundDispatch"]
+    assert renewed_payload["status"] == task_modules.AgentTaskStatus.COMPLETED
+    assert dispatch["owner"] == app_module.BACKGROUND_RUNNER_OWNER
+    assert dispatch["renewedAt"]
+    assert dispatch["leaseExpiresAt"] > original_dispatch["leaseExpiresAt"]
 
 
 def test_autoagent_marks_existing_plan_failed_when_handler_fails(task_modules, monkeypatch):
@@ -1033,6 +1325,9 @@ def test_autoagent_marks_existing_plan_failed_when_handler_fails(task_modules, m
     assert plan_failed_payload["plan"]["planStatus"] == "failed"
     assert plan_failed_payload["plan"]["step_status"] == ["failed", "not_started"]
     assert plan_failed_payload["reason"] == "planned failure"
+    failed_task_payload = task_modules.serialize_task(store.get_task("trace-plan-failed"))
+    assert failed_task_payload["latestPlan"]["planStatus"] == "failed"
+    assert failed_task_payload["latestPlanEventType"] == "plan_failed"
 
 
 def test_autoagent_keeps_task_waiting_when_agent_requests_input(task_modules, monkeypatch):
@@ -1174,3 +1469,55 @@ def test_autoagent_records_resume_event_for_existing_task(task_modules, monkeypa
     assert "task_created" not in event_types
     assert resume_payload["status"] == task_modules.AgentTaskStatus.RUNNING
     assert resume_payload["inputFiles"][0]["fileName"] == "source.csv"
+
+
+def test_autoagent_does_not_resume_cancelled_task(task_modules, monkeypatch):
+    pytest.importorskip("fastapi")
+
+    import brain.app as app_module
+
+    app_module = importlib.reload(app_module)
+    store = task_modules.TaskStore()
+    store.create_task(
+        task_id="trace-cancelled-before-start",
+        trace_id="trace-cancelled-before-start",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        output_style="markdown",
+        input_text="original question",
+    )
+    store.update_status("trace-cancelled-before-start", task_modules.AgentTaskStatus.CANCELLED)
+
+    handler_called = False
+
+    def fake_get_handler(_ctx, _request):
+        nonlocal handler_called
+        handler_called = True
+        raise AssertionError("cancelled task should not start a handler")
+
+    monkeypatch.setattr(app_module.agentFactory, "get_handler", fake_get_handler)
+
+    output: List[str] = []
+    req = app_module.GptQueryReq(
+        trace_id="trace-cancelled-before-start",
+        user_id="user-autoagent",
+        agent_id="agent-autoagent",
+        conversation_id="conversation-autoagent",
+        mode="react",
+        outputStyle="markdown",
+        messages=[app_module.AgentMessage(role="user", content="original question")],
+    )
+
+    asyncio.run(app_module._run_autoagent(req, output.append))
+
+    task = store.get_task("trace-cancelled-before-start")
+    event_types = [event.event_type for event in store.list_events("trace-cancelled-before-start")]
+
+    assert task.status == task_modules.AgentTaskStatus.CANCELLED
+    assert handler_called is False
+    assert "task_resumed" not in event_types
+    assert "task_running" not in event_types
+    assert "trace-cancelled-before-start" not in app_module.runningAgentTasks
+    assert output[-1].strip() == "data: [DONE]"

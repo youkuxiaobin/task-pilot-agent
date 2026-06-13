@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
@@ -36,6 +35,7 @@ class ApprovalServiceDeps:
     deserialize_file_items: Callable[[Any], List[Any]]
     sync_session_run: Callable[..., None]
     run_autoagent: Callable[[GptQueryReq, Callable[[str], None]], Any]
+    start_background_run: Callable[[str, Any], Any]
 
 
 def start_retry_from_session_run_record(
@@ -163,7 +163,7 @@ def start_retry_from_session_run_record(
             )
         ],
     )
-    asyncio.create_task(deps.run_autoagent(retry_req, lambda _data: None))
+    deps.start_background_run(retry_run_id, deps.run_autoagent(retry_req, lambda _data: None))
 
     payload = deps.serialize_session_run_payload(session_record.session_id, run_record=retry_run)
     payload["message"] = serialize_message(user_message)
@@ -626,7 +626,7 @@ def _resolve_task_approval(
             )
         ],
     )
-    asyncio.create_task(deps.run_autoagent(retry_req, lambda _data: None))
+    deps.start_background_run(retry_run_id, deps.run_autoagent(retry_req, lambda _data: None))
     payload = serialize_task(retry_task)
     payload["sessionId"] = session_id
     payload["runId"] = retry_run_id

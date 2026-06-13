@@ -206,6 +206,9 @@ def test_session_store_creates_filters_and_redacts_run_events(session_modules):
     assert payload["runId"] == "run-1"
     assert payload["userId"] == "user-a"
     assert payload["messageId"] == "message-1"
+    assert payload["eventSchemaVersion"] == 1
+    assert payload["eventCategory"] == "tool"
+    assert payload["eventAlias"] == "tool_call_started"
     assert payload["payload"]["args"]["query"] == "public"
     assert payload["payload"]["args"]["authorization"] == "***"
     assert [item.event_id for item in store.list_run_events("session-events", event_type="tool_call")] == [

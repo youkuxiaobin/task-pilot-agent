@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from brain.core.run_events import RunEventType
 from brain.core.tools.base import BaseTool
 
 if TYPE_CHECKING:
@@ -80,7 +81,7 @@ class BuiltinTodoTool(BaseTool):
 
         current_index = self._normalize_current_index(input_obj, items)
         payload = {
-            "eventType": "todo_list_updated",
+            "eventType": RunEventType.TODO_LIST_UPDATED,
             "summary": str(input_obj.get("summary") or "").strip(),
             "items": items,
             "todos": items,
@@ -151,4 +152,4 @@ class BuiltinTodoTool(BaseTool):
         printer = getattr(self.context, "printer", None) if self.context else None
         if printer is None:
             return
-        printer.send(None, "todo_list_updated", payload, None, True)
+        printer.send(None, RunEventType.TODO_LIST_UPDATED, payload, None, True)

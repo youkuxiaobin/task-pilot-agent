@@ -354,6 +354,31 @@ def test_react_agent_stops_before_repeating_same_search_call():
     assert "重复工具调用" in agent.history[-1]["observation"]
 
 
+def test_react_agent_extracts_answer_from_json_finish_decision():
+    from brain.core.agents.ReActAgentImp import ReActAgentImp
+    from brain.core.agents.base_agent import AgentState
+    from llm.types import LLMMessage, RoleType
+
+    class JsonFinishLLM:
+        async def ask_tool_async(self, _messages, tools=None, tool_choice="auto"):
+            return [], (
+                '{"thought":"用户问了一个简单问题，可以直接回答。",'
+                '"action":"finish","input":null,"answer":"我是 TaskPilot 默认 Agent。"}'
+            )
+
+    ctx, _printer = _ctx("你是谁")
+    agent = ReActAgentImp(ctx, "{remaining_iterations}\n{dialogue_history}\n{tool_history}\n{available_tools}", 3)
+    agent.llm = JsonFinishLLM()
+
+    thought = asyncio.run(agent.think())
+    result = asyncio.run(agent.act(thought or LLMMessage(role=RoleType.ASSISTANT.value, content="")))
+
+    assert result == "我是 TaskPilot 默认 Agent。"
+    assert agent.final_answer == "我是 TaskPilot 默认 Agent。"
+    assert agent.state == AgentState.FINISHED
+    assert not result.strip().startswith("{")
+
+
 def test_summary_agent_streams_each_chunk_and_caps_tokens():
     from brain.core.agents.summary_agent import SummaryAgent
 

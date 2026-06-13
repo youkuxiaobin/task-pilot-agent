@@ -29,6 +29,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
+from brain.core.plan_snapshots import (
+    LATEST_PLAN_EVENT_TYPE_METADATA_KEY,
+    LATEST_PLAN_UPDATED_AT_METADATA_KEY,
+    latest_plan_from_metadata,
+    latest_plan_metadata_fields,
+)
+from brain.core.run_events import RunEventType, event_contract_fields
 from file.db_engine import get_engine
 
 logger = logging.getLogger(__name__)
@@ -61,6 +68,11 @@ FINAL_STATUSES = {
 }
 
 TASK_ID_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_.-]+")
+BACKGROUND_DISPATCH_METADATA_KEY = "backgroundDispatch"
+BACKGROUND_DISPATCH_DEFAULT_LEASE_MS = 5 * 60 * 1000
+BACKGROUND_DISPATCH_DEFAULT_MAX_RECOVERY_ATTEMPTS = 3
+BACKGROUND_DISPATCH_EXHAUSTED_ERROR = "background recovery attempt limit exceeded"
+
 
 class AgentTaskRecord(Base):
     __tablename__ = "magent_task"
@@ -140,6 +152,25 @@ def _merge_usage_metrics(metadata: Dict[str, Any], increments: Dict[str, int]) -
         merged_usage[key] = int(merged_usage.get(key) or 0) + increment
     metadata["usage"] = merged_usage
     return metadata
+
+
+def _apply_plan_snapshot_metadata(
+    task_record: Optional[AgentTaskRecord],
+    event_type: str,
+    payload: Any,
+    timestamp: int,
+) -> None:
+    if task_record is None:
+        return
+    plan_fields = latest_plan_metadata_fields(event_type, payload, timestamp)
+    if not plan_fields:
+        return
+    metadata = _json_loads(task_record.metadata_json, {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata.update(plan_fields)
+    task_record.metadata_json = _json_dumps(sanitize_payload(metadata))
+    task_record.updated_at = timestamp
 
 
 def _detach_records(session: Session, records: Iterable[Any]) -> None:
@@ -487,6 +518,431 @@ class TaskStore:
         finally:
             session.close()
 
+    def start_task(self, task_id: str) -> Optional[AgentTaskRecord]:
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
+            if not record:
+                return None
+            if record.status in FINAL_STATUSES:
+                session.expunge(record)
+                return record
+
+            record.status = AgentTaskStatus.RUNNING
+            record.updated_at = timestamp
+            if record.started_at is None:
+                record.started_at = timestamp
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def mark_background_dispatch_started(
+        self,
+        task_id: str,
+        *,
+        owner: str,
+        lease_ms: int = BACKGROUND_DISPATCH_DEFAULT_LEASE_MS,
+    ) -> Optional[AgentTaskRecord]:
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
+            if not record:
+                return None
+            metadata = _json_loads(record.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            current_dispatch = metadata.get(BACKGROUND_DISPATCH_METADATA_KEY)
+            current_attempt = (
+                int(current_dispatch.get("attempt") or 0)
+                if isinstance(current_dispatch, dict)
+                else 0
+            )
+            metadata[BACKGROUND_DISPATCH_METADATA_KEY] = {
+                "status": "running",
+                "owner": str(owner or ""),
+                "leasedAt": timestamp,
+                "leaseExpiresAt": timestamp + max(int(lease_ms or 0), 1),
+                "attempt": current_attempt + 1,
+            }
+            record.metadata_json = _json_dumps(sanitize_payload(metadata))
+            record.updated_at = timestamp
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def mark_background_dispatch_finished(
+        self,
+        task_id: str,
+        *,
+        status: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> Optional[AgentTaskRecord]:
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
+            if not record:
+                return None
+            metadata = _json_loads(record.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            current_dispatch = metadata.get(BACKGROUND_DISPATCH_METADATA_KEY)
+            dispatch = dict(current_dispatch) if isinstance(current_dispatch, dict) else {}
+            dispatch.update(
+                {
+                    "status": status or record.status or "finished",
+                    "finishedAt": timestamp,
+                    "leaseExpiresAt": 0,
+                }
+            )
+            if error_message:
+                dispatch["error"] = error_message
+            metadata[BACKGROUND_DISPATCH_METADATA_KEY] = dispatch
+            record.metadata_json = _json_dumps(sanitize_payload(metadata))
+            record.updated_at = timestamp
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def renew_background_dispatch(
+        self,
+        task_id: str,
+        *,
+        owner: str,
+        lease_ms: int = BACKGROUND_DISPATCH_DEFAULT_LEASE_MS,
+    ) -> Optional[AgentTaskRecord]:
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            record = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == task_id)
+                .one_or_none()
+            )
+            if not record or record.status in FINAL_STATUSES:
+                if record:
+                    session.expunge(record)
+                return record
+            metadata = _json_loads(record.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            current_dispatch = metadata.get(BACKGROUND_DISPATCH_METADATA_KEY)
+            if not isinstance(current_dispatch, dict):
+                session.expunge(record)
+                return record
+            if str(current_dispatch.get("owner") or "") != str(owner or ""):
+                session.expunge(record)
+                return record
+            if current_dispatch.get("status") not in {"running", "recovering"}:
+                session.expunge(record)
+                return record
+
+            dispatch = dict(current_dispatch)
+            dispatch["status"] = "running"
+            dispatch["renewedAt"] = timestamp
+            dispatch["leaseExpiresAt"] = timestamp + max(int(lease_ms or 0), 1)
+            metadata[BACKGROUND_DISPATCH_METADATA_KEY] = dispatch
+            record.metadata_json = _json_dumps(sanitize_payload(metadata))
+            record.updated_at = timestamp
+            session.commit()
+            session.refresh(record)
+            session.expunge(record)
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def claim_recoverable_background_tasks(
+        self,
+        *,
+        owner: str,
+        limit: int = 50,
+        lease_ms: int = BACKGROUND_DISPATCH_DEFAULT_LEASE_MS,
+        max_attempts: Optional[int] = None,
+    ) -> List[AgentTaskRecord]:
+        timestamp = now_ms()
+        claimed: List[AgentTaskRecord] = []
+        max_items = max(min(int(limit or 0), 500), 1)
+        max_recovery_attempts = (
+            max(int(max_attempts or 0), 1)
+            if max_attempts is not None
+            else None
+        )
+        session = self._session_maker()
+        try:
+            candidates = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.status.in_([AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING]))
+                .order_by(AgentTaskRecord.updated_at.asc(), AgentTaskRecord.id.asc())
+                .limit(max_items * 4)
+                .all()
+            )
+            for candidate in candidates:
+                if len(claimed) >= max_items:
+                    break
+                metadata = _json_loads(candidate.metadata_json, {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                current_dispatch = metadata.get(BACKGROUND_DISPATCH_METADATA_KEY)
+                dispatch = dict(current_dispatch) if isinstance(current_dispatch, dict) else {}
+                try:
+                    lease_expires_at = int(dispatch.get("leaseExpiresAt") or 0)
+                except (TypeError, ValueError):
+                    lease_expires_at = 0
+                if dispatch.get("status") in {"running", "recovering"} and lease_expires_at > timestamp:
+                    continue
+
+                attempt = 0
+                try:
+                    attempt = int(dispatch.get("attempt") or 0)
+                except (TypeError, ValueError):
+                    attempt = 0
+                if max_recovery_attempts is not None and attempt >= max_recovery_attempts:
+                    continue
+                claimed_at = max(timestamp, int(candidate.updated_at or 0) + 1)
+                metadata[BACKGROUND_DISPATCH_METADATA_KEY] = {
+                    "status": "recovering",
+                    "owner": str(owner or ""),
+                    "leasedAt": claimed_at,
+                    "leaseExpiresAt": claimed_at + max(int(lease_ms or 0), 1),
+                    "attempt": attempt + 1,
+                    "previousStatus": candidate.status,
+                }
+                update_count = (
+                    session.query(AgentTaskRecord)
+                    .filter(
+                        AgentTaskRecord.task_id == candidate.task_id,
+                        AgentTaskRecord.updated_at == candidate.updated_at,
+                    )
+                    .update(
+                        {
+                            AgentTaskRecord.status: AgentTaskStatus.QUEUED,
+                            AgentTaskRecord.metadata_json: _json_dumps(sanitize_payload(metadata)),
+                            AgentTaskRecord.updated_at: claimed_at,
+                            AgentTaskRecord.ended_at: None,
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                if update_count != 1:
+                    session.rollback()
+                    continue
+                session.commit()
+                claimed_record = (
+                    session.query(AgentTaskRecord)
+                    .filter(AgentTaskRecord.task_id == candidate.task_id)
+                    .one_or_none()
+                )
+                if claimed_record:
+                    session.expunge(claimed_record)
+                    claimed.append(claimed_record)
+            return claimed
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def fail_exhausted_background_recoveries(
+        self,
+        *,
+        owner: str,
+        limit: int = 50,
+        max_attempts: int = BACKGROUND_DISPATCH_DEFAULT_MAX_RECOVERY_ATTEMPTS,
+        error_message: str = BACKGROUND_DISPATCH_EXHAUSTED_ERROR,
+    ) -> List[AgentTaskRecord]:
+        timestamp = now_ms()
+        failed: List[AgentTaskRecord] = []
+        max_items = max(min(int(limit or 0), 500), 1)
+        max_recovery_attempts = max(int(max_attempts or 0), 1)
+        session = self._session_maker()
+        try:
+            candidates = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.status.in_([AgentTaskStatus.QUEUED, AgentTaskStatus.RUNNING]))
+                .order_by(AgentTaskRecord.updated_at.asc(), AgentTaskRecord.id.asc())
+                .limit(max_items * 4)
+                .all()
+            )
+            for candidate in candidates:
+                if len(failed) >= max_items:
+                    break
+                metadata = _json_loads(candidate.metadata_json, {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                current_dispatch = metadata.get(BACKGROUND_DISPATCH_METADATA_KEY)
+                if not isinstance(current_dispatch, dict):
+                    continue
+                dispatch = dict(current_dispatch)
+                try:
+                    lease_expires_at = int(dispatch.get("leaseExpiresAt") or 0)
+                except (TypeError, ValueError):
+                    lease_expires_at = 0
+                if dispatch.get("status") in {"running", "recovering"} and lease_expires_at > timestamp:
+                    continue
+                try:
+                    attempt = int(dispatch.get("attempt") or 0)
+                except (TypeError, ValueError):
+                    attempt = 0
+                if attempt < max_recovery_attempts:
+                    continue
+
+                failed_at = max(timestamp, int(candidate.updated_at or 0) + 1)
+                dispatch.update(
+                    {
+                        "status": "failed",
+                        "owner": str(owner or ""),
+                        "failedAt": failed_at,
+                        "leaseExpiresAt": 0,
+                        "attempt": attempt,
+                        "maxAttempts": max_recovery_attempts,
+                        "previousStatus": dispatch.get("previousStatus") or candidate.status,
+                        "error": error_message,
+                    }
+                )
+                metadata[BACKGROUND_DISPATCH_METADATA_KEY] = dispatch
+                update_count = (
+                    session.query(AgentTaskRecord)
+                    .filter(
+                        AgentTaskRecord.task_id == candidate.task_id,
+                        AgentTaskRecord.updated_at == candidate.updated_at,
+                    )
+                    .update(
+                        {
+                            AgentTaskRecord.status: AgentTaskStatus.FAILED,
+                            AgentTaskRecord.error_message: error_message,
+                            AgentTaskRecord.metadata_json: _json_dumps(sanitize_payload(metadata)),
+                            AgentTaskRecord.updated_at: failed_at,
+                            AgentTaskRecord.ended_at: failed_at,
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                if update_count != 1:
+                    session.rollback()
+                    continue
+                session.commit()
+                failed_record = (
+                    session.query(AgentTaskRecord)
+                    .filter(AgentTaskRecord.task_id == candidate.task_id)
+                    .one_or_none()
+                )
+                if failed_record:
+                    session.expunge(failed_record)
+                    failed.append(failed_record)
+            return failed
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def link_child_task(
+        self,
+        parent_task_id: str,
+        child_task_id: str,
+        *,
+        relationship: str = "child",
+        source: str = "",
+    ) -> Optional[AgentTaskRecord]:
+        if not parent_task_id or not child_task_id:
+            return self.get_task(parent_task_id)
+        timestamp = now_ms()
+        session = self._session_maker()
+        try:
+            parent = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == parent_task_id)
+                .one_or_none()
+            )
+            if not parent:
+                return None
+            child = (
+                session.query(AgentTaskRecord)
+                .filter(AgentTaskRecord.task_id == child_task_id)
+                .one_or_none()
+            )
+            if not child:
+                session.expunge(parent)
+                return parent
+            metadata = _json_loads(parent.metadata_json, {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            child_tasks = metadata.get("childTasks")
+            if not isinstance(child_tasks, list):
+                child_tasks = []
+
+            child_summary = {
+                "taskId": child.task_id,
+                "runId": child.task_id,
+                "traceId": child.trace_id,
+                "agentId": child.agent_id,
+                "status": child.status,
+                "relationship": str(relationship or "child"),
+                "source": str(source or relationship or "child"),
+                "createdAt": child.created_at,
+                "updatedAt": child.updated_at,
+            }
+            replaced = False
+            normalized_children: List[Dict[str, Any]] = []
+            for item in child_tasks:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("taskId") == child.task_id or item.get("runId") == child.task_id:
+                    normalized_children.append(child_summary)
+                    replaced = True
+                else:
+                    normalized_children.append(item)
+            if not replaced:
+                normalized_children.append(child_summary)
+
+            metadata["childTasks"] = normalized_children
+            parent.metadata_json = _json_dumps(sanitize_payload(metadata))
+            parent.updated_at = timestamp
+            session.commit()
+            session.refresh(parent)
+            session.expunge(parent)
+            return parent
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def request_user_input(
         self,
         task_id: str,
@@ -501,7 +957,7 @@ class TaskStore:
             raise ValueError(f"task not found: {task_id}")
         return self.add_event(
             task_id,
-            "waiting_input",
+            RunEventType.WAITING_INPUT,
             {
                 "prompt": prompt,
                 "metadata": metadata or {},
@@ -527,7 +983,7 @@ class TaskStore:
             raise ValueError("user input is required")
         event = self.add_event(
             task_id,
-            "user_input",
+            RunEventType.USER_INPUT,
             {
                 "content": normalized_content,
                 "userId": user_id or task.user_id,
@@ -581,18 +1037,20 @@ class TaskStore:
         session = self._session_maker()
         task_record: Optional[AgentTaskRecord] = None
         try:
+            sanitized_payload = sanitize_payload(payload)
             task_record = (
                 session.query(AgentTaskRecord)
                 .filter(AgentTaskRecord.task_id == task_id)
                 .one_or_none()
             )
+            _apply_plan_snapshot_metadata(task_record, event_type, sanitized_payload, timestamp)
             record = AgentTaskEventRecord(
                 task_id=task_id,
                 trace_id=trace_id or "",
                 event_type=event_type,
                 source=source or "",
                 message_id=message_id,
-                payload_json=_json_dumps(sanitize_payload(payload)),
+                payload_json=_json_dumps(sanitized_payload),
                 created_at=timestamp,
             )
             session.add(record)
@@ -848,6 +1306,8 @@ def _task_work_dir_from_record(record: AgentTaskRecord) -> Path:
 def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
     metadata = _json_loads(record.metadata_json, {})
     usage = metadata.get("usage") if isinstance(metadata, dict) and isinstance(metadata.get("usage"), dict) else {}
+    latest_plan = latest_plan_from_metadata(metadata)
+    child_tasks = metadata.get("childTasks") if isinstance(metadata, dict) and isinstance(metadata.get("childTasks"), list) else []
     duration_ms = None
     if record.started_at is not None:
         duration_ms = (record.ended_at or record.updated_at or record.started_at) - record.started_at
@@ -877,6 +1337,12 @@ def serialize_task(record: AgentTaskRecord) -> Dict[str, Any]:
         "error": record.error_message,
         "metadata": metadata,
         "usage": usage,
+        "parentTaskId": metadata.get("parentTaskId") if isinstance(metadata, dict) else None,
+        "parentAgentId": metadata.get("parentAgentId") if isinstance(metadata, dict) else None,
+        "childTasks": child_tasks,
+        "latestPlan": latest_plan,
+        "latestPlanEventType": metadata.get(LATEST_PLAN_EVENT_TYPE_METADATA_KEY) if isinstance(metadata, dict) else None,
+        "latestPlanUpdatedAt": metadata.get(LATEST_PLAN_UPDATED_AT_METADATA_KEY) if isinstance(metadata, dict) else None,
         "workDir": metadata.get("workDir") if isinstance(metadata, dict) else None,
         "createdAt": record.created_at,
         "updatedAt": record.updated_at,
@@ -902,6 +1368,7 @@ def serialize_event(record: AgentTaskEventRecord) -> Dict[str, Any]:
         "messageId": record.message_id,
         "payload": _json_loads(record.payload_json, {}),
         "createdAt": record.created_at,
+        **event_contract_fields(record.event_type),
     }
 
 

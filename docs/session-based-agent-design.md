@@ -1345,7 +1345,7 @@ Agent Runtime
 | 计划 | `plan_tool`、`set_todo_list` | 创建计划、更新步骤、展示 TODO | 低 |
 | 用户交互 | `ask_user`、`request_input` | 向用户提问、等待补充 | 低 |
 | 子 Agent | `task`、`create_subagent`、`handoff` | 委派子任务、动态创建角色 | 低到中 |
-| 技能 | `search_skills`、`install_skill`、`load_skill` | 查找和加载任务方法 | 低到中 |
+| 技能 | `skill_search`、`skill_install`、`skill_load`、`skill_set_enabled` | 查找、安装、加载、启停任务方法 | 低到中 |
 | 配置 | `config_read`、`config_update` | 查询或调整配置 | 中到高 |
 | 多媒体 | `read_multimedia`、`image_generate`、`audio_transcribe`、`video_analyze` | 图片、音频、视频处理 | 低到中 |
 | 报告 | `report_generate` | 生成 Markdown、HTML、PPT、表格 | 低到中 |
@@ -1368,7 +1368,7 @@ Agent Runtime
 | `audio_tool/image_tool/video_tool/text_to_image` | 多媒体理解和图片生成 |
 | `builtin:request_input` | 用户交互 |
 | `builtin:handoff/create_subagent` | 子 Agent 委派和配置生成 |
-| `skill_search/skill_load/skill_install` | 技能发现、读取和任务本地安装 |
+| `skill_search/skill_load/skill_install/skill_set_enabled` | 技能发现、读取、任务本地安装和启停 |
 | `config_read/config_update` | 配置读取和受控修改 |
 | `mcp_manager_list_servers/mcp_manager_write_manifest/mcp_manager_add_server` | MCP Server 查看、导出和受控修改 |
 | `message_send` | 消息发送 |
@@ -1382,7 +1382,7 @@ Agent Runtime
 - `config_update` 和 `mcp_manager_add_server` 只有设置 `APP_ALLOW_CONFIG_WRITE_TOOLS=1` 时才允许修改真实配置。
 - `config_read` 默认隐藏敏感字段；只有设置 `APP_ALLOW_CONFIG_SECRET_READ=1` 时才允许返回敏感值。
 - `process_command_*`、`shell_exec`、`code_interpreter`、配置修改、MCP 配置修改、运行时子 Agent 注册仍按高风险工具处理，不能因为通配 MCP 工具匹配而默认放开。
-- `skill_install` 当前安装到任务工作目录，作为本次任务可读取的技能说明；它不会自动修改全局 Agent Registry。
+- `skill_install` 当前安装到任务工作目录，作为本次任务可读取的技能说明；它会记录技能元信息、限制加载大小，并支持 `skill_set_enabled` 启停；它不会自动修改全局 Agent Registry。
 
 ### 10.6 MCP 动态工具设计
 

@@ -3,42 +3,10 @@ import json
 import time
 from typing import Any, Dict, Optional, Callable
 
+from brain.core.run_events import EVENT_TYPE_ALIASES, PRINTER_PLAN_EVENT_TYPES
 from brain.core.sanitization import sanitize_payload
 
-PLAN_EVENT_TYPES = {
-    "plan",
-    "plan_created",
-    "plan_updated",
-    "plan_step_started",
-    "plan_step_completed",
-    "plan_step_failed",
-    "plan_step_updated",
-    "plan_completed",
-    "plan_failed",
-    "plan_cancelled",
-    "todo_list_updated",
-}
-
-EVENT_TYPE_ALIASES = {
-    "result": "assistant_text_delta",
-    "agent_stream": "assistant_text_delta",
-    "task": "run_progress",
-    "notifications": "run_progress",
-    "tool_call": "tool_call_started",
-    "tool_result": "tool_call_completed",
-    "stream": "tool_call_progress",
-    "deep_search": "search_result",
-    "file": "artifact_created",
-    "code": "tool_call_completed",
-    "browser": "tool_call_completed",
-    "html": "tool_call_completed",
-    "markdown": "tool_call_completed",
-    "ppt": "tool_call_completed",
-    "knowledge": "tool_call_completed",
-    "tool_thought": "tool_call_progress",
-    "agent_phase": "agent_progress",
-    "task_summary": "assistant_message_completed",
-}
+PLAN_EVENT_TYPES = PRINTER_PLAN_EVENT_TYPES
 
 
 class Printer:

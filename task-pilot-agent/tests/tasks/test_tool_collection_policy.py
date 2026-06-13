@@ -234,6 +234,42 @@ def test_tool_collection_records_execution_metadata_for_success_and_failure():
     assert printer.events[-1]["message"]["error"] == "boom"
 
 
+def test_tool_collection_notifies_execution_hooks_for_success_failure_and_blocked():
+    collection = ToolCollection()
+    collection.set_allowed_tool_patterns(["mcp_local:deepsearch", "mcp_local:broken"])
+    collection.add_tool(DummyTool("mcp_local:deepsearch"))
+    collection.add_tool(FailingTool("mcp_local:broken"))
+    collection.tool_map["mcp_local:blocked"] = DummyTool("mcp_local:blocked")
+    collection.agentContext = SimpleNamespace(
+        printer=FakePrinter(),
+        user_id="user-1",
+        agent_id="agent-1",
+        task_id="task-1",
+        requestId="request-1",
+    )
+    events: List[Dict[str, Any]] = []
+
+    collection.add_execution_hook(lambda event: events.append(event))
+
+    result = asyncio.run(collection.execute("mcp_local:deepsearch", {"value": "query"}))
+    with pytest.raises(RuntimeError):
+        asyncio.run(collection.execute("mcp_local:broken", {"value": "query"}))
+    blocked = asyncio.run(collection.execute("mcp_local:blocked", {"value": "query"}))
+
+    assert result == "ok:mcp_local:deepsearch:query"
+    assert blocked == "tool `mcp_local:blocked` is not allowed for this agent"
+    assert [(event["stage"], event["tool"]) for event in events] == [
+        ("before_call", "mcp_local:deepsearch"),
+        ("after_call", "mcp_local:deepsearch"),
+        ("before_call", "mcp_local:broken"),
+        ("failed", "mcp_local:broken"),
+        ("blocked", "mcp_local:blocked"),
+    ]
+    assert events[1]["metadata"]["failed"] is False
+    assert events[3]["metadata"]["error"] == "boom"
+    assert events[-1]["userId"] == "user-1"
+
+
 def test_tool_collection_records_audit_context_in_events_and_metadata():
     collection = ToolCollection()
     collection.set_allowed_tool_patterns(["mcp_local:deepsearch"])

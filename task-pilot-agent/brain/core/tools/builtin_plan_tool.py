@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from brain.core.run_events import RunEventType, plan_event_type_for_command
 from brain.core.tools.base import BaseTool
 from brain.core.tools.plan_tool import PlanFunctionTool
 
@@ -48,7 +49,7 @@ class BuiltinPlanTool(BaseTool):
         printer = getattr(self.context, "printer", None) if self.context else None
         if printer is None:
             return
-        printer.send(None, "plan", plan, None, True)
+        printer.send(None, RunEventType.PLAN, plan, None, True)
 
     def _emit_plan_event(self, event_type: str, plan: Dict[str, Any]) -> None:
         printer = getattr(self.context, "printer", None) if self.context else None
@@ -58,28 +59,7 @@ class BuiltinPlanTool(BaseTool):
 
     def _plan_event_type(self, input_obj: Dict[str, Any]) -> str:
         command = str(input_obj.get("command") or self._plan_tool.current_command or "")
-        if command == "create":
-            return "plan_created"
-        if command == "update":
-            return "plan_updated"
-        if command == "get_plan":
-            return "plan_updated"
-        if command == "add_step":
-            return "plan_updated"
-        if command == "finish":
-            return "plan_completed"
-        if command == "skip_step":
-            return "plan_step_updated"
-        if command == "mark_step":
-            status = str(input_obj.get("status") or "")
-            if status == "running":
-                return "plan_step_started"
-            if status == "completed":
-                return "plan_step_completed"
-            if status == "failed":
-                return "plan_step_failed"
-            return "plan_step_updated"
-        return "plan_updated"
+        return plan_event_type_for_command(command, str(input_obj.get("status") or ""))
 
     def _plan_event_fields(self, input_obj: Dict[str, Any]) -> Dict[str, Any]:
         payload: Dict[str, Any] = {

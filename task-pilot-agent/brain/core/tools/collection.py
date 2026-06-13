@@ -1,6 +1,6 @@
 from __future__ import annotations
 import asyncio
-import fnmatch
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 
+from brain.core.tool_policy import (
+    matches_tool_pattern as _matches_tool_pattern,
+    tool_name_variants as _tool_name_variants,
+)
 from .base import BaseTool
 
 try:
@@ -32,26 +36,6 @@ def _to_openai_tool_name(value: str) -> str:
     return text or "tool"
 
 
-def _tool_name_variants(value: str) -> List[str]:
-    text = str(value or "")
-    variants = [text]
-    if ":" in text:
-        variants.append(text.replace(":", "-", 1))
-    if "-" in text:
-        variants.append(text.replace("-", ":", 1))
-    return list(dict.fromkeys(item for item in variants if item))
-
-
-def _matches_tool_pattern(tool_name: str, pattern: str) -> bool:
-    if pattern in {"*", "all"}:
-        return True
-    return any(
-        fnmatch.fnmatch(tool_candidate, pattern_candidate)
-        for tool_candidate in _tool_name_variants(tool_name)
-        for pattern_candidate in _tool_name_variants(pattern)
-    )
-
-
 @dataclass
 class ToolCollection:
     tool_map: Dict[str, BaseTool] = field(default_factory=dict)
@@ -65,6 +49,7 @@ class ToolCollection:
     last_execution: Optional[Dict[str, Any]] = None
     openai_tool_name_map: Dict[str, str] = field(default_factory=dict)
     tool_openai_name_map: Dict[str, str] = field(default_factory=dict)
+    execution_hooks: List[Callable[[Dict[str, Any]], Any]] = field(default_factory=list)
 
     def set_allowed_tool_patterns(self, patterns: Optional[List[str]]) -> None:
         if patterns is None:
@@ -84,6 +69,9 @@ class ToolCollection:
 
     def set_tool_allowed_checker(self, checker: Optional[Callable[[str], bool]]) -> None:
         self.tool_allowed_checker = checker
+
+    def add_execution_hook(self, hook: Callable[[Dict[str, Any]], Any]) -> None:
+        self.execution_hooks.append(hook)
 
     def is_tool_allowed(self, name: str) -> bool:
         if self.tool_allowed_checker is not None:
@@ -152,6 +140,7 @@ class ToolCollection:
                 failed=True,
                 error=message,
             )
+            await self._notify_execution_hooks("blocked", name, input_obj, self.last_execution)
             self._emit_tool_blocked(name, input_obj, message)
             return message
 
@@ -165,6 +154,7 @@ class ToolCollection:
                 failed=True,
                 error="tool not found",
             )
+            await self._notify_execution_hooks("failed", name, input_obj, self.last_execution)
             self._emit_tool_result(name, input_obj)
             return None
         boundary_error = self._validate_runtime_boundary(input_obj)
@@ -177,10 +167,12 @@ class ToolCollection:
                 failed=True,
                 error=boundary_error,
             )
+            await self._notify_execution_hooks("blocked", name, input_obj, self.last_execution)
             self._emit_tool_call(name, input_obj)
             self._emit_tool_result(name, input_obj)
             return boundary_error
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
+        await self._notify_execution_hooks("before_call", name, input_obj)
         self._emit_tool_call(name, input_obj)
         try:
             timeout = self.timeout_for_tool(name)
@@ -189,6 +181,7 @@ class ToolCollection:
             else:
                 result = await tool.execute(input_obj)
             self.last_execution = self._execution_metadata(name, input_obj, started_at, started_at_wall, result=result)
+            await self._notify_execution_hooks("after_call", name, input_obj, self.last_execution)
             self._emit_tool_result(name, input_obj)
             return result
         except asyncio.TimeoutError:
@@ -201,6 +194,7 @@ class ToolCollection:
                 failed=True,
                 error=error,
             )
+            await self._notify_execution_hooks("failed", name, input_obj, self.last_execution)
             self._emit_tool_result(name, input_obj)
             raise
         except Exception as exc:
@@ -212,6 +206,7 @@ class ToolCollection:
                 failed=True,
                 error=str(exc),
             )
+            await self._notify_execution_hooks("failed", name, input_obj, self.last_execution)
             self._emit_tool_result(name, input_obj)
             raise
 
@@ -261,6 +256,30 @@ class ToolCollection:
             "workDir": getattr(context, "work_dir", None),
         }
         return {key: str(value) for key, value in values.items() if value}
+
+    async def _notify_execution_hooks(
+        self,
+        stage: str,
+        name: str,
+        input_obj: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.execution_hooks:
+            return
+        event = {
+            "stage": stage,
+            "tool": name,
+            "argumentsSummary": self._summarize_value(input_obj),
+            "metadata": metadata or {},
+            **self._audit_context(),
+        }
+        for hook in list(self.execution_hooks):
+            try:
+                result = hook(dict(event))
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("tool execution hook failed for %s at %s", name, stage)
 
     @staticmethod
     def _summarize_value(value: Any, limit: int = 500) -> str:

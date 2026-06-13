@@ -36,6 +36,7 @@ def test_mcp_local_registers_general_agent_tools():
         "skill_search",
         "skill_load",
         "skill_install",
+        "skill_set_enabled",
         "create_subagent",
         "memory_search",
         "memory_add",

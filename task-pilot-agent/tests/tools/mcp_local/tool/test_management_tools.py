@@ -10,6 +10,7 @@ from tools.mcp_local.tool.management_tools import (
     mcp_manager_list_servers,
     mcp_manager_write_manifest,
     search_skills,
+    set_skill_enabled,
 )
 
 
@@ -39,8 +40,38 @@ async def test_task_local_skill_install_search_and_load(tmp_path):
     loaded = await load_skill("research-helper", work_dir=str(tmp_path))
 
     assert installed["installed"] is True
+    assert installed["enabled"] is True
     assert any(item["id"] == "research-helper" for item in searched["items"])
     assert "Use sources" in loaded["content"]
+    assert loaded["loadCount"] == 1
+    assert loaded["contentTruncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_task_local_skill_can_be_disabled_and_is_size_limited(tmp_path):
+    await install_skill(
+        "Long Draft Helper",
+        "# Long Draft Helper\nKeep it focused.",
+        work_dir=str(tmp_path),
+        agent_ids=["writer-agent"],
+    )
+
+    disabled = await set_skill_enabled("long-draft-helper", False, work_dir=str(tmp_path))
+    visible = await search_skills("draft", work_dir=str(tmp_path))
+    all_items = await search_skills("draft", work_dir=str(tmp_path), include_disabled=True, agent_id="writer-agent")
+
+    assert disabled["enabled"] is False
+    assert all(item["id"] != "long-draft-helper" for item in visible["items"])
+    assert any(item["id"] == "long-draft-helper" and item["enabled"] is False for item in all_items["items"])
+    with pytest.raises(PermissionError):
+        await load_skill("long-draft-helper", work_dir=str(tmp_path))
+
+    loaded = await load_skill("long-draft-helper", work_dir=str(tmp_path), include_disabled=True)
+    assert loaded["enabled"] is False
+    assert loaded["agentIds"] == ["writer-agent"]
+
+    with pytest.raises(ValueError):
+        await install_skill("too-large", "x" * 20_001, work_dir=str(tmp_path))
 
 
 @pytest.mark.asyncio

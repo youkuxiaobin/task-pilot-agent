@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
+from brain.core.run_events import event_contract_fields
 from brain.core.sanitization import sanitize_payload
 from sqlalchemy import BigInteger, Column, Integer, String, Text, and_, or_
 from sqlalchemy.dialects import mysql
@@ -1153,6 +1154,7 @@ def serialize_run_event(record: AgentRunEventRecord) -> Dict[str, Any]:
         "messageId": record.message_id,
         "payload": payload,
         "createdAt": record.created_at,
+        **event_contract_fields(record.event_type),
     }
 
 

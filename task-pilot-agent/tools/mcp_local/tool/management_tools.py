@@ -13,6 +13,7 @@ import yaml
 from brain.core.agent_registry import AgentRegistry, default_agents_dir
 from config.config import agentSettings, reveal_secret
 from tools.mcp_local.tool.filesystem import _resolve_path, _workspace_root
+from tools.mcp_local.tool.skill_registry import TaskSkillRegistry, safe_skill_id, search_agent_skills
 
 
 SENSITIVE_KEYWORDS = ("api_key", "password", "secret", "token", "cookie", "authorization")
@@ -23,6 +24,8 @@ def _enabled(name: str) -> bool:
 
 
 def _safe_identifier(value: str, *, prefix: str = "item") -> str:
+    if prefix in {"skill", "agent", "mcp"}:
+        return safe_skill_id(value, prefix=prefix)
     text = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip().lower()).strip("-")
     return text or f"{prefix}-{uuid.uuid4().hex[:8]}"
 
@@ -215,45 +218,44 @@ async def send_message(
             return {"channel": normalized, "sent": response.status < 400, "status": response.status, "response": text[:1000]}
 
 
-async def search_skills(query: str = "", *, limit: int = 20, work_dir: Optional[str] = None) -> Dict[str, Any]:
-    needle = str(query or "").strip().lower()
+async def search_skills(
+    query: str = "",
+    *,
+    limit: int = 20,
+    work_dir: Optional[str] = None,
+    include_disabled: bool = False,
+    agent_id: Optional[str] = None,
+) -> Dict[str, Any]:
     safe_limit = max(1, min(int(limit or 20), 100))
-    items: List[Dict[str, Any]] = []
-    registry = AgentRegistry()
-    for agent in registry.list_agents(include_disabled=True):
-        haystack = f"{agent.id} {agent.name} {agent.description} {' '.join(agent.capabilities)}".lower()
-        if needle and needle not in haystack:
-            continue
-        items.append(
-            {
-                "id": agent.id,
-                "type": "agent",
-                "name": agent.name,
-                "description": agent.description,
-                "capabilities": agent.capabilities,
-            }
+    items: List[Dict[str, Any]] = search_agent_skills(
+        query,
+        limit=safe_limit,
+        include_disabled=include_disabled,
+    )
+    remaining = max(safe_limit - len(items), 0)
+    if remaining:
+        items.extend(
+            TaskSkillRegistry(work_dir).list_local_skills(
+                query=query,
+                limit=remaining,
+                include_disabled=include_disabled,
+                agent_id=agent_id,
+            )
         )
-        if len(items) >= safe_limit:
-            break
-
-    skills_root = _workspace_root(work_dir) / "skills"
-    if skills_root.exists():
-        for skill_file in skills_root.glob("*/SKILL.md"):
-            if len(items) >= safe_limit:
-                break
-            text = skill_file.read_text(encoding="utf-8", errors="replace")
-            skill_id = skill_file.parent.name
-            if needle and needle not in f"{skill_id} {text}".lower():
-                continue
-            items.append({"id": skill_id, "type": "task_local_skill", "path": str(skill_file), "description": text[:300]})
     return {"items": items, "count": len(items)}
 
 
-async def load_skill(skill_id: str, *, work_dir: Optional[str] = None) -> Dict[str, Any]:
+async def load_skill(
+    skill_id: str,
+    *,
+    work_dir: Optional[str] = None,
+    include_disabled: bool = False,
+) -> Dict[str, Any]:
     safe_id = _safe_identifier(skill_id, prefix="skill")
-    local_path = _workspace_root(work_dir) / "skills" / safe_id / "SKILL.md"
-    if local_path.exists():
-        return {"id": safe_id, "type": "task_local_skill", "path": str(local_path), "content": local_path.read_text(encoding="utf-8")}
+    try:
+        return TaskSkillRegistry(work_dir).load(safe_id, include_disabled=include_disabled)
+    except KeyError:
+        pass
 
     registry = AgentRegistry()
     agent = registry.get(safe_id)
@@ -274,14 +276,19 @@ async def install_skill(
     content: str,
     *,
     work_dir: Optional[str] = None,
+    enabled: bool = True,
+    agent_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    if not str(content or "").strip():
-        raise ValueError("content is required")
-    safe_id = _safe_identifier(skill_id, prefix="skill")
-    target = _workspace_root(work_dir) / "skills" / safe_id / "SKILL.md"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    return {"id": safe_id, "path": str(target), "installed": True, "scope": "task_workspace"}
+    return TaskSkillRegistry(work_dir).install(
+        skill_id,
+        content,
+        enabled=enabled,
+        agent_ids=agent_ids,
+    )
+
+
+async def set_skill_enabled(skill_id: str, enabled: bool, *, work_dir: Optional[str] = None) -> Dict[str, Any]:
+    return TaskSkillRegistry(work_dir).set_enabled(skill_id, enabled)
 
 
 async def create_subagent(

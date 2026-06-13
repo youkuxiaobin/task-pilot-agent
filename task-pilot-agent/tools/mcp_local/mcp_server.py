@@ -44,6 +44,7 @@ from tools.mcp_local.tool.management_tools import (
     memory_search as memory_search_run,
     search_skills as search_skills_run,
     send_message as send_message_run,
+    set_skill_enabled as set_skill_enabled_run,
 )
 from tools.mcp_local.tool.process_manager import (
     list_process_commands as list_process_commands_run,
@@ -514,18 +515,41 @@ async def message_send(
 
 
 @mcp.tool(name="skill_search", description="搜索当前可用 Agent 能力和任务工作目录内安装的技能。")
-async def skill_search(query: str = "", limit: int = 20, work_dir: Optional[str] = None) -> Dict[str, Any]:
-    return await search_skills_run(query=query, limit=limit, work_dir=work_dir)
+async def skill_search(
+    query: str = "",
+    limit: int = 20,
+    work_dir: Optional[str] = None,
+    include_disabled: bool = False,
+    agent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await search_skills_run(
+        query=query,
+        limit=limit,
+        work_dir=work_dir,
+        include_disabled=include_disabled,
+        agent_id=agent_id,
+    )
 
 
 @mcp.tool(name="skill_load", description="加载一个已存在的 Agent 能力说明或任务本地技能说明。")
-async def skill_load(skill_id: str, work_dir: Optional[str] = None) -> Dict[str, Any]:
-    return await load_skill_run(skill_id, work_dir=work_dir)
+async def skill_load(skill_id: str, work_dir: Optional[str] = None, include_disabled: bool = False) -> Dict[str, Any]:
+    return await load_skill_run(skill_id, work_dir=work_dir, include_disabled=include_disabled)
 
 
 @mcp.tool(name="skill_install", description="把技能说明安装到任务工作目录，供本次任务后续使用。")
-async def skill_install(skill_id: str, content: str, work_dir: Optional[str] = None) -> Dict[str, Any]:
-    return await install_skill_run(skill_id, content, work_dir=work_dir)
+async def skill_install(
+    skill_id: str,
+    content: str,
+    work_dir: Optional[str] = None,
+    enabled: bool = True,
+    agent_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    return await install_skill_run(skill_id, content, work_dir=work_dir, enabled=enabled, agent_ids=agent_ids)
+
+
+@mcp.tool(name="skill_set_enabled", description="启用或禁用任务工作目录内安装的技能。")
+async def skill_set_enabled(skill_id: str, enabled: bool, work_dir: Optional[str] = None) -> Dict[str, Any]:
+    return await set_skill_enabled_run(skill_id, enabled, work_dir=work_dir)
 
 
 @mcp.tool(name="create_subagent", description="创建子 Agent 配置。默认只写入任务工作目录，不注册为运行时 Agent。")

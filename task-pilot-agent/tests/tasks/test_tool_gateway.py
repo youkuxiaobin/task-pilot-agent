@@ -5,7 +5,13 @@ from types import SimpleNamespace
 
 from brain.core.agent_registry import AgentConfig, AgentToolSpec
 from brain.core.context import AgentContext
-from brain.core.tools.gateway import ToolGateway
+from brain.core.tools.gateway import (
+    ToolGateway,
+    approval_requests_from_blocked_tools,
+    approval_waiting_message,
+    blocked_tool_reasons,
+    find_agent_tool_spec,
+)
 
 
 class FakeRegistry:
@@ -159,3 +165,57 @@ def test_tool_gateway_requires_per_task_approval_even_when_high_risk_enabled(mon
     assert "mcp_local:code_interpreter" not in blocked_collection.tool_map
     assert blocked_collection.blocked_tools == ["mcp_local:code_interpreter"]
     assert "mcp_local:code_interpreter" in approved_collection.tool_map
+
+
+def test_tool_gateway_reports_block_reasons_and_approval_requests(monkeypatch):
+    monkeypatch.setenv("ALLOW_HIGH_RISK_TOOLS", "true")
+    agent = AgentConfig(
+        id="gateway-agent",
+        name="Gateway Agent",
+        permissions={"require_approval_for": ["high_risk_tools"]},
+        tools=[
+            AgentToolSpec(
+                name="mcp_local:code_interpreter",
+                description="Execute code",
+                policy={"risk": "high"},
+            ),
+            AgentToolSpec(name="mcp_local:*"),
+        ],
+    )
+
+    assert find_agent_tool_spec(agent, "mcp_local-code_interpreter").name == "mcp_local:code_interpreter"
+    assert blocked_tool_reasons(["mcp_local:deepsearch"], agent, ["mcp_local:weather"]) == {
+        "mcp_local:deepsearch": "not_selected"
+    }
+
+    reasons = blocked_tool_reasons(
+        ["mcp_local:code_interpreter"],
+        agent,
+        ["mcp_local:code_interpreter"],
+    )
+    requests = approval_requests_from_blocked_tools(
+        ["mcp_local:code_interpreter"],
+        reasons,
+        agent,
+        selected_tools=["mcp_local:code_interpreter"],
+    )
+
+    assert reasons == {"mcp_local:code_interpreter": "high_risk_requires_approval"}
+    assert requests == [
+        {
+            "tool": "mcp_local:code_interpreter",
+            "reason": "high_risk_requires_approval",
+            "approvalType": "high_risk_tools",
+            "riskLevel": "high",
+            "description": "Execute code",
+            "policy": {"risk": "high"},
+        }
+    ]
+    assert approval_requests_from_blocked_tools(
+        ["mcp_local:code_interpreter"],
+        reasons,
+        agent,
+        selected_tools=None,
+    ) == []
+    assert approval_waiting_message(requests, "en").startswith("Approval is required")
+    assert approval_waiting_message(requests, "ch").startswith("需要审批工具")

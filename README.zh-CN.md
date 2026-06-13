@@ -4,6 +4,11 @@
 
 TaskPilotAgent 是一个基于 FastAPI 的任务规划与工具调度服务：支持多模型（OpenAI/Claude/Gemini/OpenAI-compatible），并通过 MCP（Model Context Protocol）聚合/调用工具（本地 MCP 工具 + MCP Market 聚合层）。
 
+## 读代码入口
+
+- 当前模块索引：[`task-pilot-agent/CODE_INDEX.md`](task-pilot-agent/CODE_INDEX.md)
+- Agent 运行分层、组件关系和后续改进方向：[`docs/agent-runtime-architecture.md`](docs/agent-runtime-architecture.md)
+
 ## Agent 架构梳理
 
 TaskPilotAgent 当前已经从“单次聊天请求”转向“可回看的任务系统 + 可配置 Agent + 统一工具网关”。一次用户请求会先变成任务，再进入 Agent 运行时，运行时按 Agent 配置过滤工具、调用模型、调用工具，并把过程事件持续写入任务时间线。
@@ -47,7 +52,7 @@ flowchart LR
 | 工具集合 | `task-pilot-agent/brain/core/tools/collection.py` | 暴露工具 schema、执行工具、记录工具事件 |
 | MCP 工具适配 | `task-pilot-agent/brain/core/tools/mcp_tool.py` | 把 Agent 工具调用转成 MCP Market 调用 |
 | 本地 MCP 工具 | `task-pilot-agent/tools/mcp_local/mcp_server.py` | 提供文件、搜索、代码、报告、天气等工具 |
-| Web 页面 | `task-pilot-agent/brain/web/autoagent.html` | 创建任务、查看任务列表、展示时间线和最终结果 |
+| Web 页面 | `task-pilot-agent/frontend/src/App.vue` | 创建会话、提交消息、回看时间线、审批工具、查看产物和最终结果 |
 
 ### 组件 1：用户入口
 

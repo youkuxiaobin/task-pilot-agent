@@ -12,7 +12,7 @@ os.environ.setdefault("APP_CONFIG_FILE", str(project_root / "config" / "config.y
 from config.config import agentSettings  # noqa: E402
 from tools.aggre_mcp_market.app import aggre_mcp_market_router, init_mcp_market_registry  # noqa: E402
 
-from brain.app import agent_router  # noqa: E402
+from brain.app import agent_router, recover_incomplete_agent_tasks  # noqa: E402
 from file.file_op import file_router  # noqa: E402
 from auth.hardening import validate_auth_production_config  # noqa: E402
 from auth.router import auth_router  # noqa: E402
@@ -34,6 +34,12 @@ async def _bootstrap():
         logger.info("MCP market registry initialized")
     except Exception as e:
         logger.error(f"Error initializing MCP market registry: {e}")
+
+    try:
+        recovered = recover_incomplete_agent_tasks()
+        logger.info("Recovered %s queued or interrupted agent task(s)", recovered.get("count", 0))
+    except Exception as e:
+        logger.error(f"Error recovering queued agent tasks: {e}")
 
     logger.info(
         f"Worker initialized. MCP address: "

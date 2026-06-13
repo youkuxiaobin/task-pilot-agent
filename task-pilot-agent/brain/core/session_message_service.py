@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from brain.core.run_events import RunEventType
 from brain.core.sessions import (
     AgentMessageRole,
     AgentSessionStatus,
@@ -38,6 +38,7 @@ class AgentSessionMessageDeps:
     resume_session_run_after_input: Callable[..., Any]
     resume_task_after_input: Callable[..., Any]
     run_autoagent: Callable[[GptQueryReq, Callable[[str], None]], Any]
+    start_background_run: Callable[[str, Any], Any]
 
 
 async def add_session_message(
@@ -127,7 +128,7 @@ async def add_session_message(
             )
         ],
     )
-    asyncio.create_task(deps.run_autoagent(request, lambda _data: None))
+    deps.start_background_run(run_id, deps.run_autoagent(request, lambda _data: None))
     return {
         "sessionId": session_id,
         "messageId": user_message.message_id,
@@ -216,7 +217,7 @@ def _resume_session_run_record(
         session_id=session_id,
         run_id=run_id,
         user_id=effective_user_id,
-        event_type="user_input",
+        event_type=RunEventType.USER_INPUT,
         source="session_api",
         message_id=user_message.message_id,
         payload={
@@ -229,7 +230,7 @@ def _resume_session_run_record(
         session_id=session_id,
         run_id=run_id,
         user_id=effective_user_id,
-        event_type="task_queued",
+        event_type=RunEventType.TASK_QUEUED,
         source="session_api",
         payload={
             "status": AgentTaskStatus.QUEUED,
@@ -241,7 +242,7 @@ def _resume_session_run_record(
         session_id=session_id,
         run_id=run_id,
         user_id=effective_user_id,
-        event_type="task_resume_requested",
+        event_type=RunEventType.TASK_RESUME_REQUESTED,
         source="session_api",
         payload={
             "userInputEventId": event.id,
@@ -257,13 +258,14 @@ def _resume_session_run_record(
         last_message_id=user_message.message_id,
         last_message_preview=content,
     )
-    asyncio.create_task(
+    deps.start_background_run(
+        run_id,
         deps.resume_session_run_after_input(
             run_record,
             content,
             language_override=language,
             session_message_id=user_message.message_id,
-        )
+        ),
     )
     return {
         "sessionId": session_id,
@@ -327,13 +329,14 @@ def _resume_task_run(
         last_message_id=user_message.message_id,
         last_message_preview=content,
     )
-    asyncio.create_task(
+    deps.start_background_run(
+        run_id,
         deps.resume_task_after_input(
             run_id,
             content,
             language_override=language,
             session_message_id=user_message.message_id,
-        )
+        ),
     )
     return {
         "sessionId": session_id,

@@ -7,7 +7,13 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 
-from brain.core.printer import EVENT_TYPE_ALIASES
+from brain.core.plan_snapshots import (
+    PLAN_TERMINAL_STATUSES,
+    plan_payload_from_event_payload,
+    plan_terminal_event_type,
+    terminal_plan_payload,
+)
+from brain.core.run_events import PLAN_EVENT_TYPES, RunEventType, session_event_alias
 from brain.core.sessions import (
     SessionStore,
     serialize_agent_artifact,
@@ -17,36 +23,6 @@ from brain.core.sessions import (
 from brain.core.tasks import AgentTaskStatus, TaskStore, serialize_artifact, serialize_event, serialize_task
 
 EVENT_REPLAY_QUERY_LIMIT = 10000
-
-PLAN_EVENT_TYPES = {
-    "plan",
-    "plan_created",
-    "plan_updated",
-    "plan_step_started",
-    "plan_step_completed",
-    "plan_step_failed",
-    "plan_step_updated",
-    "plan_completed",
-    "plan_failed",
-    "plan_cancelled",
-}
-
-SESSION_EVENT_TYPE_ALIASES = {
-    "task_created": "run_created",
-    "task_resumed": "run_started",
-    "task_running": "run_started",
-    "task_queued": "run_queued",
-    "task_completed": "run_completed",
-    "task_failed": "run_failed",
-    "task_cancel_requested": "run_cancelled",
-    "task_retry_requested": "run_retry_requested",
-    "task_resume_requested": "run_started",
-    "task_artifact_added": "artifact_created",
-    "user_input": "user_input_received",
-    "user_message_created": "user_message_created",
-    "assistant_message_started": "assistant_message_started",
-    "assistant_message_completed": "assistant_message_completed",
-}
 
 
 def _truncate_text(value: Any, limit: int = 320) -> str:
@@ -351,21 +327,7 @@ def session_event_type(payload: Dict[str, Any]) -> str:
     if isinstance(inner_payload, dict) and inner_payload.get("type"):
         return str(inner_payload.get("type") or "")
     event_type = str(payload.get("eventType") or "")
-    return SESSION_EVENT_TYPE_ALIASES.get(event_type) or EVENT_TYPE_ALIASES.get(event_type, event_type)
-
-
-def plan_payload_from_event_payload(event_payload: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(event_payload, dict):
-        return None
-    plan = event_payload.get("plan")
-    if isinstance(plan, dict):
-        return plan
-    result_map = event_payload.get("resultMap")
-    if isinstance(result_map, dict) and isinstance(result_map.get("plan"), dict):
-        return result_map["plan"]
-    if "steps" in event_payload or "step_status" in event_payload:
-        return event_payload
-    return None
+    return session_event_alias(event_type)
 
 
 def serialize_plan_event(session_id: str, run_id: str, event: Any, seq: int) -> Optional[Dict[str, Any]]:
@@ -414,45 +376,6 @@ def latest_plan_payload(task_store: TaskStore, run_id: str, *, events_limit: int
     return latest_plan, latest_event_type
 
 
-def terminal_plan_payload(
-    plan: Dict[str, Any],
-    *,
-    terminal_status: str,
-    reason: str,
-) -> Dict[str, Any]:
-    payload = dict(plan)
-    payload["planStatus"] = terminal_status
-    payload["status"] = terminal_status
-    payload["terminalReason"] = reason
-    payload["eventType"] = f"plan_{terminal_status}"
-    payload["command"] = terminal_status
-    steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
-    statuses = list(payload.get("step_status") if isinstance(payload.get("step_status"), list) else [])
-    statuses = [str(item or "not_started") for item in statuses]
-    while len(statuses) < len(steps):
-        statuses.append("not_started")
-    statuses = statuses[: len(steps)]
-
-    if terminal_status == "completed":
-        payload["step_status"] = ["completed" for _ in steps]
-        return payload
-
-    if terminal_status in {"failed", "cancelled"} and steps:
-        target_status = terminal_status
-        if not any(status in {"running", "failed", "cancelled"} for status in statuses):
-            for index, status in enumerate(statuses):
-                if status != "completed":
-                    statuses[index] = target_status
-                    break
-        else:
-            statuses = [
-                target_status if status == "running" else status
-                for status in statuses
-            ]
-        payload["step_status"] = statuses
-    return payload
-
-
 def sync_plan_terminal_status(
     task_store: TaskStore,
     run_id: str,
@@ -463,12 +386,12 @@ def sync_plan_terminal_status(
     source: str,
     events_limit: int = EVENT_REPLAY_QUERY_LIMIT,
 ) -> None:
-    if terminal_status not in {"completed", "failed", "cancelled"}:
+    if terminal_status not in PLAN_TERMINAL_STATUSES:
         return
     latest_plan, latest_event_type = latest_plan_payload(task_store, run_id, events_limit=events_limit)
     if latest_plan is None:
         return
-    target_event_type = f"plan_{terminal_status}"
+    target_event_type = plan_terminal_event_type(terminal_status)
     if latest_event_type == target_event_type:
         return
     terminal_plan = terminal_plan_payload(
@@ -498,7 +421,7 @@ def pending_approval_from_event_payloads(
     approval_request_index = -1
     for index, event in enumerate(events):
         event_type = str(event.get("eventType") or event.get("type") or "")
-        if event_type == "approval_requested":
+        if event_type == RunEventType.APPROVAL_REQUESTED:
             approval_request_event = event
             approval_request_index = index
     if approval_request_event is None:
@@ -512,7 +435,7 @@ def pending_approval_from_event_payloads(
     )
     for event in events[approval_request_index + 1 :]:
         event_type = str(event.get("eventType") or event.get("type") or "")
-        if event_type != "approval_resolved":
+        if event_type != RunEventType.APPROVAL_RESOLVED:
             continue
         payload = event.get("payload") or {}
         if not isinstance(payload, dict):
@@ -532,7 +455,7 @@ def pending_approval_from_event_payloads(
     payload = dict(approval_request_event)
     payload["sessionId"] = session_id
     payload["runId"] = run_id
-    payload["type"] = "approval_requested"
+    payload["type"] = RunEventType.APPROVAL_REQUESTED
     payload["pending"] = True
     return payload
 

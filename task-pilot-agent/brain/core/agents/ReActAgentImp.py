@@ -190,6 +190,9 @@ class ReActAgentImp(ReActAgent):
                         "input": args or {},
                         "answer": "",
                     }
+                parsed_decision = self._parse_text_decision(assistant_text or "")
+                if parsed_decision is not None:
+                    return parsed_decision
                 return {
                     "thought": assistant_text or "",
                     "action": "",
@@ -210,6 +213,9 @@ class ReActAgentImp(ReActAgent):
         cleaned = text.strip()
         if not cleaned:
             return None
+        parsed_decision = self._parse_text_decision(cleaned)
+        if parsed_decision is not None:
+            return parsed_decision
         return {
             "thought": cleaned,
             "action": "",
@@ -531,3 +537,39 @@ class ReActAgentImp(ReActAgent):
         if len(text) <= limit:
             return text
         return text[:limit] + "..."
+
+    @staticmethod
+    def _parse_text_decision(text: str) -> Optional[Dict[str, Any]]:
+        candidate = str(text or "").strip()
+        if not candidate:
+            return None
+        if candidate.startswith("```"):
+            lines = candidate.splitlines()
+            if lines and lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            candidate = "\n".join(lines).strip()
+        if not (candidate.startswith("{") and candidate.endswith("}")):
+            return None
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        if not any(key in parsed for key in ("thought", "action", "input")):
+            return None
+
+        answer_text = str(parsed.get("answer") or parsed.get("final_answer") or parsed.get("finalAnswer") or "").strip()
+        thought_text = str(parsed.get("thought") or parsed.get("reasoning") or "").strip()
+        action_text = str(parsed.get("action") or "").strip()
+        input_value = parsed.get("input") if isinstance(parsed.get("input"), dict) else {}
+        if not any([answer_text, thought_text, action_text, input_value]):
+            return None
+        return {
+            "thought": thought_text,
+            "action": action_text,
+            "input": input_value,
+            "answer": answer_text,
+        }

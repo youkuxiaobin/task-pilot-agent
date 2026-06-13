@@ -72,6 +72,7 @@ const messages = {
     'advanced.sandbox': '沙箱环境',
     'task.detail': '运行详情',
     'task.artifacts': '产物',
+    'task.childTasks': '子任务',
     'task.noArtifacts': '暂无产物。',
     'task.needInput': '需要补充信息',
     'task.inputPlaceholder': '补充会话需要的信息',
@@ -83,8 +84,6 @@ const messages = {
     'chat.user': '你',
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent 正在处理...',
-    'chat.loadEarlier': '加载更早消息',
-    'chat.loadingEarlier': '正在加载...',
     'plan.title': '计划',
     'plan.evidence': '证据',
     'plan.notStarted': '未开始',
@@ -222,6 +221,7 @@ const messages = {
     'advanced.sandbox': 'Sandbox',
     'task.detail': 'Run Detail',
     'task.artifacts': 'Artifacts',
+    'task.childTasks': 'Child tasks',
     'task.noArtifacts': 'No artifacts yet.',
     'task.needInput': 'More input needed',
     'task.inputPlaceholder': 'Add the information needed for this chat',
@@ -233,8 +233,6 @@ const messages = {
     'chat.user': 'You',
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent is working...',
-    'chat.loadEarlier': 'Load earlier messages',
-    'chat.loadingEarlier': 'Loading...',
     'plan.title': 'Plan',
     'plan.evidence': 'Evidence',
     'plan.notStarted': 'Not started',
@@ -351,6 +349,7 @@ const selectedFiles = ref([])
 const fileInputRef = ref(null)
 const scrollRef = ref(null)
 const chatInput = ref('')
+const composerComposing = ref(false)
 const chatMessages = ref([])
 const chatMessageTotal = ref(0)
 const chatHasMore = ref(false)
@@ -379,6 +378,8 @@ const sessionPollTimer = ref(null)
 const approvalBusyKey = ref('')
 let sessionPollInFlight = false
 let sessionStreamExpectedClose = false
+let composerCompositionEndedAt = 0
+const COMPOSER_COMPOSITION_SETTLE_MS = 80
 const tasks = ref([])
 const notifications = ref([])
 const NOTIFICATION_TTL_MS = 2800
@@ -448,6 +449,13 @@ const taskWaitingInput = computed(() => currentTask.value?.status === 'waiting_i
 const taskWaitingApproval = computed(() => currentTask.value?.status === 'waiting_approval')
 const chatInputDisabled = computed(() => running.value || taskWaitingApproval.value)
 const visibleArtifacts = computed(() => currentArtifacts.value.filter(shouldShowArtifact))
+const visibleChildTasks = computed(() => {
+  const direct = Array.isArray(currentTask.value?.childTasks) ? currentTask.value.childTasks : []
+  const metadata = currentTask.value?.metadata || {}
+  const fromMetadata = Array.isArray(metadata.childTasks) ? metadata.childTasks : []
+  const items = direct.length ? direct : fromMetadata
+  return items.filter((item) => item && (item.taskId || item.runId))
+})
 const taskMeta = computed(() => {
   if (!currentTask.value) return ''
   const parts = [
@@ -679,6 +687,45 @@ async function submitChatMessage() {
   await submitConversationMessage(chatInput.value.trim(), 'chat')
 }
 
+function markComposerCompositionStart() {
+  composerComposing.value = true
+}
+
+function markComposerCompositionEnd() {
+  composerComposing.value = false
+  composerCompositionEndedAt = Date.now()
+}
+
+function composerEnterState(event) {
+  const justEnded = composerCompositionEndedAt
+    && Date.now() - composerCompositionEndedAt < COMPOSER_COMPOSITION_SETTLE_MS
+  if (composerComposing.value || event?.isComposing || event?.keyCode === 229) return 'composing'
+  if (justEnded) return 'settling'
+  return ''
+}
+
+function shouldIgnoreComposerEnter(event) {
+  return Boolean(composerEnterState(event))
+}
+
+function handleComposerEnter(event, submit) {
+  const enterState = composerEnterState(event)
+  if (enterState) {
+    if (enterState === 'settling') event.preventDefault()
+    return
+  }
+  event.preventDefault()
+  submit()
+}
+
+function handleHomeComposerEnter(event) {
+  handleComposerEnter(event, submitTask)
+}
+
+function handleChatComposerEnter(event) {
+  handleComposerEnter(event, submitChatMessage)
+}
+
 function chatMessageId(role) {
   return `${role}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -729,17 +776,42 @@ function ensureActiveAssistantMessage(runId = '') {
 
 function appendAssistantContent(text, runId = '') {
   if (!text) return
+  const content = assistantAnswerText(text)
   ensureActiveAssistantMessage(runId)
   updateActiveAssistant((message) => ({
-    content: `${message.content || ''}${text}`,
+    content: `${message.content || ''}${content}`,
     status: 'running',
     taskId: message.taskId || runId || currentTaskId.value || '',
   }))
 }
 
+function assistantAnswerText(value) {
+  const raw = String(value || '')
+  const text = raw.trim()
+  if (!text) return ''
+  let candidate = text
+  if (candidate.startsWith('```')) {
+    const lines = candidate.split('\n')
+    if (lines[0]?.trim().startsWith('```')) lines.shift()
+    if (lines[lines.length - 1]?.trim().startsWith('```')) lines.pop()
+    candidate = lines.join('\n').trim()
+  }
+  if (!candidate.startsWith('{') || !candidate.endsWith('}')) return raw
+  try {
+    const parsed = JSON.parse(candidate)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return raw
+    if (!('thought' in parsed || 'action' in parsed || 'input' in parsed)) return raw
+    const answer = parsed.answer ?? parsed.final_answer ?? parsed.finalAnswer ?? parsed.output ?? parsed.observation
+    if (answer === undefined || answer === null) return raw
+    return String(answer).trim()
+  } catch {
+    return raw
+  }
+}
+
 function seedChatFromTask(task, output) {
   const input = String(task?.input || task?.taskId || '').trim()
-  const answer = String(output || '').trim()
+  const answer = assistantAnswerText(output).trim()
   const nextMessages = []
   if (input) {
     nextMessages.push({
@@ -766,10 +838,13 @@ function seedChatFromTask(task, output) {
 function mapBackendMessage(message, fallbackStatus = '') {
   const role = String(message?.role || '').trim().toLowerCase()
   if (!['user', 'assistant'].includes(role)) return null
+  const content = role === 'assistant'
+    ? assistantAnswerText(message.content || '')
+    : String(message.content || '')
   return {
     id: message.messageId || chatMessageId(message.role || 'message'),
     role,
-    content: String(message.content || ''),
+    content,
     taskId: message.runId || '',
     status: message.status || fallbackStatus || '',
     time: message.createdAt || Date.now(),
@@ -787,7 +862,7 @@ function resultTextFromEvents(runId = '') {
   return currentEvents.value
     .filter((event) => ['result', 'agent_stream'].includes(event?.eventType || event?.type || ''))
     .filter((event) => !runId || eventRunId(event) === runId)
-    .map((event) => String(event?.payload?.result || ''))
+    .map((event) => assistantAnswerText(event?.payload?.result || ''))
     .filter(Boolean)
     .join('')
 }
@@ -968,7 +1043,7 @@ function applySessionPayload(session, events = [], artifacts = [], options = {})
     chatMessageTotal.value = Number(session.messageCount || 0)
     chatHasMore.value = chatMessageTotal.value > backendMessageCount()
   }
-  finalAnswer.value = latestAssistantText(session) || resultTextFromEvents(currentTaskId.value)
+  finalAnswer.value = assistantAnswerText(latestAssistantText(session) || resultTextFromEvents(currentTaskId.value))
   if (!options.keepChat) seedChatFromSession(session, options)
   liveTimeline.value = []
   running.value = session?.status === 'running'
@@ -980,7 +1055,7 @@ function latestAssistantText(session) {
   for (let index = backendMessages.length - 1; index >= 0; index -= 1) {
     const message = backendMessages[index]
     if (message?.role === 'assistant' && String(message.content || '').trim()) {
-      return String(message.content || '')
+      return assistantAnswerText(message.content || '')
     }
   }
   return ''
@@ -1108,7 +1183,7 @@ function mergeSessionEvent(event) {
     updateActiveAssistant({ taskId: currentTaskId.value, status: 'running' })
   }
   if (eventType === 'result' || eventType === 'agent_stream') {
-    const text = payload.result || ''
+    const text = assistantAnswerText(payload.result || '')
     finalAnswer.value += text
     appendAssistantContent(text, runId)
   }
@@ -1425,8 +1500,9 @@ function handleStreamEvent(event) {
   }
 
   if (event.type === 'result' || event.type === 'agent_stream') {
-    finalAnswer.value += payload.result || ''
-    appendAssistantContent(payload.result || '', payload.taskId || payload.runId || '')
+    const text = assistantAnswerText(payload.result || '')
+    finalAnswer.value += text
+    appendAssistantContent(text, payload.taskId || payload.runId || '')
   } else if (event.type === 'done') {
     if (currentTask.value) currentTask.value.status = 'completed'
     updateActiveAssistant({ status: 'completed' })
@@ -1775,7 +1851,7 @@ async function loadTask(taskId, options = {}) {
     const artifactsData = await artifactsResponse.json()
     currentEvents.value = Array.isArray(eventsData.items) ? eventsData.items : []
     currentArtifacts.value = Array.isArray(artifactsData.items) ? artifactsData.items : []
-    finalAnswer.value = currentTask.value.output || ''
+    finalAnswer.value = assistantAnswerText(currentTask.value.output || '')
     if (!options.keepChat) seedChatFromTask(currentTask.value, finalAnswer.value)
     else if (finalAnswer.value) {
       updateActiveAssistant((message) => ({
@@ -2911,7 +2987,9 @@ onBeforeUnmount(() => {
               v-model="query"
               rows="2"
               :placeholder="t('home.placeholder')"
-              @keydown.enter.exact.prevent="submitTask"
+              @compositionstart="markComposerCompositionStart"
+              @compositionend="markComposerCompositionEnd"
+              @keydown.enter.exact="handleHomeComposerEnter"
             />
             <div class="composer-actions">
               <div class="left-actions">
@@ -2963,16 +3041,6 @@ onBeforeUnmount(() => {
               <button type="button" class="ghost-button small" @click="stopTask">{{ t('common.stop') }}</button>
             </div>
           <div ref="scrollRef" class="conversation-stream">
-            <div v-if="chatHasMore" class="chat-history-control">
-              <button
-                type="button"
-                class="ghost-button small"
-                :disabled="chatHistoryLoading"
-                @click="loadOlderMessages"
-              >
-                {{ chatHistoryLoading ? t('chat.loadingEarlier') : t('chat.loadEarlier') }}
-              </button>
-            </div>
             <div v-if="!chatMessages.length" class="muted-text">{{ t('chat.empty') }}</div>
             <div
               v-for="(message, index) in chatMessages"
@@ -3074,6 +3142,20 @@ onBeforeUnmount(() => {
             </a>
           </div>
 
+          <div v-if="visibleChildTasks.length" class="child-task-list">
+            <div class="section-title">{{ t('task.childTasks') }}</div>
+            <button
+              v-for="child in visibleChildTasks"
+              :key="child.taskId || child.runId"
+              type="button"
+              class="child-task-link"
+              @click="loadTask(child.taskId || child.runId, { keepChat: false })"
+            >
+              <span>{{ child.taskId || child.runId }}</span>
+              <small>{{ agentName(child.agentId) }} · {{ statusLabel(child.status) }}</small>
+            </button>
+          </div>
+
           <section v-if="taskWaitingInput" class="conversation-waiting">
             <textarea v-model="taskInputText" rows="4" :placeholder="t('task.inputPlaceholder')"></textarea>
             <button type="button" class="send-wide" @click="sendTaskInput">{{ t('task.submitInput') }}</button>
@@ -3089,7 +3171,9 @@ onBeforeUnmount(() => {
               rows="2"
               :placeholder="t('chat.placeholder')"
               :disabled="chatInputDisabled"
-              @keydown.enter.exact.prevent="submitChatMessage"
+              @compositionstart="markComposerCompositionStart"
+              @compositionend="markComposerCompositionEnd"
+              @keydown.enter.exact="handleChatComposerEnter"
             />
             <div class="chat-actions">
               <button type="button" class="icon-button" :title="t('common.upload')" :disabled="chatInputDisabled" @click="fileInputRef?.click()">＋</button>

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import os
 import re
 from dataclasses import dataclass, field
@@ -9,6 +8,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 
+from brain.core.tool_policy import (
+    matches_any_tool_pattern as _shared_matches_any_tool_pattern,
+    matches_tool_pattern as _shared_matches_tool_pattern,
+    tool_name_variants as _shared_tool_name_variants,
+)
 
 SUPPORTED_AGENT_TYPES = {
     "supervisor",
@@ -191,23 +195,11 @@ class AgentConfig:
 
 
 def _matches_tool_pattern(pattern: str, tool_name: str) -> bool:
-    if pattern in {"*", "all"}:
-        return True
-    for candidate in _tool_name_variants(tool_name):
-        for pattern_candidate in _tool_name_variants(pattern):
-            if fnmatch.fnmatch(candidate, pattern_candidate):
-                return True
-    return False
+    return _shared_matches_tool_pattern(tool_name, pattern)
 
 
 def _tool_name_variants(value: str) -> List[str]:
-    text = str(value or "")
-    variants = [text]
-    if ":" in text:
-        variants.append(text.replace(":", "-", 1))
-    if "-" in text:
-        variants.append(text.replace("-", ":", 1))
-    return variants
+    return _shared_tool_name_variants(value)
 
 
 def _tool_policy_block_reason(policy: Dict[str, Any]) -> str:
@@ -279,7 +271,7 @@ def _tool_permission_block_reason(permissions: Dict[str, Any], tool_name: str) -
 
 
 def _matches_any_tool_pattern(tool_name: str, patterns: List[str]) -> bool:
-    return any(_matches_tool_pattern(pattern, tool_name) for pattern in patterns)
+    return _shared_matches_any_tool_pattern(tool_name, patterns)
 
 
 def _high_risk_tools_enabled() -> bool:
