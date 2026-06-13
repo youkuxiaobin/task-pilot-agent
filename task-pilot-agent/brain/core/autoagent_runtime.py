@@ -13,7 +13,7 @@ from brain.core.printer import SSEPrinter
 from brain.core.run_events import RunEventType
 from brain.core.sessions import AgentMessageRole, AgentSessionStatus, SessionStore
 from brain.core.tasks import FINAL_STATUSES, AgentTaskStatus, TaskStore, serialize_event, serialize_task
-from brain.core.tools.collection import ToolCollection
+from brain.core.tools.collection import ToolApprovalRequired, ToolCollection
 from brain.models.requests import AgentMessage, GptQueryReq
 from utils.logger import clear_log_context, configure_log_context, get_logger
 
@@ -540,6 +540,20 @@ def _maybe_wait_for_autoagent_tool_approval(
     if not approval_requests:
         return False
 
+    _mark_autoagent_waiting_approval(state, prep, deps, approval_requests)
+    return True
+
+
+def _mark_autoagent_waiting_approval(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    deps: AutoAgentRuntimeDeps,
+    approval_requests: List[Dict[str, Any]],
+) -> None:
+    assert state.task_store is not None
+    assert state.printer is not None
+    assert state.assistant_message_id is not None
+    request = prep.request
     approval_event = state.task_store.add_event(
         state.task_id,
         RunEventType.APPROVAL_REQUESTED,
@@ -616,7 +630,20 @@ def _maybe_wait_for_autoagent_tool_approval(
         last_message_id=state.assistant_message_id,
         last_message_preview=waiting_message_text,
     )
-    return True
+
+
+def _wait_for_runtime_tool_approval(
+    state: AutoAgentRunState,
+    prep: AutoAgentRequestPrep,
+    deps: AutoAgentRuntimeDeps,
+    approval_error: ToolApprovalRequired,
+) -> None:
+    _mark_autoagent_waiting_approval(
+        state,
+        prep,
+        deps,
+        [approval_error.to_approval_request()],
+    )
 
 
 def _record_autoagent_failure(
@@ -870,6 +897,8 @@ async def _run_autoagent_handler(
             _mark_autoagent_waiting_input(state, prep, deps, ctx)
             return
         _complete_autoagent_success(state, prep, deps)
+    except ToolApprovalRequired:
+        raise
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.exception("autoagent handler failed for request %s", ctx.requestId)
         _record_autoagent_failure(
@@ -1008,6 +1037,9 @@ async def run_autoagent(req: GptQueryReq, enqueue: Callable[[str], None], deps: 
         except asyncio.CancelledError:
             logger.info("autoagent task cancelled for request %s", trace_id)
             _cancel_autoagent_run(state, prep, deps)
+        except ToolApprovalRequired as exc:
+            logger.info("autoagent task waiting for tool approval: %s", exc.tool)
+            _wait_for_runtime_tool_approval(state, prep, deps, exc)
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.exception("autoagent pipeline failed for request %s", trace_id)
             _record_autoagent_failure(

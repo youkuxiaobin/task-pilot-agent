@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from brain.core.tools.base import BaseTool
-from brain.core.tools.collection import ToolCollection
+from brain.core.tools.collection import ToolApprovalRequired, ToolCollection
 
 
 class DummyTool(BaseTool):
@@ -39,6 +39,13 @@ class CancellingTool(DummyTool):
     async def execute(self, input_obj: Dict[str, Any]) -> str:
         self.called = True
         raise asyncio.CancelledError()
+
+
+class ApprovalTool(DummyTool):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.risk_level = "high"
+        self.requires_approval = True
 
 
 class FakePrinter:
@@ -449,3 +456,33 @@ def test_tool_collection_records_cancelled_tool_execution():
     assert printer.events[-1]["message"]["failed"] is True
     assert printer.events[-1]["message"]["cancelled"] is True
     assert printer.events[-1]["message"]["error"] == "tool `mcp_local:cancel` cancelled"
+
+
+def test_tool_collection_requires_approval_before_high_risk_mcp_tool_execution():
+    collection = ToolCollection()
+    tool = ApprovalTool("file_write")
+    collection.add_tool(tool)
+    printer = FakePrinter()
+    collection.agentContext = SimpleNamespace(printer=printer, approved_tools=None)
+
+    with pytest.raises(ToolApprovalRequired) as exc_info:
+        asyncio.run(collection.execute("file_write", {"path": "result.py"}))
+
+    assert tool.called is False
+    assert exc_info.value.tool == "file_write"
+    assert exc_info.value.risk_level == "high"
+    assert collection.last_execution is not None
+    assert collection.last_execution["failed"] is True
+    assert collection.last_execution["requiresApproval"] is True
+    assert printer.events[-1]["message_type"] == "tool_result"
+    assert printer.events[-1]["message"]["requiresApproval"] is True
+
+    approved = ToolCollection()
+    approved_tool = ApprovalTool("file_write")
+    approved.add_tool(approved_tool)
+    approved.agentContext = SimpleNamespace(printer=FakePrinter(), approved_tools=["file_write"])
+
+    result = asyncio.run(approved.execute("file_write", {"path": "result.py"}))
+
+    assert result == "ok:file_write:None"
+    assert approved_tool.called is True

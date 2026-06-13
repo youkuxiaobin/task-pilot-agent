@@ -573,6 +573,9 @@ def test_vue_approval_actions_are_available_for_pending_tool_approval():
         "approvedTools: approved ? requestedTools : []",
         "@click=\"resolveApproval(item, true)\"",
         "@click=\"resolveApproval(item, false)\"",
+        "eventType === 'approval_requested'",
+        "session?.status === 'waiting_approval'",
+        "t('approval.requested')",
     ]:
         assert marker in source
 

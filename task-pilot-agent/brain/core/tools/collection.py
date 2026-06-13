@@ -11,7 +11,9 @@ from typing import Callable, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 
 from brain.core.tool_policy import (
+    matches_any_tool_pattern as _matches_any_tool_pattern,
     matches_tool_pattern as _matches_tool_pattern,
+    normalize_tool_selection as _normalize_tool_selection,
     tool_name_variants as _tool_name_variants,
 )
 from .base import BaseTool
@@ -28,6 +30,32 @@ logger = get_logger(__name__)
 
 _OPENAI_TOOL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 _OPENAI_TOOL_NAME_INVALID_CHARS = re.compile(r"[^a-zA-Z0-9_-]+")
+
+
+class ToolApprovalRequired(Exception):
+    def __init__(
+        self,
+        *,
+        tool: str,
+        risk_level: str = "high",
+        description: str = "",
+        policy: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.tool = tool
+        self.risk_level = risk_level or "high"
+        self.description = description
+        self.policy = dict(policy or {})
+        super().__init__(f"tool `{tool}` requires approval")
+
+    def to_approval_request(self) -> Dict[str, Any]:
+        return {
+            "tool": self.tool,
+            "reason": "high_risk_requires_approval",
+            "approvalType": "high_risk_tools",
+            "riskLevel": self.risk_level,
+            "description": self.description,
+            "policy": self.policy,
+        }
 
 
 def _to_openai_tool_name(value: str) -> str:
@@ -171,6 +199,11 @@ class ToolCollection:
             self._emit_tool_call(name, input_obj)
             self._emit_tool_result(name, input_obj)
             return boundary_error
+        approval_error = self._approval_required_error(name, tool, input_obj, started_at, started_at_wall)
+        if approval_error is not None:
+            await self._notify_execution_hooks("approval_required", name, input_obj, self.last_execution)
+            self._emit_tool_result(name, input_obj)
+            raise approval_error
         logger.debug("execute tool %s with argument keys=%s", name, sorted(input_obj.keys()))
         await self._notify_execution_hooks("before_call", name, input_obj)
         self._emit_tool_call(name, input_obj)
@@ -251,6 +284,44 @@ class ToolCollection:
         if result is not None:
             payload["resultSummary"] = self._summarize_value(result)
         return payload
+
+    def _approval_required_error(
+        self,
+        name: str,
+        tool: BaseTool,
+        input_obj: Dict[str, Any],
+        started_at: float,
+        started_at_wall: float,
+    ) -> Optional[ToolApprovalRequired]:
+        context = self.agentContext
+        if context is None:
+            return None
+        risk_level = str(getattr(tool, "risk_level", "") or "").strip().lower()
+        requires_approval = bool(getattr(tool, "requires_approval", False)) or risk_level in {"high", "critical"}
+        if not requires_approval:
+            return None
+        approved_tools = _normalize_tool_selection(getattr(context, "approved_tools", None)) or []
+        if _matches_any_tool_pattern(name, approved_tools):
+            return None
+
+        error = ToolApprovalRequired(
+            tool=name,
+            risk_level=risk_level or "high",
+            description=str(getattr(tool, "description", "") or ""),
+            policy={"risk": risk_level or "high"},
+        )
+        self.last_execution = self._execution_metadata(
+            name,
+            input_obj,
+            started_at,
+            started_at_wall,
+            failed=True,
+            error=str(error),
+        )
+        self.last_execution["requiresApproval"] = True
+        self.last_execution["approvalType"] = "high_risk_tools"
+        self.last_execution["riskLevel"] = risk_level or "high"
+        return error
 
     @staticmethod
     def _iso_time(value: float) -> str:

@@ -7,6 +7,7 @@ from brain.core.agents.base_agent import AgentState
 from brain.core.agents.react_agent import ReActAgent
 from brain.core.context import AgentContext
 from brain.core.planning_policy import PLAN_TOOL_NAME
+from brain.core.tools.collection import ToolApprovalRequired
 from config.config import agentSettings
 from llm.manager import react_mgr
 from llm.types import LLMMessage, RoleType, ToolCall
@@ -334,6 +335,8 @@ class ReActAgentImp(ReActAgent):
             }
             observation = self._stringify(raw)
             evidence = f"工具 `{resolved_name}` 输出：{observation}"
+        except ToolApprovalRequired:
+            raise
         except Exception as exc:
             logger.exception("Tool %s execution failed", name)
             message_type = "notifications"

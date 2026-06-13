@@ -1065,7 +1065,9 @@ function applySessionPayload(session, events = [], artifacts = [], options = {})
   if (!options.keepChat) seedChatFromSession(session, options)
   liveTimeline.value = []
   running.value = session?.status === 'running'
-  statusText.value = running.value ? t('common.running') : t('common.ready')
+  statusText.value = session?.status === 'waiting_approval'
+    ? t('approval.requested')
+    : running.value ? t('common.running') : t('common.ready')
 }
 
 function latestAssistantText(session) {
@@ -2040,7 +2042,7 @@ function normalizeTimelineEvent(event) {
     summary,
     raw: payload,
     time: event.createdAt || event.time || payload.messageTime || Date.now(),
-    open: failed || eventType === 'task_failed' || eventType === 'agent_failed',
+    open: failed || eventType === 'task_failed' || eventType === 'agent_failed' || eventType === 'approval_requested',
   }
 }
 

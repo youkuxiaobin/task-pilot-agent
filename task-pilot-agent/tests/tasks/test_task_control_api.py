@@ -3669,6 +3669,80 @@ def test_autoagent_records_approval_requested_for_unapproved_high_risk_tool(app_
     assert messages[-1].status == app.AgentSessionStatus.WAITING_APPROVAL
 
 
+def test_autoagent_records_runtime_approval_when_mcp_tool_requires_it(app_modules, monkeypatch):
+    app, tasks = app_modules
+    from brain.core.agent_registry import AgentToolSpec
+    from brain.core.tools.collection import ToolApprovalRequired
+
+    agent = app.AgentConfig(
+        id="approval-agent",
+        name="Approval Agent",
+        tools=[AgentToolSpec(name="file_write", description="Write file")],
+    )
+
+    async def fake_memory_context(ctx, query):
+        return {"memoryCount": 0, "ragCount": 0, "querySummary": query}
+
+    async def fake_tool_collection(ctx):
+        return SimpleNamespace(tool_map={"file_write": object()}, blocked_tools=[])
+
+    class FakeHandler:
+        async def handle(self, ctx, _request):
+            raise ToolApprovalRequired(
+                tool="file_write",
+                risk_level="high",
+                description="Write file",
+                policy={"risk": "high"},
+            )
+
+    monkeypatch.setattr(app, "_resolve_agent_config", lambda agent_id: agent)
+    monkeypatch.setattr(app, "_load_task_memory_context", fake_memory_context)
+    monkeypatch.setattr(app, "build_tool_collection", fake_tool_collection)
+    monkeypatch.setattr(app.agentFactory, "get_handler", lambda _ctx, _request: FakeHandler())
+
+    asyncio.run(
+        app._run_autoagent(
+            app.GptQueryReq(
+                trace_id="runtime-approval-run",
+                user_id="user-1",
+                agent_id="approval-agent",
+                conversation_id="runtime-approval-session",
+                language="ch",
+                messages=[app.AgentMessage(role="user", content="write a file")],
+            ),
+            lambda _data: None,
+        )
+    )
+
+    store = tasks.TaskStore()
+    task = store.get_task("runtime-approval-run")
+    events = store.list_events("runtime-approval-run")
+    approval_event = next(event for event in events if event.event_type == "approval_requested")
+    waiting_event = next(event for event in events if event.event_type == "task_waiting_approval")
+    event_types = [event.event_type for event in events]
+    approval_payload = tasks.serialize_event(approval_event)["payload"]
+
+    assert task.status == tasks.AgentTaskStatus.WAITING_APPROVAL
+    assert approval_payload["requests"] == [
+        {
+            "tool": "file_write",
+            "reason": "high_risk_requires_approval",
+            "approvalType": "high_risk_tools",
+            "riskLevel": "high",
+            "description": "Write file",
+            "policy": {"risk": "high"},
+        }
+    ]
+    assert approval_payload["selectedTools"] is None
+    assert waiting_event.event_type == "task_waiting_approval"
+    assert "task_failed" not in event_types
+
+    session_store = app.SessionStore()
+    session_payload = app.serialize_session(session_store.get_session("runtime-approval-session"))
+    assert session_payload["status"] == app.AgentSessionStatus.WAITING_APPROVAL
+    assert session_payload["lastMessagePreview"] == "需要审批工具：file_write"
+
+
 def test_autoagent_does_not_request_approval_for_unselected_high_risk_tool(app_modules, monkeypatch):
     app, tasks = app_modules
     from brain.core.agent_registry import AgentToolSpec
