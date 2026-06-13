@@ -9,7 +9,7 @@ TaskPilotAgent is a Python and FastAPI based general-purpose Agent orchestration
 Current capabilities include:
 
 - Multi-model access: OpenAI, Claude/Codex, Gemini, and OpenAI-compatible services.
-- Two execution paths currently exist: `plans_executor` and `react`. The main direction should converge on the ReAct/Supervisor runtime.
+- ReAct/Supervisor is the only active Agent runtime path. The old `plans_executor` compatibility path has been removed.
 - MCP tool aggregation, including local MCP tools and remote MCP services.
 - SSE streaming output, so the web UI can show plans, reasoning, tool calls, tool results, and final answers in real time.
 - Basic file, message, memory, RAG, and report generation capabilities.
@@ -197,16 +197,16 @@ Completion criteria:
 - AgentRegistry can list available Agents.
 - System prompt, tools, permissions, and handoffs come from directory config.
 
-### Phase 4: Extract `builtin:plan_tool`
+### Phase 4: Planning Through `builtin:plan_tool`
 
-Move planning from the standalone `plans_executor` flow into a tool callable by ReAct/Supervisor.
+Keep planning as a tool callable by ReAct/Supervisor.
 
 Completion criteria:
 
 - Plans can be created, read, and updated.
 - Steps can be marked running, completed, or failed.
 - Plan changes are written to task events.
-- Do not wrap the entire `plans_executor` as one tool.
+- Do not reintroduce the removed standalone `plans_executor` flow.
 
 ### Phase 5: ReAct/Supervisor Main Runtime
 
@@ -276,7 +276,6 @@ Main runtime direction:
 
 - ReAct/Supervisor is the unified runtime.
 - Planning is no longer expanded as an independent main mode. It should be a callable tool inside ReAct/Supervisor.
-- Keep old `plans_executor` as a compatibility entry, and gradually migrate it into `builtin:plan_tool` + `react_worker` + `summary/review`.
 - Support multiple output styles: markdown, HTML, tables, PPT, and GAIA-style output.
 
 Requirements:
@@ -313,7 +312,7 @@ ReAct/Supervisor Agent
   -> call summary/review to produce the final result
 ```
 
-Do not wrap the entire `plans_executor` as a ReAct tool. That creates nested execution layers and makes status, logs, cancellation, errors, and web replay hard to unify.
+Do not reintroduce a standalone plan-solve runtime as a ReAct tool. That creates nested execution layers and makes status, logs, cancellation, errors, and web replay hard to unify.
 
 Good cases for `plan_tool`:
 
@@ -434,7 +433,7 @@ Minimum verification:
 
 - Auth or ownership change: run the focused auth tests and verify logged-out, logged-in, and cross-user denial behavior.
 - Backend Python change: run the pytest file or directory for the changed module.
-- Agent flow change: test affected ReAct/Supervisor, `builtin:plan_tool`, or compatibility `plans_executor` entry, and confirm SSE/event structure.
+- Agent flow change: test affected ReAct/Supervisor or `builtin:plan_tool` behavior, and confirm SSE/event structure.
 - Tool change: test success, failure, and schema exposure.
 - Task system change: test create, list, detail, status transition, error, cancel, or retry.
 - Memory/RAG change: test disabled state, empty result, and normal retrieval.
@@ -648,7 +647,6 @@ Field rules:
 
 - `id` must match the directory name.
 - `type` can only use supported safe types, such as `supervisor`, `react_worker`, `summary_worker`, and `review_worker`. Do not allow YAML to reference arbitrary Python classes.
-- `plan_solve_worker` is only for legacy `plans_executor` compatibility and should not be the default for new Agents.
 - `system_prompt_file` must point to a file inside the Agent directory.
 - `tools.allowed` declares which tools the Agent may use and why. Real schemas still come from Tool Registry or MCP.
 - `tools.denied` has priority over `tools.allowed`.
@@ -812,34 +810,12 @@ Browser request
 
 Public routes should be limited to health checks, frontend assets, auth provider discovery, login, and callback. New task, file, memory, or Agent routes should require the current user unless there is an explicit internal-only reason.
 
-### Compatibility Flow: Plan-Solve-Summarize
+### Removed Compatibility Flow
 
-The system still keeps the `plans_executor` compatibility entry. It handles requests in three stages:
-
-1. Planning stage: `PlanningAgent`
-   - Receives the user question and context.
-   - Generates a structured task plan.
-   - Entry: `task-pilot-agent/brain/core/agents/planning_agent.py`.
-
-2. Execution stage: `ExecutorAgent`
-   - Executes the plan step by step.
-   - Uses ReAct-style thinking and tool-call loops.
-   - Supports replanning based on execution results.
-   - Entry: `task-pilot-agent/brain/core/agents/executor_agent.py`.
-
-3. Summary stage: `SummaryAgent`
-   - Summarizes execution results.
-   - Produces the user-facing final answer.
-   - Supports markdown, HTML, PPT, tables, and other output styles.
-   - Entry: `task-pilot-agent/brain/core/agents/summary_agent.py`.
-
-Migration boundary:
-
-- Do not attach new features to `PlanSolveHandler`.
-- Keep old `plans_executor` only as compatibility entry.
-- New planning capability should enter `builtin:plan_tool`.
-- New execution capability should enter ReAct/Supervisor, worker Agents, or ToolGateway.
-- New final-output capability should enter summary/review.
+The old Plan-Solve-Summarize compatibility flow has been removed. Do not add
+new code that depends on `plans_executor`, `PlanSolveHandler`, `PlanningAgent`,
+or `ExecutorAgent`. Planning capability belongs in `builtin:plan_tool` and
+normal execution belongs in ReAct/Supervisor, worker Agents, or ToolGateway.
 
 Target main flow:
 
@@ -865,7 +841,7 @@ HTTP request
   -> AgentContext initialized
   -> ToolCollection built
   -> AgentHandlerFactory selects handler
-  -> PlanSolveHandler or ReactHandler runs
+  -> SupervisorHandler or ReactHandler runs
   -> SSE streams output to the frontend
 ```
 
@@ -1035,7 +1011,7 @@ All Agents extend `BaseAgent`:
 
 ### ReAct Implementation
 
-`ExecutorAgent` and `ReActAgent` use ReAct style:
+`ReActAgentImp` uses ReAct style:
 
 ```python
 async def step(self):
@@ -1072,7 +1048,6 @@ Common events:
 Current main handlers:
 
 - `ReactHandler`: the future main runtime base for Supervisor, worker Agents, tool calls, and planning tool use.
-- `PlanSolveHandler`: compatibility entry for old `plans_executor`; gradually split into `builtin:plan_tool`, normal worker, and summary/review capabilities.
 
 ### Replanning
 

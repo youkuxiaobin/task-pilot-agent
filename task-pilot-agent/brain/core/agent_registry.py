@@ -19,7 +19,6 @@ SUPPORTED_AGENT_TYPES = {
     "react_worker",
     "summary_worker",
     "review_worker",
-    "plan_solve_worker",
 }
 
 

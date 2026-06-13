@@ -18,6 +18,7 @@ from brain.models.requests import AgentMessage, GptQueryReq
 from utils.logger import clear_log_context, configure_log_context, get_logger
 
 logger = get_logger(__name__)
+SUPPORTED_AGENT_MODES = {"react", "supervisor"}
 
 
 @dataclass
@@ -109,6 +110,8 @@ def _prepare_autoagent_request(req: GptQueryReq, deps: AutoAgentRuntimeDeps) -> 
 
     agent_config = deps.resolve_agent_config(request.agent_id)
     resolved_mode = request.mode or (agent_config.mode if agent_config else None) or deps.default_agent_mode
+    if str(resolved_mode or "").lower() not in SUPPORTED_AGENT_MODES:
+        resolved_mode = deps.default_agent_mode
     selected_tools = deps.normalize_tool_selection(request.selected_tools)
     approved_tools = deps.normalize_tool_selection(request.approved_tools)
     agent_snapshot = agent_config.to_runtime_snapshot(approved_tools=approved_tools) if agent_config else None

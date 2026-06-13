@@ -249,7 +249,7 @@ class GaiaEvaluator:
         payload = {
             "messages": [message],
             "outputStyle": "gaia",
-            "mode": "plans_executor",
+            "mode": "react",
             "conversation_id": conversation_id,
             "trace_id": trace_id,
         }

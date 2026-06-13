@@ -57,27 +57,22 @@ uv lock --upgrade
 
 ## Architecture Overview
 
-### Core System Flow: Plan-Solve-Summarize
+### Core System Flow: ReAct/Supervisor
 
-The system uses a three-phase approach for handling user requests:
+The system uses ReAct/Supervisor as the active Agent runtime:
 
-1. **Planning Phase** (`PlanningAgent`)
-   - Receives user query and context
-   - Generates a structured task breakdown plan
-   - Stores plan in memory system
-   - Entry: `task-pilot-agent/brain/core/agents/planning_agent.py`
+1. **Routing Phase** (`SupervisorHandler`, when selected)
+   - Selects the target worker Agent from Agent config.
+   - Rebuilds tool access for the selected Agent.
 
-2. **Execution Phase** (`ExecutorAgent`)
-   - Iterates through each plan step
-   - Uses ReAct pattern (think → act loop)
-   - Calls MCP tools as needed
-   - Supports dynamic replanning based on execution results
-   - Entry: `task-pilot-agent/brain/core/agents/executor_agent.py`
+2. **Execution Phase** (`ReactHandler` / `ReActAgentImp`)
+   - Uses a think-act-observe loop.
+   - Calls MCP and built-in tools through ToolGateway and ToolCollection.
+   - Uses `builtin:plan_tool` when planning is needed.
 
 3. **Summarization Phase** (`SummaryAgent`)
    - Aggregates execution results
    - Generates final user-facing summary
-   - Supports multiple output formats (markdown, HTML, PPT, Excel)
    - Entry: `task-pilot-agent/brain/core/agents/summary_agent.py`
 
 ### Request Flow
@@ -91,7 +86,7 @@ ToolCollection built (MCPToolFetcher fetches from MCP Market)
     ↓
 AgentHandlerFactory selects handler (factory.py)
     ↓
-PlanSolveHandler orchestrates the three phases
+SupervisorHandler or ReactHandler runs the task
     ↓
 SSE Stream responses to client in real-time
 ```
@@ -219,7 +214,7 @@ All agents inherit from `BaseAgent` (`brain/core/agents/base_agent.py`):
 
 ### ReAct Pattern Implementation
 
-`ExecutorAgent` and `ReActAgent` implement the ReAct (Reasoning + Acting) pattern:
+`ReActAgentImp` implements the ReAct (Reasoning + Acting) pattern:
 
 ```python
 # Simplified flow in brain/core/agents/react_agent.py
@@ -243,13 +238,12 @@ Real-time updates are sent via SSE (`brain/app.py:sse_stream()`):
 
 `AgentHandlerFactory` (`brain/core/handlers/factory.py`) selects the appropriate handler:
 - Checks for special modes in agent request (e.g., `agent_mode`)
-- Defaults to `PlanSolveHandler` for complex tasks
-- `ReActHandler` available for simpler single-agent flows
+- `SupervisorHandler` routes supervisor Agents
+- `ReactHandler` runs worker Agents
 
-### Replanning Mechanism
+### Planning Mechanism
 
-Controlled by configuration flags:
-- `planner_replan_each_step`: If true, regenerates plan after each execution step
+Planning is handled by `builtin:plan_tool` inside the ReAct/Supervisor runtime.
 - `planner_replan_on_failure`: If true, replans when a step fails
 - Implementation in `brain/core/handlers/plan_solve.py`
 
@@ -351,7 +345,7 @@ Ensure both ports are available before starting.
 
 **Request handling:** `task-pilot-agent/brain/app.py:135` (autoagent endpoint)
 
-**Agent orchestration:** `task-pilot-agent/brain/core/handlers/plan_solve.py:32` (PlanSolveHandler.handle)
+**Agent orchestration:** `task-pilot-agent/brain/core/handlers/react.py` and `task-pilot-agent/brain/core/handlers/supervisor.py`
 
 **Tool execution:** `task-pilot-agent/brain/core/tools/collection.py:45` (ToolCollection.execute)
 

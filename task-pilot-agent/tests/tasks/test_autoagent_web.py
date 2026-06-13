@@ -479,7 +479,9 @@ def test_vue_submit_uses_defaults_and_only_sends_advanced_options_when_open():
     assert "payload.options.selected_tools" not in submit_block
     assert "payload.options.approved_tools" not in submit_block
     mode_select = source.split("<select v-model=\"runMode\">", 1)[1].split("</select>", 1)[0]
-    assert mode_select.index("<option value=\"react\">ReAct</option>") < mode_select.index("Legacy Plan Executor")
+    assert "<option value=\"react\">ReAct</option>" in mode_select
+    assert "Legacy Plan Executor" not in mode_select
+    assert "plans_executor" not in mode_select
 
 
 def test_vue_frontend_supports_chinese_and_english_switching():
@@ -616,7 +618,7 @@ def test_vite_config_serves_under_agent_web_prefix():
     assert "'/file': 'http://127.0.0.1:9010'" in vite_config
 
 
-def test_backend_serves_vue_dist_assets_and_keeps_legacy_fallback():
+def test_backend_serves_vue_dist_assets_without_legacy_fallback():
     source = APP_PATH.read_text(encoding="utf-8")
 
     for marker in [
@@ -628,9 +630,10 @@ def test_backend_serves_vue_dist_assets_and_keeps_legacy_fallback():
         '@agent_router.get("/web/autoagent")',
         "vue_index = FRONTEND_DIST / \"index.html\"",
         "FileResponse(str(vue_index), media_type=\"text/html\")",
-        "WEB_ROOT / \"autoagent.html\"",
     ]:
         assert marker in source
+    assert "autoagent.html" not in source
+    assert "HTMLResponse" not in source
 
 
 def test_backend_threads_language_to_agent_context_and_task_events():

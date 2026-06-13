@@ -134,13 +134,7 @@ class CoreSettings(BaseModel):
     })
     default_output_style: str = Field("markdown", description="默认输出样式")
     default_run_environment: str = Field("local", description="默认运行环境：local 或 sandbox")
-    planer_max_steps: int = Field(10)
-    planer_min_steps: int = Field(1)
-    executor_max_steps: int = Field(3)
     react_max_steps: int = Field(6, description="ReAct 模式最大循环次数")
-    planner_replan_each_step: bool = Field(True, description="执行步骤之后是否要自动重新规划")
-    planner_replan_on_failure: bool = Field(True, description="当某一步骤失败时是否要重新规划")
-    planner_max_replans: int = Field(3, ge=0, description="最大重新规划次数")
     
 class ServerSettings(BaseModel):
     host: str = Field("0.0.0.0")

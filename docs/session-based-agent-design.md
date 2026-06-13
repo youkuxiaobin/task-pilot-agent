@@ -56,7 +56,7 @@
 - WebSocket autoagent
 - MCP 工具集合
 - Agent registry
-- ReAct / plans_executor
+- ReAct / Supervisor
 - 任务状态、事件、产物、重试、取消、等待输入
 - Google 登录和用户隔离
 
@@ -527,7 +527,7 @@ magent_run
 | assistant_message_id | varchar(128) | 本 run 生成的助手消息 |
 | trace_id | varchar(128) | 日志追踪 ID |
 | agent_id | varchar(128) | 使用的 Agent |
-| mode | varchar(64) | react/supervisor/plans_executor |
+| mode | varchar(64) | react/supervisor |
 | output_style | varchar(64) | markdown/html/ppt/table |
 | status | varchar(32) | queued/running/waiting_input/completed/failed/cancelled |
 | input_text | longtext | 输入摘要 |

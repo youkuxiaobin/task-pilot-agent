@@ -10,13 +10,7 @@ core:
     markdown: "，最后以 markdown 展示最终结果"
   default_output_style: "markdown"
   default_run_environment: "local"
-  planer_max_steps: 10
-  planer_min_steps: 1
-  executor_max_steps: 5
   react_max_steps: 6
-  planner_replan_each_step: true
-  planner_replan_on_failure: true
-  planner_max_replans: 3
 
 server:
   host: 127.0.0.1

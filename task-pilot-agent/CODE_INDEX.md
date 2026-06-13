@@ -128,10 +128,6 @@ Web / API Entry
   Selects a worker Agent from a supervisor config, rebuilds that worker's tool
   collection, and delegates execution.
 
-- `brain/core/handlers/plan_solve.py`
-  Compatibility path for the older plan/execute/summarize flow. New planning
-  behavior should move toward `builtin:plan_tool` in ReAct/Supervisor.
-
 ## Agent Core Components
 
 - `brain/core/agents/base_agent.py`
@@ -145,12 +141,6 @@ Web / API Entry
   Concrete ReAct Agent. It asks the model for either an answer or a tool call,
   executes tools through `ToolCollection`, records evidence, updates running
   plan steps, and stops repeated identical lookup calls.
-
-- `brain/core/agents/planning_agent.py`
-  Legacy planning Agent for `plans_executor`.
-
-- `brain/core/agents/executor_agent.py`
-  Legacy plan-step executor for `plans_executor`.
 
 - `brain/core/agents/summary_agent.py`
   Streams the final answer and optionally writes message history to memory.

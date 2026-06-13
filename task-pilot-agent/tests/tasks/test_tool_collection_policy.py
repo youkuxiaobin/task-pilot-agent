@@ -365,7 +365,6 @@ def test_tool_collection_allows_sandbox_paths_inside_task_workspace(tmp_path):
 
 def test_agent_tool_result_metadata_includes_runtime_boundary():
     from brain.core.agents.ReActAgentImp import ReActAgentImp
-    from brain.core.agents.executor_agent import ExecutorAgent
 
     tool_collection = SimpleNamespace(
         last_execution={
@@ -388,7 +387,7 @@ def test_agent_tool_result_metadata_includes_runtime_boundary():
     )
     context = SimpleNamespace(toolCollection=tool_collection)
 
-    for cls in (ReActAgentImp, ExecutorAgent):
+    for cls in (ReActAgentImp,):
         agent = object.__new__(cls)
         agent.context = context
         metadata = agent._tool_execution_metadata("mcp_local:deepsearch")

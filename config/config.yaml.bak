@@ -8,12 +8,6 @@ core:
   output_styles:
     markdown: "，最后以 markdown 展示最终结果"
   default_output_style: "markdown"
-  planer_max_steps: 20
-  planer_min_steps: 0
-  executor_max_steps: 10
-  planner_replan_each_step: true
-  planner_replan_on_failure: true
-  planner_max_replans: 10
 
 server:
   host: 0.0.0.0

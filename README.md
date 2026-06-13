@@ -38,7 +38,7 @@ flowchart LR
   Context --> Registry["AgentRegistry<br/>config/agents/*"]
   Context --> Memory["Memory / Knowledge<br/>memory_manager / RAG"]
   Context --> Gateway["ToolGateway<br/>policy filtering + tool collection"]
-  Registry --> Runtime["Agent Core<br/>Supervisor / ReAct / PlanSolve"]
+  Registry --> Runtime["Agent Core<br/>Supervisor / ReAct"]
   Gateway --> Builtin["Built-in Tools<br/>plan / handoff / request_input"]
   Gateway --> Market["MCP Market<br/>tool aggregation layer"]
   Market --> LocalMCP["Local MCP Server<br/>filesystem / search / code / report"]
@@ -58,7 +58,7 @@ flowchart LR
 | User entry | `task-pilot-agent/brain/app.py` | Expose `/agent/autoagent`, task APIs, and the web page |
 | Task system | `task-pilot-agent/brain/core/tasks.py` | Persist tasks, events, artifacts, status, and work directories |
 | Agent registry | `task-pilot-agent/brain/core/agent_registry.py` | Load `config/agents/*/agent.yaml`, system prompts, and evals |
-| Agent runtime | `task-pilot-agent/brain/core/handlers/*.py` | Select Supervisor, ReAct, or compatibility PlanSolve flow |
+| Agent runtime | `task-pilot-agent/brain/core/handlers/*.py` | Select Supervisor or ReAct flow |
 | ReAct Agent | `task-pilot-agent/brain/core/agents/ReActAgentImp.py` | Decide tool usage and run the think-act-observe loop |
 | Summary Agent | `task-pilot-agent/brain/core/agents/summary_agent.py` | Summarize evidence and tool results into the final answer |
 | Tool gateway | `task-pilot-agent/brain/core/tools/gateway.py` | Filter tools by Agent config, permission policy, and approvals |
@@ -176,7 +176,7 @@ sequenceDiagram
 
 ### 4. Agent Core Runtime
 
-The main path is ReAct/Supervisor. `plans_executor` still exists as a compatibility path, but new capabilities should go into ReAct/Supervisor and the tool system.
+The main path is ReAct/Supervisor. The old `plans_executor` compatibility path has been removed; new capabilities should go into ReAct/Supervisor and the tool system.
 
 ```mermaid
 flowchart TD
@@ -188,10 +188,8 @@ flowchart TD
   F --> G{"Handler"}
   G --> H["SupervisorHandler<br/>select worker Agent"]
   G --> I["ReactHandler<br/>ReAct loop"]
-  G --> J["PlanSolveHandler<br/>compatibility flow"]
   H --> I
   I --> K["SummaryAgent"]
-  J --> K
   K --> L["SSE result + task_completed"]
 ```
 

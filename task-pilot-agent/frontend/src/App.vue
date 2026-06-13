@@ -3037,7 +3037,6 @@ onBeforeUnmount(() => {
                 <select v-model="runMode">
                   <option value="">{{ t('advanced.followAgent') }}</option>
                   <option value="react">ReAct</option>
-                  <option value="plans_executor">Legacy Plan Executor</option>
                 </select>
               </label>
               <label>

@@ -25,7 +25,7 @@ flowchart LR
   Context --> Registry["AgentRegistry<br/>config/agents/*"]
   Context --> Memory["记忆 / 知识库<br/>memory_manager / RAG"]
   Context --> Gateway["ToolGateway<br/>权限过滤 + 工具集合"]
-  Registry --> Runtime["Agent 核心<br/>Supervisor / ReAct / PlanSolve"]
+  Registry --> Runtime["Agent 核心<br/>Supervisor / ReAct"]
   Gateway --> Builtin["内置工具<br/>plan / handoff / request_input"]
   Gateway --> Market["MCP Market<br/>工具聚合层"]
   Market --> LocalMCP["本地 MCP 服务<br/>filesystem / search / code / report"]
@@ -45,7 +45,7 @@ flowchart LR
 | 用户入口 | `task-pilot-agent/brain/app.py` | 提供 `/agent/autoagent`、任务 API、Web 页面 |
 | 任务系统 | `task-pilot-agent/brain/core/tasks.py` | 保存任务、事件、产物、状态和工作目录 |
 | Agent 注册表 | `task-pilot-agent/brain/core/agent_registry.py` | 加载 `config/agents/*/agent.yaml`、system prompt 和 evals |
-| Agent 运行时 | `task-pilot-agent/brain/core/handlers/*.py` | 选择 Supervisor、ReAct 或兼容的 PlanSolve 执行链路 |
+| Agent 运行时 | `task-pilot-agent/brain/core/handlers/*.py` | 选择 Supervisor 或 ReAct 执行链路 |
 | ReAct Agent | `task-pilot-agent/brain/core/agents/ReActAgentImp.py` | 决定是否调用工具，执行“思考 -> 工具 -> 观察”循环 |
 | 总结 Agent | `task-pilot-agent/brain/core/agents/summary_agent.py` | 把工具结果和过程证据汇总成最终答案 |
 | 工具网关 | `task-pilot-agent/brain/core/tools/gateway.py` | 按 Agent 配置、权限和用户授权过滤工具 |
@@ -161,7 +161,7 @@ sequenceDiagram
 
 ### 组件 4：Agent 核心运行时
 
-当前主线是 ReAct/Supervisor。`plans_executor` 仍保留为兼容链路；新能力优先进入 ReAct/Supervisor 和工具系统。
+当前主线是 ReAct/Supervisor。旧的 `plans_executor` 兼容链路已经移除；新能力优先进入 ReAct/Supervisor 和工具系统。
 
 ```mermaid
 flowchart TD
@@ -173,10 +173,8 @@ flowchart TD
   F --> G{"Handler"}
   G --> H["SupervisorHandler<br/>选择目标 Agent"]
   G --> I["ReactHandler<br/>ReAct 循环"]
-  G --> J["PlanSolveHandler<br/>兼容旧流程"]
   H --> I
   I --> K["SummaryAgent"]
-  J --> K
   K --> L["SSE result + task_completed"]
 ```
 
@@ -621,7 +619,7 @@ uv run main.py
 
 - `messages`: 必填，最后一条必须是 `role=user`
 - `agent_id`: 可选，不传时使用 `config/config.yaml.example` 中的 `core.agent_id`
-- `mode`: 可选，当前默认 Agent 使用 `react`；旧链路仍支持 `plans_executor`
+- `mode`: 可选，当前默认 Agent 使用 `react`
 - `outputStyle`: 可选，默认取 `core.default_output_style`
 
 curl 示例（SSE）：

@@ -5,7 +5,6 @@ from typing import Awaitable, Callable, Iterable, Optional
 from brain.core.agent_registry import AgentConfig, AgentRegistry
 from brain.core.context import AgentContext
 from brain.core.handlers.base import AgentHandlerService
-from brain.core.handlers.plan_solve import PlanSolveHandler
 from brain.core.handlers.react import ReactHandler
 from brain.core.tasks import TaskStore
 from brain.core.tools.collection import ToolCollection
@@ -28,7 +27,7 @@ class SupervisorHandler(AgentHandlerService):
     ) -> None:
         self.registry = registry
         self.tool_collection_builder = tool_collection_builder
-        self.worker_handlers = list(worker_handlers or [PlanSolveHandler(), ReactHandler()])
+        self.worker_handlers = list(worker_handlers or [ReactHandler()])
 
     def support(self, ctx: AgentContext, req: AgentRequest) -> bool:
         agent = self.registry.get(ctx.agent_id)

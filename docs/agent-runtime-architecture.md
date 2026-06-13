@@ -22,8 +22,8 @@ flowchart TD
   Runtime --> Registry["AgentRegistry\nDirectory config"]
   Runtime --> Gateway["ToolGateway\nTool exposure policy"]
   Runtime --> Handler["AgentHandlerFactory\nRuntime mode selection"]
-  Handler --> React["ReactHandler / SupervisorHandler / PlanSolveHandler"]
-  React --> Agent["Agent Core\nReAct, Summary, legacy planner/executor"]
+  Handler --> React["ReactHandler / SupervisorHandler"]
+  React --> Agent["Agent Core\nReAct and Summary"]
   Agent --> Tools["ToolCollection\nTool execution"]
   Tools --> Builtins["Built-in tools\nplan, todo, handoff, request input"]
   Tools --> MCP["MCP tools\nlocal and remote"]
@@ -154,18 +154,13 @@ Primary files:
 - `task-pilot-agent/brain/core/handlers/factory.py`
 - `task-pilot-agent/brain/core/handlers/react.py`
 - `task-pilot-agent/brain/core/handlers/supervisor.py`
-- `task-pilot-agent/brain/core/handlers/plan_solve.py`
 
 Responsibilities:
 
 - `AgentHandlerFactory` selects the handler for the current mode and Agent type.
 - `ReactHandler` is the main runtime direction.
 - `SupervisorHandler` selects and delegates to a configured worker Agent.
-- `PlanSolveHandler` preserves compatibility with the older
-  plan/execute/summarize path.
-
-New work should prefer ReAct/Supervisor plus tools over growing
-`PlanSolveHandler`.
+- The old plan/execute/summarize compatibility path has been removed.
 
 ### 6. Agent Core
 
@@ -175,8 +170,6 @@ Primary files:
 - `task-pilot-agent/brain/core/agents/react_agent.py`
 - `task-pilot-agent/brain/core/agents/ReActAgentImp.py`
 - `task-pilot-agent/brain/core/agents/summary_agent.py`
-- `task-pilot-agent/brain/core/agents/planning_agent.py`
-- `task-pilot-agent/brain/core/agents/executor_agent.py`
 
 Responsibilities:
 
@@ -185,8 +178,6 @@ Responsibilities:
 - `ReActAgentImp` asks the model for an answer or tool call, executes tools,
   records evidence, guards repeated identical lookup calls, and syncs plan steps.
 - `SummaryAgent` streams the final answer.
-- `PlanningAgent` and `ExecutorAgent` are legacy compatibility components for
-  `plans_executor`.
 
 Agent code should reason and delegate. It should not bypass task state,
 ownership, tool policy, or the runtime boundary.

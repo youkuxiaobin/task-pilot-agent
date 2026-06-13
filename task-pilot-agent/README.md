@@ -52,7 +52,7 @@ taskpilotagent-master (main.py)
 - 服务会请求 MCP Market：`GET /aggre_mcp_market/tools`，把返回的工具列表包装成 `brain/core/tools/mcp_tool.py:MCPTool`。
 - `brain/core/tools/collection.py:ToolCollection.to_openai_tools()` 会把工具转换成 OpenAI function-calling 的 schema，供 LLM 在 `ask_tool_async()` 阶段选择调用。
 
-执行一个工具（无论 `plans_executor` 或 `react`）时，链路大致是：
+执行一个工具时，链路大致是：
 
 1. Agent 产生工具调用（name 通常是 MCP 的 `full_name`，例如本地工具 `deepsearch` 或远程工具 `mcp_world:search`）。
 2. `ToolCollection.execute()` 找到对应 `MCPTool` 并执行。
@@ -64,7 +64,7 @@ taskpilotagent-master (main.py)
 
 ### 4) 运行模式与调度细节（含流程图）
 
-处理器选择由 `brain/core/handlers/factory.py:AgentHandlerFactory` 完成，按 `mode` 分发：
+处理器选择由 `brain/core/handlers/factory.py:AgentHandlerFactory` 完成，目前只保留 ReAct/Supervisor 主线：
 
 - 总览（从请求到最终输出）：
 
@@ -75,38 +75,11 @@ graph TD
   SSE --> Ctx[_run_autoagent build context]
   Ctx --> Tools[build_tool_collection]
   Tools --> Pick[select handler by mode]
-  Pick -->|plans_executor| PlanSolve[PlanSolveHandler]
+  Pick -->|supervisor| Supervisor[SupervisorHandler]
   Pick -->|react| React[ReactHandler]
-  PlanSolve --> Summary[SummaryAgent stream]
+  Supervisor --> React
   React --> Summary
   Summary --> Client
-```
-
-- `plans_executor`（兼容旧链路）：`brain/core/handlers/plan_solve.py:PlanSolveHandler`
-  - `PlanningAgent` 先产出/更新计划：通过内部 `brain/core/tools/plan_tool.py:PlanFunctionTool` 执行 `create/continue/update/finish`，得到结构化 plan（title/steps/status/notes）
-  - 然后逐步执行：每个 step 新建 `ExecutorAgent`，让模型在 `ask_tool_async()` 中选择工具并执行
-  - 重规划：按 `core.planner_replan_each_step / core.planner_replan_on_failure / core.planner_max_replans` 控制
-  - 最终交给 `SummaryAgent` 汇总（按 `summary_{outputStyle}_prompt`）并流式输出
-
-```mermaid
-graph TD
-  A[PlanSolveHandler] --> B[PlanningAgent run]
-  B --> C[LLM ask_tool_async PlanFunctionTool]
-  C --> D[PlanFunctionTool create continue update finish]
-  D --> E[Plan payload steps status]
-  E --> F[Has next step]
-  F -->|yes| G[ExecutorAgent run step]
-  G --> H[LLM ask_tool_async ToolCollection]
-  H --> I[ToolCollection execute]
-  I --> J[MCPTool execute]
-  J --> K[POST call_tool via MCP Market]
-  K --> L[MCP Registry selects MCP Server]
-  L --> M[Tool result or streaming chunks]
-  M --> N[Record evidence and update status]
-  N --> O[Replan]
-  O -->|yes| B
-  O -->|no| E
-  F -->|no| P[SummaryAgent summarize stream]
 ```
 
 - `react`：`brain/core/handlers/react.py:ReactHandler`
@@ -114,7 +87,7 @@ graph TD
   - 到达 `core.react_max_steps` 或模型选择 finish 时停止
   - 最终仍交给 `SummaryAgent` 输出（避免把中间过程直接当最终答案）
 
-当前默认 `core.agent_id` 指向 `task-pilot-agent`，该 Agent 的目录配置使用 `mode: react`。因此不显式传 `mode` 时，主线会优先跟随 Agent 配置走 ReAct；只有请求明确指定或旧配置没有 Agent mode 时，才会进入兼容的 `plans_executor`。
+当前默认 `core.agent_id` 指向 `task-pilot-agent`，该 Agent 的目录配置使用 `mode: react`。不显式传 `mode` 时会跟随 Agent 配置走 ReAct；旧的 `plans_executor` 入口已移除。
 
 ```mermaid
 graph TD

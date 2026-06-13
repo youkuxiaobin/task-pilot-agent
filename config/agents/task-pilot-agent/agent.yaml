@@ -263,7 +263,6 @@ handoffs:
   allowed: []
 metadata:
   owner: core
-  compatibility: legacy
 memory:
   read:
     - task_history

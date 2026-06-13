@@ -9,7 +9,7 @@ from pathlib import Path
 import contextlib
 from urllib.parse import urlparse
 
-from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, PlainTextResponse, RedirectResponse
 
 from brain.models.requests import (
     AgentMessage,
@@ -106,7 +106,6 @@ from brain.core.tools.gateway import (
 from brain.core.tools.mcp_tool import MCPToolFetcher
 from brain.core.handlers.factory import AgentHandlerFactory
 from brain.core.handlers.react import ReactHandler
-from brain.core.handlers.plan_solve import PlanSolveHandler
 from brain.core.handlers.supervisor import SupervisorHandler
 from auth.dependencies import require_current_user, require_current_websocket_user
 from auth.models import TaskPilotUser
@@ -122,7 +121,6 @@ logger = get_logger(__name__)
 agent_router = APIRouter()
 EVENT_REPLAY_QUERY_LIMIT = 10000
 
-WEB_ROOT = Path(__file__).resolve().parent / "web"
 FRONTEND_ROOT = Path(__file__).resolve().parents[1] / "frontend"
 FRONTEND_DIST = FRONTEND_ROOT / "dist"
 SESSION_CONTEXT_HISTORY_LIMIT = 20
@@ -132,6 +130,7 @@ SESSION_SUMMARY_RECENT_MESSAGE_COUNT = 12
 SESSION_SUMMARY_MAX_MESSAGES = 200
 SESSION_SUMMARY_MAX_CHARS = 3000
 DEFAULT_AGENT_MODE = "react"
+SUPPORTED_AGENT_MODES = {"react", "supervisor"}
 SESSION_STREAM_ACTIVE_SLEEP_SECONDS = 0.05
 SESSION_STREAM_IDLE_SLEEP_SECONDS = 0.25
 BACKGROUND_DISPATCH_LEASE_MS = 5 * 60 * 1000
@@ -222,7 +221,14 @@ def _request_output_style(req: Any) -> Optional[str]:
 
 
 def _request_mode(req: Any) -> Optional[str]:
-    return _request_option_value(req, "mode", "mode")
+    return _normalize_agent_mode(_request_option_value(req, "mode", "mode"))
+
+
+def _normalize_agent_mode(value: Any) -> Optional[str]:
+    mode = str(value or "").strip().lower()
+    if not mode:
+        return None
+    return mode if mode in SUPPORTED_AGENT_MODES else DEFAULT_AGENT_MODE
 
 
 def _request_selected_tools(req: Any) -> Optional[List[str]]:
@@ -632,7 +638,6 @@ async def build_tool_collection(ctx: AgentContext) -> ToolCollection:
 agentFactory = AgentHandlerFactory(
     [
         SupervisorHandler(agentRegistry, build_tool_collection),
-        PlanSolveHandler(),
         ReactHandler(),
     ]
 )
@@ -927,6 +932,7 @@ def _fill_request_defaults(request: GptQueryReq) -> None:
         request.agent_id = agentSettings.core.agent_id
     if not request.conversation_id:
         request.conversation_id = str(uuid.uuid4())
+    request.mode = _normalize_agent_mode(request.mode)
     request.run_environment = _normalize_run_environment(
         request.run_environment or agentSettings.core.default_run_environment
     )
@@ -2603,7 +2609,9 @@ async def create_agent_task(
     if not has_explicit_conversation_id:
         request.conversation_id = trace_id
     agent_config = _resolve_agent_config(request.agent_id or "")
-    resolved_mode = request.mode or (agent_config.mode if agent_config else None) or DEFAULT_AGENT_MODE
+    resolved_mode = _normalize_agent_mode(
+        request.mode or (agent_config.mode if agent_config else None) or DEFAULT_AGENT_MODE
+    ) or DEFAULT_AGENT_MODE
     selected_tools = _normalize_tool_selection(request.selected_tools)
     approved_tools = _normalize_tool_selection(request.approved_tools)
     agent_snapshot = agent_config.to_runtime_snapshot(approved_tools=approved_tools) if agent_config else None
@@ -2670,7 +2678,7 @@ async def _start_handoff_task(
 
     trace_id = str(uuid.uuid4())
     output_style = str(options.get("outputStyle") or parent_ctx.outputStyle or "markdown")
-    mode = str(options.get("mode") or target_config.mode or DEFAULT_AGENT_MODE)
+    mode = _normalize_agent_mode(options.get("mode") or target_config.mode or DEFAULT_AGENT_MODE) or DEFAULT_AGENT_MODE
     selected_tools = _normalize_tool_selection(options.get("selected_tools"))
     approved_tools = _normalize_tool_selection(parent_ctx.approved_tools)
     run_environment = _normalize_run_environment(parent_ctx.run_environment)
@@ -3157,8 +3165,7 @@ async def autoagent_console() -> Any:
     vue_index = FRONTEND_DIST / "index.html"
     if vue_index.is_file():
         return FileResponse(str(vue_index), media_type="text/html")
-    html_path = WEB_ROOT / "autoagent.html"
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    raise HTTPException(status_code=404, detail="frontend bundle not found")
 
 @agent_router.post("/autoagent")
 async def autoagent(

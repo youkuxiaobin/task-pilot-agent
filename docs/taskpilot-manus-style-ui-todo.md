@@ -48,14 +48,14 @@ Status: Not started
 
 What to change:
 
-- Turn the existing `autoagent.html` from a chat page into a workspace shell.
+- Turn the Vue web app into a workspace shell.
 - Fix the left navigation as: New Task, Agents, Plugins, Scheduled Tasks, Library, Projects, All Tasks.
 - Keep low-frequency entries such as settings, layout switching, and source attribution at the bottom of the sidebar.
 - Keep the current model or default Agent, notifications, and user entry in the top area.
 
 How to change:
 
-- Modify the HTML structure in `task-pilot-agent/brain/web/autoagent.html`.
+- Modify the Vue structure in `task-pilot-agent/frontend/src/App.vue`.
 - Add an `activeView` state so one page can host multiple views: home, agents, plugins, schedules, library, projects, tasks, and taskDetail.
 - Move the existing task list from the sidebar bottom into the All Tasks view. The sidebar should only keep a short recent-task entry.
 - Render the left menu with one shared navigation item renderer so future entries do not require changes in multiple DOM locations.
@@ -104,7 +104,7 @@ What to change:
 
 How to change:
 
-- Rewrite design variables at the top of the CSS in `autoagent.html`: background, text, borders, status colors, spacing, and radius.
+- Rewrite design variables in `task-pilot-agent/frontend/src/styles.css`: background, text, borders, status colors, spacing, and radius.
 - Add shared styles for buttons, nav items, inputs, tags, list items, and empty states.
 - If still using a single HTML file, prefer reusable CSS classes. Componentize later when the frontend is split into a proper app.
 - Prefer an existing icon library or lightweight icon resources. Avoid large amounts of handwritten symbol markup.
@@ -428,8 +428,11 @@ Projects, Library, and Scheduled Tasks can temporarily be empty-state pages with
 
 ## First-Stage Files
 
-- `task-pilot-agent/brain/web/autoagent.html`
-  - Main page structure, styling, and interaction logic.
+- `task-pilot-agent/frontend/src/App.vue`
+  - Main page structure and interaction logic.
+
+- `task-pilot-agent/frontend/src/styles.css`
+  - Main page styling.
 
 - `task-pilot-agent/tests/tasks/test_autoagent_web.py`
   - Page structure, default submission, hidden advanced settings, navigation entries, and task replay tests.
