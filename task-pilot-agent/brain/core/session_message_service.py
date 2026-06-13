@@ -48,16 +48,7 @@ async def add_session_message(
     deps: AgentSessionMessageDeps,
 ) -> Dict[str, Any]:
     store = SessionStore()
-    session_record = store.get_session(session_id)
-    if not session_record:
-        raise HTTPException(status_code=404, detail="session not found")
-    deps.ensure_session_owner(session_record, current_user)
-    if session_record.status == AgentSessionStatus.ARCHIVED:
-        raise HTTPException(status_code=409, detail="session is archived")
-    if session_record.status == AgentSessionStatus.RUNNING:
-        raise HTTPException(status_code=409, detail="session is busy")
-    if session_record.status == AgentSessionStatus.WAITING_APPROVAL:
-        raise HTTPException(status_code=409, detail="session is waiting for approval")
+    session_record = _load_session_for_new_message(store, session_id, current_user, deps)
 
     content = (req.content or "").strip()
     if not content:
@@ -136,6 +127,28 @@ async def add_session_message(
         "status": AgentSessionStatus.RUNNING,
         "message": serialize_message(user_message),
     }
+
+
+def _load_session_for_new_message(
+    store: SessionStore,
+    session_id: str,
+    current_user: Any,
+    deps: AgentSessionMessageDeps,
+) -> Any:
+    session_record = store.get_session(session_id)
+    if not session_record:
+        raise HTTPException(status_code=404, detail="session not found")
+    deps.ensure_session_owner(session_record, current_user)
+
+    blocked_status = {
+        AgentSessionStatus.ARCHIVED: "session is archived",
+        AgentSessionStatus.RUNNING: "session is busy",
+        AgentSessionStatus.WAITING_APPROVAL: "session is waiting for approval",
+    }.get(session_record.status)
+    if blocked_status:
+        raise HTTPException(status_code=409, detail=blocked_status)
+
+    return session_record
 
 
 async def _resume_waiting_session_message(

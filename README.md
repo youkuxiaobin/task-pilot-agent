@@ -9,7 +9,7 @@ It supports multiple model providers, including OpenAI, Claude/Codex, Gemini, an
 ## Reading The Code
 
 - Start with [`task-pilot-agent/CODE_INDEX.md`](task-pilot-agent/CODE_INDEX.md) for the current module map.
-- Read [`docs/agent-runtime-architecture.md`](docs/agent-runtime-architecture.md) for layer boundaries, Agent component relationships, and the refactoring direction.
+- Read [`docs/agent-runtime-architecture.md`](docs/agent-runtime-architecture.md) for the full runtime architecture. Chinese version: [`docs/agent-runtime-architecture.zh-CN.md`](docs/agent-runtime-architecture.zh-CN.md).
 
 ## Agent Architecture
 

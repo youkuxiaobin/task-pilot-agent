@@ -1,365 +1,614 @@
-# Agent Runtime Architecture
+# TaskPilotAgent Runtime Architecture
 
-This document explains the current TaskPilotAgent runtime in terms of layers,
-abstractions, implementations, and component relationships. It is meant for
-developers who need to read or change Agent behavior without guessing where the
-responsibility belongs.
+Chinese version: [`agent-runtime-architecture.zh-CN.md`](agent-runtime-architecture.zh-CN.md)
 
-## Design Goal
+This document describes the current TaskPilotAgent implementation. It is based
+on the code paths listed in the "Source Evidence" sections, not on a target-only
+design.
 
-TaskPilotAgent should behave like a durable task product, not a one-request chat
-debugger. A user request should become a task that can be streamed live, replayed
-later, retried, cancelled, inspected, and tied back to the authenticated user and
-all artifacts it produced.
+## What The System Is
+
+TaskPilotAgent is now a session-based Agent product with a durable task/run
+ledger underneath it.
+
+- A **session** is the user-visible conversation container.
+- A **message** is a user or assistant turn inside a session.
+- A **run** is one Agent execution triggered by a user message.
+- An **event** records what happened during a run: status changes, tool calls,
+  plan updates, approvals, artifacts, errors, and final output.
+- A **task** is still the primary durable execution ledger used by the runtime.
+  Session runs mirror that ledger for the web UI and replay APIs.
+
+Source evidence:
+
+| Area | Code |
+| --- | --- |
+| FastAPI routers and startup | [`task-pilot-agent/app_main.py`](../task-pilot-agent/app_main.py), [`task-pilot-agent/main.py`](../task-pilot-agent/main.py) |
+| Session/message/run/event tables and store | [`task-pilot-agent/brain/core/sessions.py`](../task-pilot-agent/brain/core/sessions.py) |
+| Task/event/artifact execution ledger | [`task-pilot-agent/brain/core/tasks.py`](../task-pilot-agent/brain/core/tasks.py) |
+| Main runtime lifecycle | [`task-pilot-agent/brain/core/autoagent_runtime.py`](../task-pilot-agent/brain/core/autoagent_runtime.py) |
+| Session message entry and resume logic | [`task-pilot-agent/brain/core/session_message_service.py`](../task-pilot-agent/brain/core/session_message_service.py) |
+| Session replay payloads | [`task-pilot-agent/brain/core/session_view_service.py`](../task-pilot-agent/brain/core/session_view_service.py) |
 
 ## Layer Map
 
 ```mermaid
 flowchart TD
-  UI["Web UI / API clients"] --> Entry["brain/app.py\nEntry and ownership boundary"]
-  Entry --> Runtime["AutoAgentRuntime\nRun lifecycle boundary"]
-  Runtime --> Stores["TaskStore + SessionStore\nDurable state"]
-  Runtime --> Registry["AgentRegistry\nDirectory config"]
-  Runtime --> Gateway["ToolGateway\nTool exposure policy"]
-  Runtime --> Handler["AgentHandlerFactory\nRuntime mode selection"]
-  Handler --> React["ReactHandler / SupervisorHandler"]
-  React --> Agent["Agent Core\nReAct and Summary"]
-  Agent --> Tools["ToolCollection\nTool execution"]
-  Tools --> Builtins["Built-in tools\nplan, todo, handoff, request input"]
-  Tools --> MCP["MCP tools\nlocal and remote"]
-  Stores --> Replay["Session view service\nWeb replay payloads"]
-  Replay --> UI
+  Browser["Web UI"] --> AgentAPI["/agent APIs"]
+  Browser --> AuthAPI["/auth APIs"]
+  Browser --> FileAPI["/file/v1 APIs"]
+
+  AgentAPI --> Auth["Auth dependency"]
+  AgentAPI --> SessionMsg["Session message service"]
+  AgentAPI --> Runtime["AutoAgentRuntime"]
+  AgentAPI --> View["Session view service"]
+
+  Runtime --> TaskStore["TaskStore"]
+  Runtime --> SessionStore["SessionStore"]
+  Runtime --> AgentRegistry["AgentRegistry"]
+  Runtime --> Memory["Memory context loader"]
+  Runtime --> Gateway["ToolGateway"]
+  Runtime --> HandlerFactory["AgentHandlerFactory"]
+
+  HandlerFactory --> ReactHandler["ReactHandler"]
+  HandlerFactory --> SupervisorHandler["SupervisorHandler"]
+  ReactHandler --> AgentCore["ReActAgentImp + SummaryAgent"]
+  SupervisorHandler --> AgentCore
+
+  AgentCore --> ToolCollection["ToolCollection"]
+  ToolCollection --> BuiltinTools["Built-in runtime tools"]
+  ToolCollection --> MCPTools["MCPTool wrappers"]
+  MCPTools --> MCPRegistry["MCP registry"]
+  MCPRegistry --> LocalMCP["Local MCP tools"]
+  MCPRegistry --> RemoteMCP["Remote MCP servers"]
+
+  TaskStore --> Replay["Events/artifacts/plan snapshots"]
+  SessionStore --> Replay
+  Replay --> Browser
 ```
 
-## Layer Responsibilities
-
-### 1. Web / API Entry
-
-Primary file: `task-pilot-agent/brain/app.py`
-
-Responsibilities:
-
-- Resolve the current authenticated user.
-- Reject access to another user's sessions, tasks, files, and artifacts.
-- Normalize request options such as Agent ID, mode, selected tools, approved
-  tools, run environment, language, and output style.
-- Wire runtime dependencies into `AutoAgentRuntime`.
-- Expose session, run, task, tool, MCP, artifact, eval, stream, and WebSocket
-  APIs.
-
-This layer should not own Agent reasoning, tool policy, task execution, or event
-schema decisions.
-
-### 2. Runtime Lifecycle
-
-Primary file: `task-pilot-agent/brain/core/autoagent_runtime.py`
-
-Responsibilities:
-
-- Clone and normalize the request.
-- Create or resume the session.
-- Create the task record and session run projection.
-- Attach the stream event sink.
-- Create the `AgentContext`.
-- Load memory and runtime boundary events.
-- Build the policy-filtered tool collection.
-- Pause for approval when high-risk selected tools require approval.
-- Choose and run the Agent handler.
-- Persist final output, failure, waiting-input state, artifacts, and terminal
-  plan status.
-
-This is the normal request runtime path. New Agent execution behavior should
-enter through this boundary unless it is a deliberate internal-only operation.
-
-### 3. Durable State
-
-Primary files:
-
-- `task-pilot-agent/brain/core/tasks.py`
-- `task-pilot-agent/brain/core/sessions.py`
-- `task-pilot-agent/brain/core/session_view_service.py`
-- `task-pilot-agent/brain/core/session_context.py`
-- `task-pilot-agent/brain/core/task_memory_context.py`
-- `task-pilot-agent/brain/core/context_budget.py`
-- `task-pilot-agent/brain/core/task_recovery.py`
-- `task-pilot-agent/brain/core/task_runner.py`
-- `task-pilot-agent/brain/core/run_events.py`
-- `task-pilot-agent/brain/core/plan_snapshots.py`
-
-Responsibilities:
-
-- `TaskStore` records task status, task events, latest plan snapshots, usage,
-  artifacts, workspace, and parent-child task relationships for retry and
-  handoff runs.
-- `TaskStore.start_task` is the guarded transition into running state; runtime
-  code should use it so cancelled, failed, or completed tasks are not reopened
-  by delayed background workers.
-- `SessionStore` records user-visible sessions, messages, runs, run events, and
-  session artifacts.
-- `session_view_service.py` builds replay payloads for the web UI.
-- `session_context.py` builds model-facing session context from recent messages
-  and deterministic session summaries.
-- `task_memory_context.py` builds model-facing memory and knowledge snippets
-  according to the Agent's configured read scope.
-- `context_budget.py` owns shared text normalization, truncation, and message
-  budget fitting so session history and retrieved context have one length
-  boundary.
-- `task_recovery.py` rebuilds runnable requests from durable task records and
-  recovers queued or interrupted work through a database lease. Recovery has a
-  bounded retry counter; exhausted tasks are marked failed and emit a recovery
-  failure event instead of being restarted forever.
-- `task_runner.py` owns the current process-local background worker registry:
-  starting workers, cancelling workers, and cleaning up completed workers.
-  Running workers also renew their database lease so startup recovery does not
-  steal healthy long tasks. This is the boundary to replace when moving to a
-  durable queue.
-- `run_events.py` defines the shared event names, frontend aliases, plan event
-  set, schema version, and event categories used by runtime recording and
-  replay. Serialized task and run events include these fields so the web UI does
-  not need to infer event meaning from payload shape alone.
-- `plan_snapshots.py` extracts plan payloads from runtime events and builds the
-  latest plan snapshot stored on the task record.
-
-Direction:
-
-- Treat `TaskStore` as the primary execution ledger.
-- Treat `SessionStore` as a conversation projection for the web UI.
-- Avoid adding new state that only lives in memory or only exists in SSE.
-
-### 4. Agent Configuration
-
-Primary files:
-
-- `config/agents/{agent_id}/agent.yaml`
-- `config/agents/{agent_id}/system_prompt.md`
-- `config/agents/{agent_id}/evals.yaml`
-- `task-pilot-agent/brain/core/agent_registry.py`
-
-Responsibilities:
-
-- Load Agent identity, type, mode, prompt, capabilities, tools, denied tools,
-  handoffs, memory scope, permissions, output defaults, and eval cases.
-- Validate directory ID matching, prompt path safety, supported Agent type,
-  handoff targets, and eval parsing.
-- Provide runtime snapshots for events and the frontend.
-- Select a worker Agent for supervisor runs.
-
-Config files describe product behavior. They must not point to arbitrary Python
-class paths.
-
-### 5. Handler Selection
-
-Primary files:
-
-- `task-pilot-agent/brain/core/handlers/factory.py`
-- `task-pilot-agent/brain/core/handlers/react.py`
-- `task-pilot-agent/brain/core/handlers/supervisor.py`
-
-Responsibilities:
-
-- `AgentHandlerFactory` selects the handler for the current mode and Agent type.
-- `ReactHandler` is the main runtime direction.
-- `SupervisorHandler` selects and delegates to a configured worker Agent.
-- The old plan/execute/summarize compatibility path has been removed.
-
-### 6. Agent Core
-
-Primary files:
-
-- `task-pilot-agent/brain/core/agents/base_agent.py`
-- `task-pilot-agent/brain/core/agents/react_agent.py`
-- `task-pilot-agent/brain/core/agents/ReActAgentImp.py`
-- `task-pilot-agent/brain/core/agents/summary_agent.py`
-
-Responsibilities:
-
-- `BaseAgent` owns common Agent lifecycle and memory writes.
-- `ReActAgent` defines the think-act loop contract.
-- `ReActAgentImp` asks the model for an answer or tool call, executes tools,
-  records evidence, guards repeated identical lookup calls, and syncs plan steps.
-- `SummaryAgent` streams the final answer.
-
-Agent code should reason and delegate. It should not bypass task state,
-ownership, tool policy, or the runtime boundary.
-
-### 7. Tool Policy And Execution
-
-Primary files:
-
-- `task-pilot-agent/brain/core/tool_policy.py`
-- `task-pilot-agent/brain/core/tools/gateway.py`
-- `task-pilot-agent/brain/core/tools/collection.py`
-- `task-pilot-agent/brain/core/tools/mcp_tool.py`
-
-Responsibilities:
-
-- `tool_policy.py` normalizes selected tools and matches MCP colon/hyphen aliases.
-- `ToolGateway` builds the task-scoped, Agent-scoped, approval-aware tool set.
-  It is also the boundary for blocked-tool reasons, high-risk approval request
-  payloads, and approval waiting messages.
-- `ToolCollection` executes tools, enforces allowed tools again at execution
-  time, emits tool call/result events, applies timeouts, maps OpenAI-safe names
-  back to real tool IDs, checks sandbox path boundaries, and exposes execution
-  hooks for before/after/blocked observations.
-- `MCPToolFetcher` loads external tools and wraps them as `MCPTool`.
-
-Direction:
-
-- Agents should not construct tools directly.
-- All model-visible tools should come through `ToolGateway`.
-- All runtime tool calls should go through `ToolCollection`.
-
-### 8. Built-In Runtime Tools
-
-Primary files:
-
-- `task-pilot-agent/brain/core/tools/builtin_plan_tool.py`
-- `task-pilot-agent/brain/core/tools/builtin_todo_tool.py`
-- `task-pilot-agent/brain/core/tools/builtin_handoff_tool.py`
-- `task-pilot-agent/brain/core/tools/builtin_request_input_tool.py`
-
-Responsibilities:
-
-- `builtin:plan_tool` creates, updates, marks, skips, and finishes visible plan
-  state.
-- `builtin:set_todo_list` updates the visible TODO/progress projection.
-- `builtin:handoff` creates child work for another allowed Agent.
-- `builtin:request_input` pauses a run and asks the user for missing input.
-
-These tools are product controls. They are not generic MCP tools.
-
-### 9. MCP And Local Tools
-
-Primary files:
-
-- `task-pilot-agent/tools/mcp_local/mcp_server.py`
-- `task-pilot-agent/tools/mcp_local/tool/filesystem.py`
-- `task-pilot-agent/tools/mcp_local/tool/process_manager.py`
-- `task-pilot-agent/tools/mcp_local/tool/management_tools.py`
-- `task-pilot-agent/tools/mcp_local/tool/skill_registry.py`
-- `task-pilot-agent/tools/aggre_mcp_market/`
-
-Responsibilities:
-
-- Register local and remote capabilities.
-- Provide file, search, weather, media, code, report, process, memory, skill,
-  config, MCP manager, and browser-oriented operations.
-- `skill_registry.py` is the task-local skill lifecycle boundary: scan,
-  enable/disable, bounded load, metadata, and usage counters.
-- Respect task workspace boundaries for writes and high-risk policy for shell,
-  code, process, and config operations.
-
-MCP tools expand capability. They must not bypass ToolGateway, ToolCollection,
-task events, or ownership checks.
-
-### 10. Frontend Replay
-
-Primary files:
-
-- `task-pilot-agent/frontend/src/App.vue`
-- `task-pilot-agent/frontend/src/styles.css`
-
-Responsibilities:
-
-- Create sessions and submit messages.
-- Subscribe to WebSocket/SSE updates.
-- Merge historical events with live events.
-- Render assistant messages, plan progress, tool calls, tool results, approvals,
-  artifacts, status, errors, and final answers.
-
-The frontend should render stable event payloads. It should not need to infer too
-much from multiple legacy field shapes.
-
-## Main Request Flow
+## Startup Sequence
 
 ```mermaid
 sequenceDiagram
-  participant Web as Web UI
-  participant API as brain/app.py
-  participant Runtime as AutoAgentRuntime
-  participant Store as TaskStore/SessionStore
-  participant Gateway as ToolGateway
-  participant Handler as Handler
-  participant Agent as Agent Core
-  participant Tools as ToolCollection/MCP
+  participant Main as main.py
+  participant MCPProc as mcp_process.py
+  participant LocalMCP as mcp_local/mcp_server.py
+  participant API as app_main.py
+  participant Registry as aggre_mcp_market runtime
+  participant Recovery as task_recovery.py
 
-  Web->>API: POST /agent/sessions/{id}/messages
-  API->>API: Resolve user and normalize request
-  API->>Runtime: run_autoagent(...)
-  Runtime->>Store: Create session run and task
-  Runtime->>Store: Add lifecycle events
-  Runtime->>Gateway: Build allowed tool collection
-  Gateway-->>Runtime: Available and blocked tools
-  Runtime->>Store: Persist tool policy event
-  Runtime->>Handler: Select and run handler
-  Handler->>Agent: Run Agent loop
-  Agent->>Tools: Execute selected tool
-  Tools->>Store: Emit tool call/result events through stream sink
-  Agent->>Handler: Return answer/evidence
-  Handler->>Runtime: Complete, wait, or fail
-  Runtime->>Store: Persist terminal state and artifacts
-  Store-->>Web: Replay through event APIs / live stream
+  Main->>MCPProc: start_mcp_subprocess()
+  MCPProc->>LocalMCP: mcp_run_async(transport)
+  LocalMCP->>LocalMCP: register_all_tools(mcp)
+  Main->>API: uvicorn app_main:app
+  API->>Registry: init_mcp_market_registry()
+  Registry->>Registry: load_registry_from_yaml() and refresh tools
+  API->>Recovery: recover_incomplete_agent_tasks()
+  API-->>Main: FastAPI ready
 ```
 
-## Component Relationship Summary
+Implementation notes:
 
-| Component | Owns | Must Not Own |
+- `main.py` starts the local MCP subprocess before Uvicorn.
+- `app_main.py` registers `/aggre_mcp_market`, `/auth`, `/agent`, and
+  `/file/v1`.
+- The app lifespan initializes the MCP registry and recovers queued or
+  interrupted Agent tasks.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Start local MCP subprocess | [`task-pilot-agent/main.py`](../task-pilot-agent/main.py), [`task-pilot-agent/mcp_process.py`](../task-pilot-agent/mcp_process.py) |
+| Register FastAPI routers | [`task-pilot-agent/app_main.py`](../task-pilot-agent/app_main.py) |
+| Initialize MCP market registry | [`task-pilot-agent/tools/aggre_mcp_market/app.py`](../task-pilot-agent/tools/aggre_mcp_market/app.py), [`task-pilot-agent/tools/aggre_mcp_market/service/runtime.py`](../task-pilot-agent/tools/aggre_mcp_market/service/runtime.py) |
+| Register local MCP tools | [`task-pilot-agent/tools/mcp_local/mcp_server.py`](../task-pilot-agent/tools/mcp_local/mcp_server.py), [`task-pilot-agent/tools/mcp_local/tool_registrars/all_tools.py`](../task-pilot-agent/tools/mcp_local/tool_registrars/all_tools.py) |
+
+## Main Session Run Sequence
+
+```mermaid
+sequenceDiagram
+  participant UI as Web UI
+  participant API as brain/app.py
+  participant MsgSvc as session_message_service.py
+  participant Runtime as autoagent_runtime.py
+  participant Stores as SessionStore/TaskStore
+  participant Gateway as ToolGateway
+  participant Handler as React/Supervisor Handler
+  participant Agent as ReActAgentImp
+  participant Tools as ToolCollection
+
+  UI->>API: POST /agent/sessions/{session_id}/messages
+  API->>API: require_current_user()
+  API->>MsgSvc: add_session_message()
+  MsgSvc->>Stores: create user message and mark session running
+  MsgSvc->>Runtime: run_autoagent() in background
+  Runtime->>Stores: create task and sync session run
+  Runtime->>Stores: add task_created/user_message_created/task_running events
+  Runtime->>Runtime: build AgentContext
+  Runtime->>Stores: add memory_context_loaded and runtime_boundary_applied
+  Runtime->>Gateway: build_collection(ctx)
+  Gateway-->>Runtime: ToolCollection with available and blocked tools
+  Runtime->>Stores: add tool_policy_applied
+  Runtime->>Handler: create handler by mode/agent type
+  Handler->>Agent: run ReAct loop
+  Agent->>Tools: execute tool or finish
+  Tools->>Stores: emit tool_call/tool_result through SSE event sink
+  Agent-->>Handler: answer/evidence
+  Handler-->>Runtime: final output or waiting state
+  Runtime->>Stores: complete/fail/wait and sync session run/message
+  UI->>API: GET events or WebSocket/SSE stream
+  API-->>UI: replay same persisted events
+```
+
+Key points:
+
+- The main user path is session-based: `POST /agent/sessions/{id}/messages`.
+- Each new message creates a run ID and then calls `run_autoagent()`.
+- The runtime still creates a task record because task events are the primary
+  execution ledger.
+- Frontend live display and historical replay come from the same event records.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Session message creates run | [`task-pilot-agent/brain/core/session_message_service.py`](../task-pilot-agent/brain/core/session_message_service.py) |
+| Runtime creates session run and task | [`task-pilot-agent/brain/core/autoagent_runtime.py`](../task-pilot-agent/brain/core/autoagent_runtime.py) |
+| Runtime records stream events into task events | [`task-pilot-agent/brain/core/autoagent_runtime.py`](../task-pilot-agent/brain/core/autoagent_runtime.py) |
+| WebSocket/SSE session event replay | [`task-pilot-agent/brain/app.py`](../task-pilot-agent/brain/app.py) |
+| Frontend merges replay and live events | [`task-pilot-agent/frontend/src/App.vue`](../task-pilot-agent/frontend/src/App.vue) |
+
+## Interface Layer
+
+All paths below are mounted by `app_main.py`.
+
+### `/agent` APIs
+
+| Method | Path | Function |
 | --- | --- | --- |
-| `brain/app.py` | API boundary, auth checks, dependency wiring | Agent reasoning, direct tool calls |
-| `AutoAgentRuntime` | Run lifecycle, state transitions, event sink | HTTP route shape, UI rendering |
-| `TaskStore` | Primary task ledger | Model prompting |
-| `SessionStore` | Conversation projection | Source-of-truth execution status |
-| `TaskRecovery` | Startup recovery from queued/interrupted task records | Agent reasoning |
-| `InProcessTaskRunner` | Process-local worker start, cancellation, cleanup | Durable cross-process queue semantics |
-| `AgentRegistry` | Agent config loading and validation | Tool execution |
-| `AgentHandlerFactory` | Handler selection | Durable storage |
-| `ReactHandler` | Main Agent execution flow | Tool filtering policy |
-| `SupervisorHandler` | Worker selection and delegation | Arbitrary dynamic code loading |
-| `ReActAgentImp` | Model/tool loop | Direct storage writes except via events/tools |
-| `SummaryAgent` | Final answer streaming | Task lifecycle |
-| `ToolGateway` | Tool exposure policy | Tool implementation details |
-| `ToolCollection` | Tool execution and execution events | Agent selection |
-| MCP local tools | Capability implementation | Ownership or Agent policy decisions |
-| Frontend | Rendering and controls | Source-of-truth status decisions |
+| GET | `/agent/agents` | List configured Agents for the UI. |
+| GET | `/agent/agents/diagnostics` | Return Agent config diagnostics. |
+| GET | `/agent/agents/{agent_id}` | Read one Agent config snapshot. |
+| GET | `/agent/tools` | List currently visible tools with policy/risk metadata. |
+| GET | `/agent/mcp/servers` | List MCP server status. |
+| POST | `/agent/mcp/tools/refresh` | Refresh all MCP tools from the registry. |
+| POST | `/agent/mcp/servers/{server_id}/refresh` | Refresh one MCP server. |
+| POST | `/agent/mcp/tools/{tool_id}/dry-run` | Test one MCP tool through the same policy checks. |
+| POST | `/agent/sessions` | Create a user session. |
+| GET | `/agent/sessions` | List user sessions. |
+| GET | `/agent/sessions/{session_id}` | Read session detail, messages, runs, events, artifacts, and pending approval. |
+| PATCH | `/agent/sessions/{session_id}` | Update session metadata such as title. |
+| POST | `/agent/sessions/{session_id}/archive` | Archive a session. |
+| DELETE | `/agent/sessions/{session_id}` | Soft-delete/archive a session and cancel active work. |
+| GET | `/agent/sessions/{session_id}/messages` | Page through session messages. |
+| POST | `/agent/sessions/{session_id}/messages` | Add a user message and start/resume a run. |
+| GET | `/agent/sessions/{session_id}/events` | List session run events for replay. |
+| GET | `/agent/sessions/{session_id}/stream` | SSE stream for session events. |
+| GET | `/agent/sessions/{session_id}/runs/current` | Get current run. |
+| GET | `/agent/sessions/{session_id}/runs` | List session runs. |
+| GET | `/agent/sessions/{session_id}/runs/{run_id}` | Read one session run. |
+| GET | `/agent/sessions/{session_id}/runs/{run_id}/plan` | Read latest run plan snapshot. |
+| POST | `/agent/sessions/{session_id}/runs/{run_id}/cancel` | Cancel a running run. |
+| POST | `/agent/sessions/{session_id}/runs/{run_id}/retry` | Retry a run using stored input and metadata. |
+| POST | `/agent/sessions/{session_id}/runs/{run_id}/approval` | Approve or reject a pending high-risk operation. |
+| GET | `/agent/sessions/{session_id}/artifacts` | List session artifacts. |
+| GET | `/agent/sessions/{session_id}/artifacts/{artifact_id}` | Download a session artifact. |
+| GET | `/agent/sessions/{session_id}/runs/{run_id}/artifacts` | List artifacts for one run. |
+| GET | `/agent/sessions/{session_id}/tools` | List tools available in a session context. |
+| POST | `/agent/sessions/{session_id}/tools/test` | Test a tool in a session context. |
+| GET | `/agent/agents/{agent_id}/evals` | List Agent eval cases. |
+| POST | `/agent/agents/{agent_id}/evals/run` | Run all evals for an Agent. |
+| POST | `/agent/agents/{agent_id}/evals/{case_id}/run` | Run one eval case. |
+| POST | `/agent/tasks/{task_id}/eval-result` | Evaluate a completed task result. |
+| GET | `/agent/tasks` | Compatibility task list. |
+| POST | `/agent/tasks` | Compatibility task creation. |
+| GET | `/agent/tasks/{task_id}` | Compatibility task detail. |
+| GET | `/agent/tasks/{task_id}/events` | Compatibility task event list. |
+| POST | `/agent/tasks/{task_id}/cancel` | Compatibility task cancel. |
+| DELETE | `/agent/tasks/{task_id}` | Compatibility task delete. |
+| POST | `/agent/tasks/{task_id}/retry` | Compatibility task retry. |
+| POST | `/agent/tasks/{task_id}/input` | Resume a task waiting for user input. |
+| GET | `/agent/tasks/{task_id}/artifacts` | Compatibility task artifacts. |
+| GET | `/agent/tasks/{task_id}/artifacts/{artifact_id}` | Compatibility task artifact download. |
+| GET | `/agent/web/assets/{asset_path}` | Serve built frontend assets. |
+| GET | `/agent/web/autoagent` | Serve the web UI. |
+| POST | `/agent/autoagent` | Legacy direct autoagent request path. |
+| WS | `/agent/ws/sessions/{session_id}` | WebSocket session event stream. |
+| WS | `/agent/ws/autoagent` | Legacy direct autoagent WebSocket path. |
+| GET | `/agent/web/health` | Web UI health check. |
 
-## Improvement Backlog From Codex Comparison
+Source evidence: [`task-pilot-agent/brain/app.py`](../task-pilot-agent/brain/app.py).
 
-The current code already has the right building blocks. The improvement work is
-to make the boundaries harder and easier to read.
+### `/auth` APIs
 
-1. Make `TaskStore` the single primary ledger for runs, while `SessionStore`
-   remains a web conversation projection.
-2. Keep moving all tool exposure, blocked reasons, approval checks, selected
-   tools, and display metadata into `ToolGateway`.
-3. Keep all actual tool execution behind `ToolCollection`.
-4. Continue promoting plan state as first-class task state. The task metadata now
-   keeps the latest plan snapshot; the next step is a dedicated plan model if
-   plan editing and resume semantics grow.
-5. Add a context budget layer that decides what history, memory, file snippets,
-   tool outputs, and summaries are sent to the model. The current first step is
-   `session_context.py`, which owns the recent-message window and deterministic
-   session summary projection, plus `task_memory_context.py`, which owns
-   memory/RAG lookup shaping.
-6. Move long-running work away from process-local task dictionaries and toward a
-   durable queue or task runner.
-7. Keep tightening sandbox and high-risk tool policy around writes, shell,
-   process, code execution, and config mutation.
-8. Continue the skill lifecycle work. Task-local skills now have scan,
-   enable/disable, bounded load, metadata, usage counters, and optional Agent
-   association; the next step is automatic prompt injection through Agent
-   config.
-9. Prefer end-to-end runtime tests over source string tests for new behavior.
-10. Stabilize event schemas so the frontend does not need compatibility guesses.
+| Method | Path | Function |
+| --- | --- | --- |
+| GET | `/auth/providers` | List enabled auth providers. |
+| GET | `/auth/me` | Return current authenticated user. |
+| POST | `/auth/logout` | Revoke current session cookie. |
+| POST | `/auth/logout-all` | Revoke all sessions for the user. |
+| GET | `/auth/users/me` | Read current user profile. |
+| PATCH | `/auth/users/me` | Update current user profile. |
+| GET | `/auth/users/me/identities` | List linked provider identities. |
+| DELETE | `/auth/users/me/identities/{identity_id}` | Unlink one identity. |
+| GET | `/auth/admin/users` | Admin user list. |
+| POST | `/auth/admin/users` | Admin user creation. |
+| PATCH | `/auth/admin/users/{user_id}` | Admin user update. |
+| POST | `/auth/admin/users/{user_id}/disable` | Disable user. |
+| DELETE | `/auth/admin/users/{user_id}` | Soft-delete user. |
+| POST | `/auth/admin/legacy-users` | Create legacy user mapping input. |
+| POST | `/auth/admin/legacy-users/{legacy_user_id}/map` | Map legacy user to TaskPilot user. |
+| GET | `/auth/admin/audit-events` | Read auth audit events. |
+| POST | `/auth/admin/cleanup` | Cleanup auth records. |
+| POST | `/auth/{provider}/link` | Start provider account linking. |
+| DELETE | `/auth/{provider}/link/{identity_id}` | Remove provider link. |
+| GET | `/auth/{provider}/login` | Start provider login. |
+| GET | `/auth/{provider}/callback` | Provider callback handler. |
+| GET | `/auth/whoami` | Legacy/debug identity endpoint. |
 
-## Change Rules
+Source evidence: [`task-pilot-agent/auth/router.py`](../task-pilot-agent/auth/router.py).
 
-When adding or changing Agent behavior:
+### `/aggre_mcp_market` APIs
 
-1. Identify the affected layer before editing.
-2. Add or update the Agent config only through `config/agents/{agent_id}`.
-3. Expose tools through `ToolGateway`, not directly from the Agent.
-4. Execute tools through `ToolCollection`, not through MCP clients directly.
-5. Record lifecycle, tool, plan, approval, artifact, and failure information as
-   task/run events.
-6. Keep user ID ownership checks at route boundaries and store queries.
-7. Add focused tests for the changed layer and directly connected layer.
+| Method | Path | Function |
+| --- | --- | --- |
+| GET | `/aggre_mcp_market/tools` | List aggregated MCP tools, including risk and approval metadata. |
+| GET | `/aggre_mcp_market/servers` | List MCP server status. |
+| POST | `/aggre_mcp_market/refresh` | Refresh registry tool snapshots. |
+| GET | `/aggre_mcp_market/prompt` | Build a prompt fragment from current MCP tools. |
+| POST | `/aggre_mcp_market/call_tool` | Call an MCP tool, optionally streaming SSE tool events. |
+
+Source evidence: [`task-pilot-agent/tools/aggre_mcp_market/app.py`](../task-pilot-agent/tools/aggre_mcp_market/app.py).
+
+### `/file/v1` APIs
+
+| Method | Path | Function |
+| --- | --- | --- |
+| POST | `/file/v1/get_file` | Read file metadata by request/file ID. |
+| POST | `/file/v1/upload_file` | Upload a file by JSON payload. |
+| POST | `/file/v1/upload_file_data` | Upload raw file data. |
+| POST | `/file/v1/upload_file_form` | Upload a multipart browser file. |
+| POST | `/file/v1/get_file_list` | List uploaded files for a request. |
+| GET | `/file/v1/download_file/{request_id}/{file_name}` | Download uploaded file content. |
+| GET | `/file/v1/preview_file/{request_id}/{file_name}` | Preview uploaded file content with ownership checks. |
+
+Source evidence: [`task-pilot-agent/file/file_op.py`](../task-pilot-agent/file/file_op.py).
+
+## Agent Configuration And Runtime Selection
+
+Agent config lives under `config/agents/{agent_id}`:
+
+- `agent.yaml`: identity, type, mode, tools, denied tools, handoffs, memory,
+  permissions, and output defaults.
+- `system_prompt.md`: the Agent-specific system prompt.
+- `evals.yaml`: smoke/regression evals.
+
+Default configured Agents currently include:
+
+- `task-pilot-agent`
+- `supervisor_agent`
+- `search_agent`
+- `browser_agent`
+- `data_agent`
+- `code_agent`
+- `report_agent`
+
+The default Agent is a `react_worker` using `mode: react`. Its config allows
+general file, search, browser, media, report, config-read, skill, memory, and
+remote MCP tools. It denies `deepsearch`, disables shell execution through
+permissions, and requires approval for high-risk tools.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Agent model and validation | [`task-pilot-agent/brain/core/agent_registry.py`](../task-pilot-agent/brain/core/agent_registry.py) |
+| Default Agent config | [`config/agents/task-pilot-agent/agent.yaml`](../config/agents/task-pilot-agent/agent.yaml) |
+| Handler selection | [`task-pilot-agent/brain/core/handlers/factory.py`](../task-pilot-agent/brain/core/handlers/factory.py) |
+| React handler | [`task-pilot-agent/brain/core/handlers/react.py`](../task-pilot-agent/brain/core/handlers/react.py) |
+| Supervisor handler | [`task-pilot-agent/brain/core/handlers/supervisor.py`](../task-pilot-agent/brain/core/handlers/supervisor.py) |
+
+## Tool System
+
+```mermaid
+flowchart TD
+  AgentConfig["agent.yaml tools + denied_tools + permissions"] --> Gateway["ToolGateway"]
+  RuntimeSelection["selected_tools + approved_tools"] --> Gateway
+  Gateway --> Builtins["Add allowed built-in tools"]
+  Gateway --> Fetcher["MCPToolFetcher"]
+  Fetcher --> Market["MCP registry or market endpoint"]
+  Market --> MCPWrappers["MCPTool objects"]
+  Builtins --> Collection["ToolCollection"]
+  MCPWrappers --> Collection
+  Collection --> Execute["execute(name,args)"]
+  Execute --> Policy["allowed check + sandbox boundary + approval check + timeout"]
+  Policy --> Events["tool_call/tool_result events"]
+```
+
+### Built-in runtime tools
+
+| Tool | Purpose | Source |
+| --- | --- | --- |
+| `builtin:plan_tool` | Create/update/mark/finish visible plan state. | [`builtin_plan_tool.py`](../task-pilot-agent/brain/core/tools/builtin_plan_tool.py) |
+| `builtin:set_todo_list` | Project short progress into a visible TODO list. | [`builtin_todo_tool.py`](../task-pilot-agent/brain/core/tools/builtin_todo_tool.py) |
+| `builtin:handoff` | Start child work for another allowed Agent. | [`builtin_handoff_tool.py`](../task-pilot-agent/brain/core/tools/builtin_handoff_tool.py) |
+| `builtin:request_input` | Pause a run and ask the user for missing input. | [`builtin_request_input_tool.py`](../task-pilot-agent/brain/core/tools/builtin_request_input_tool.py) |
+
+### Local MCP tool groups
+
+These are registered by `register_all_tools(mcp)`.
+
+| Group | Tools |
+| --- | --- |
+| Filesystem | `file_read`, `file_write`, `file_edit`, `file_list`, `file_stat`, `file_glob`, `file_grep`, `directory_create`, `file_copy`, `file_move`, `file_delete` |
+| Web/search/weather | `web_search`, `fetch_url`, `web_reader`, `get_current_weather`, `get_weather_forecast` |
+| Browser/media/report/code | `browser_agent`, `audio_tool`, `image_tool`, `video_tool`, `text_to_image`, `report`, `code_interpreter` |
+| Process/config/MCP management | `shell_exec`, `process_command_*`, `config_read`, `config_update`, `mcp_manager_*` |
+| Skill and memory | `skill_search`, `skill_load`, `skill_install`, `skill_enable/disable`, `memory_search`, `memory_add`, `memory_delete` |
+| Messaging/sub-agent | `message_send`, `create_subagent` |
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Build policy-filtered collection | [`task-pilot-agent/brain/core/tools/gateway.py`](../task-pilot-agent/brain/core/tools/gateway.py) |
+| Execute tools and emit events | [`task-pilot-agent/brain/core/tools/collection.py`](../task-pilot-agent/brain/core/tools/collection.py) |
+| Wrap MCP tools | [`task-pilot-agent/brain/core/tools/mcp_tool.py`](../task-pilot-agent/brain/core/tools/mcp_tool.py) |
+| Register local MCP tools | [`task-pilot-agent/tools/mcp_local/tool_registrars/all_tools.py`](../task-pilot-agent/tools/mcp_local/tool_registrars/all_tools.py) |
+| Filesystem sandbox behavior | [`task-pilot-agent/tools/mcp_local/tool/filesystem.py`](../task-pilot-agent/tools/mcp_local/tool/filesystem.py) |
+
+## MCP Architecture
+
+```mermaid
+sequenceDiagram
+  participant Runtime as ToolGateway/MCPToolFetcher
+  participant Registry as aggre_mcp_market runtime
+  participant Client as MCP client
+  participant Local as Local MCP server
+  participant Remote as Remote MCP server
+
+  Runtime->>Registry: list_tools()
+  Registry->>Client: refresh/list tools per configured server
+  Client->>Local: streamable HTTP local MCP
+  Client->>Remote: SSE or streamable HTTP remote MCP
+  Registry-->>Runtime: ToolInfo with full name, schema, risk, approval metadata
+  Runtime->>Runtime: wrap as MCPTool
+  Runtime->>Registry: call_tool(name,args)
+  Registry->>Client: route by full tool name
+  Client-->>Registry: ToolCallResult or stream events
+```
+
+Current implementation details:
+
+- The local MCP server still runs as its own subprocess.
+- The app also keeps an in-process MCP registry object for listing, refreshing,
+  and calling tools without routing every internal operation through a route
+  handler.
+- The registry supports remote MCP clients through the common
+  `MCPClientBase` interface.
+- Tool metadata includes `risk_level` and `requires_approval`, and the registry
+  can infer high-risk status for known dangerous tools.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Registry runtime singleton | [`task-pilot-agent/tools/aggre_mcp_market/service/runtime.py`](../task-pilot-agent/tools/aggre_mcp_market/service/runtime.py) |
+| Registry refresh, cache, risk inference, call routing | [`task-pilot-agent/tools/aggre_mcp_market/service/registry.py`](../task-pilot-agent/tools/aggre_mcp_market/service/registry.py) |
+| MCP client abstraction | [`task-pilot-agent/tools/aggre_mcp_market/mcp_clients/base.py`](../task-pilot-agent/tools/aggre_mcp_market/mcp_clients/base.py) |
+| Streamable HTTP MCP client | [`task-pilot-agent/tools/aggre_mcp_market/mcp_clients/http_client.py`](../task-pilot-agent/tools/aggre_mcp_market/mcp_clients/http_client.py) |
+| SSE MCP client | [`task-pilot-agent/tools/aggre_mcp_market/mcp_clients/sse_client.py`](../task-pilot-agent/tools/aggre_mcp_market/mcp_clients/sse_client.py) |
+| Local MCP subprocess | [`task-pilot-agent/mcp_process.py`](../task-pilot-agent/mcp_process.py) |
+
+## Approval Flow
+
+```mermaid
+sequenceDiagram
+  participant Agent as ReActAgentImp
+  participant Collection as ToolCollection
+  participant Runtime as AutoAgentRuntime
+  participant Store as TaskStore/SessionStore
+  participant UI as Web UI
+  participant API as Approval API
+
+  Agent->>Collection: execute(file_write,args)
+  Collection->>Collection: detect risk_level/requires_approval
+  Collection-->>Runtime: raise ToolApprovalRequired
+  Runtime->>Store: add approval_requested
+  Runtime->>Store: mark task/session waiting_approval
+  Runtime->>Store: add task_waiting_approval and assistant message
+  UI->>Store: replay/live events show approval buttons
+  UI->>API: POST /agent/sessions/{sid}/runs/{rid}/approval
+  API->>Store: add approval_resolved
+  alt approved and rerun
+    API->>Runtime: retry run with approvedTools
+  else rejected
+    API->>Store: mark run rejected/cancelled
+  end
+```
+
+There are two approval checkpoints:
+
+- Before a selected high-risk tool is exposed: `ToolGateway` and Agent config
+  can block it and create an approval request.
+- At actual execution time: `ToolCollection` checks `risk_level` and
+  `requires_approval` on the tool object, so MCP registry metadata is enforced
+  even if the tool was exposed.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Blocked high-risk selected tool approval | [`task-pilot-agent/brain/core/tools/gateway.py`](../task-pilot-agent/brain/core/tools/gateway.py), [`task-pilot-agent/brain/core/autoagent_runtime.py`](../task-pilot-agent/brain/core/autoagent_runtime.py) |
+| Runtime tool approval exception | [`task-pilot-agent/brain/core/tools/collection.py`](../task-pilot-agent/brain/core/tools/collection.py), [`task-pilot-agent/brain/core/agents/ReActAgentImp.py`](../task-pilot-agent/brain/core/agents/ReActAgentImp.py) |
+| Approval resolution and rerun | [`task-pilot-agent/brain/core/approval_service.py`](../task-pilot-agent/brain/core/approval_service.py) |
+| Approval endpoint | [`task-pilot-agent/brain/app.py`](../task-pilot-agent/brain/app.py) |
+| Frontend approval buttons | [`task-pilot-agent/frontend/src/App.vue`](../task-pilot-agent/frontend/src/App.vue) |
+| Approval tests | [`task-pilot-agent/tests/tasks/test_task_control_api.py`](../task-pilot-agent/tests/tasks/test_task_control_api.py), [`task-pilot-agent/tests/tasks/test_tool_collection_policy.py`](../task-pilot-agent/tests/tasks/test_tool_collection_policy.py) |
+
+## Memory And Knowledge Retrieval
+
+```mermaid
+sequenceDiagram
+  participant Runtime as AutoAgentRuntime
+  participant Ctx as AgentContext
+  participant Loader as task_memory_context.py
+  participant Manager as memory_manager
+  participant Agent as ReAct/Summary Agent
+
+  Runtime->>Loader: load_task_memory_context(ctx, latest_input)
+  Loader->>Loader: read ctx.agent_memory scopes and limits
+  Loader->>Manager: unified_search_async(query,user,agent,run)
+  Manager-->>Loader: memoryResults + ragResults + warnings
+  Loader-->>Ctx: ctx.memory_context
+  Runtime->>Store: memory_context_loaded event
+  Agent->>Ctx: compose_system_prompt()
+  Ctx-->>Agent: language + agent prompt + memory snippets + base prompt
+```
+
+Implementation details:
+
+- Agent config controls memory read scopes.
+- `AgentContext.compose_system_prompt()` injects language, Agent prompt, and
+  memory/knowledge snippets.
+- Memory has graceful degradation. If mem0 or vector search is unavailable,
+  disabled/fallback clients return empty results and warnings instead of
+  crashing the run.
+- Memory can also be used as MCP tools: `memory_search`, `memory_add`, and
+  `memory_delete`.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Runtime memory loading | [`task-pilot-agent/brain/core/autoagent_runtime.py`](../task-pilot-agent/brain/core/autoagent_runtime.py) |
+| Memory scope, search, summarization | [`task-pilot-agent/brain/core/task_memory_context.py`](../task-pilot-agent/brain/core/task_memory_context.py) |
+| Prompt injection | [`task-pilot-agent/brain/core/context.py`](../task-pilot-agent/brain/core/context.py) |
+| Memory manager and fallbacks | [`task-pilot-agent/memory/memory_mgr.py`](../task-pilot-agent/memory/memory_mgr.py) |
+| RAG retriever | [`task-pilot-agent/memory/rag_retriever.py`](../task-pilot-agent/memory/rag_retriever.py) |
+| Memory MCP tools | [`task-pilot-agent/tools/mcp_local/tool/management_tools.py`](../task-pilot-agent/tools/mcp_local/tool/management_tools.py) |
+
+## Plan Flow
+
+```mermaid
+sequenceDiagram
+  participant Agent as ReActAgentImp
+  participant PlanTool as builtin:plan_tool
+  participant Printer as SSEPrinter
+  participant Store as TaskStore
+  participant View as Session view
+  participant UI as Web UI
+
+  Agent->>PlanTool: create/update/mark_step/finish
+  PlanTool->>PlanTool: update deterministic PlanFunctionTool state
+  PlanTool->>Printer: emit plan + typed plan event
+  Printer->>Store: persist plan event
+  Store->>Store: update latest plan metadata snapshot
+  View->>Store: read plan events/snapshot
+  UI->>View: GET /runs/{run_id}/plan or event replay
+```
+
+Implementation details:
+
+- Planning is a tool inside ReAct/Supervisor, not a standalone executor mode.
+- `run_events.py` defines plan event names and maps plan commands to typed
+  events such as `plan_created`, `plan_step_completed`, and `plan_completed`.
+- `ReActAgentImp` can sync plan step status after tool results.
+- `session_view_service.py` exposes the latest plan for a run.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Plan tool | [`task-pilot-agent/brain/core/tools/builtin_plan_tool.py`](../task-pilot-agent/brain/core/tools/builtin_plan_tool.py), [`task-pilot-agent/brain/core/tools/plan_tool.py`](../task-pilot-agent/brain/core/tools/plan_tool.py) |
+| Plan event taxonomy | [`task-pilot-agent/brain/core/run_events.py`](../task-pilot-agent/brain/core/run_events.py) |
+| Latest plan snapshots | [`task-pilot-agent/brain/core/plan_snapshots.py`](../task-pilot-agent/brain/core/plan_snapshots.py) |
+| Plan step sync after tools | [`task-pilot-agent/brain/core/agents/ReActAgentImp.py`](../task-pilot-agent/brain/core/agents/ReActAgentImp.py) |
+| Plan replay API | [`task-pilot-agent/brain/app.py`](../task-pilot-agent/brain/app.py), [`task-pilot-agent/brain/core/session_view_service.py`](../task-pilot-agent/brain/core/session_view_service.py) |
+
+## Skill Flow
+
+```mermaid
+sequenceDiagram
+  participant Agent as Agent via MCP tool
+  participant SkillTool as skill_search/load/install tools
+  participant Registry as TaskSkillRegistry
+  participant FS as Task workspace skills
+
+  Agent->>SkillTool: skill_search(query)
+  SkillTool->>Registry: search built-in Agent skills and task-local skills
+  Registry-->>Agent: metadata and descriptions
+  Agent->>SkillTool: skill_load(skill_id)
+  SkillTool->>Registry: bounded read of SKILL.md if enabled
+  Registry-->>Agent: skill instructions
+  Agent->>SkillTool: skill_install(content)
+  SkillTool->>FS: write task-local SKILL.md and manifest metadata
+```
+
+Implementation details:
+
+- Skills are exposed through local MCP management tools, not as a separate
+  runtime mode.
+- Task-local skills are stored under the task work directory and bounded by safe
+  IDs and size limits.
+- Agent config can allow or deny skill tools like any other tool.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| Task-local skill registry | [`task-pilot-agent/tools/mcp_local/tool/skill_registry.py`](../task-pilot-agent/tools/mcp_local/tool/skill_registry.py) |
+| Skill MCP tools | [`task-pilot-agent/tools/mcp_local/tool/management_tools.py`](../task-pilot-agent/tools/mcp_local/tool/management_tools.py) |
+| Tool registration | [`task-pilot-agent/tools/mcp_local/tool_registrars/all_tools.py`](../task-pilot-agent/tools/mcp_local/tool_registrars/all_tools.py) |
+| Tool policy exposure | [`task-pilot-agent/brain/core/tools/gateway.py`](../task-pilot-agent/brain/core/tools/gateway.py) |
+
+## Frontend Replay And Controls
+
+The Vue UI does not own the source of truth. It:
+
+- creates sessions and posts messages,
+- opens WebSocket first and falls back to SSE,
+- merges persisted events with live events,
+- renders progress items, tools, approvals, artifacts, markdown final answers,
+  status chips, errors, and retry/cancel controls.
+
+Source evidence:
+
+| Behavior | Code |
+| --- | --- |
+| WebSocket/SSE client | [`task-pilot-agent/frontend/src/App.vue`](../task-pilot-agent/frontend/src/App.vue) |
+| Progress and event rendering | [`task-pilot-agent/frontend/src/App.vue`](../task-pilot-agent/frontend/src/App.vue) |
+| Approval buttons | [`task-pilot-agent/frontend/src/App.vue`](../task-pilot-agent/frontend/src/App.vue) |
+| Styles | [`task-pilot-agent/frontend/src/styles.css`](../task-pilot-agent/frontend/src/styles.css) |
+
+## Current Implementation Guarantees
+
+- Auth-protected routes resolve the current user before reading sessions,
+  tasks, files, or artifacts.
+- Session APIs are the main product path; task APIs are retained for
+  compatibility.
+- Tool exposure goes through `ToolGateway`.
+- Tool execution goes through `ToolCollection`.
+- MCP tools carry risk and approval metadata into the Agent runtime.
+- High-risk tool use can pause the run and require user approval.
+- Memory/RAG degradation does not crash normal Agent runs.
+- Planning is represented as structured events and latest snapshots.
+- The frontend renders from persisted events so refresh/reconnect can recover
+  progress.
+
+## Tests That Cover The Architecture
+
+| Area | Tests |
+| --- | --- |
+| Session/task control APIs, approval, retry, tool listing | [`task-pilot-agent/tests/tasks/test_task_control_api.py`](../task-pilot-agent/tests/tasks/test_task_control_api.py) |
+| Tool collection policy and execution approval | [`task-pilot-agent/tests/tasks/test_tool_collection_policy.py`](../task-pilot-agent/tests/tasks/test_tool_collection_policy.py) |
+| Tool gateway behavior | [`task-pilot-agent/tests/tasks/test_tool_gateway.py`](../task-pilot-agent/tests/tasks/test_tool_gateway.py) |
+| Agent config validation | [`task-pilot-agent/tests/tasks/test_agent_registry.py`](../task-pilot-agent/tests/tasks/test_agent_registry.py) |
+| Session store | [`task-pilot-agent/tests/tasks/test_session_store.py`](../task-pilot-agent/tests/tasks/test_session_store.py) |
+| Task store and artifacts | [`task-pilot-agent/tests/tasks/test_task_store.py`](../task-pilot-agent/tests/tasks/test_task_store.py) |
+| Frontend source-level behavior | [`task-pilot-agent/tests/tasks/test_autoagent_web.py`](../task-pilot-agent/tests/tasks/test_autoagent_web.py) |
+| Local MCP filesystem sandbox | [`task-pilot-agent/tests/tasks/test_mcp_filesystem_tools.py`](../task-pilot-agent/tests/tasks/test_mcp_filesystem_tools.py) |
+| Memory degradation | [`task-pilot-agent/tests/memory/test_memory_degradation.py`](../task-pilot-agent/tests/memory/test_memory_degradation.py) |
+| Auth and ownership | [`task-pilot-agent/tests/auth/`](../task-pilot-agent/tests/auth/) |

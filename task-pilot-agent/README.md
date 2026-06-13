@@ -5,7 +5,7 @@
 - 仓库总体使用说明见：`../README.md`
 - 配置示例见：`../config/config.yaml.example`
 - 当前代码索引见：`CODE_INDEX.md`
-- Agent 运行分层和组件关系见：`../docs/agent-runtime-architecture.md`
+- Agent 运行架构见：`../docs/agent-runtime-architecture.zh-CN.md`；英文版见：`../docs/agent-runtime-architecture.md`
 
 ## 核心逻辑（源码导览）
 

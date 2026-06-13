@@ -6,6 +6,8 @@ in a run.
 
 For the deeper runtime map, see
 [`docs/agent-runtime-architecture.md`](../docs/agent-runtime-architecture.md).
+Chinese version:
+[`docs/agent-runtime-architecture.zh-CN.md`](../docs/agent-runtime-architecture.zh-CN.md).
 
 ## Runtime Layers
 
