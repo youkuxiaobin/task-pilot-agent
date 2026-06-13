@@ -184,6 +184,9 @@ def test_task_detail_is_continuous_chat_window():
         "const currentTimelineRunId = computed",
         "const activeTimelineItems = computed",
         "const currentPlanPanel = computed",
+        "const planDrawerOpen = ref(false)",
+        "function togglePlanDrawer",
+        "function closePlanDrawer",
         "normalizePlanSnapshotForDisplay(plans[plans.length - 1])",
         "function planSnapshotFromEvent",
         "function normalizePlanSnapshotForDisplay",
@@ -209,7 +212,11 @@ def test_task_detail_is_continuous_chat_window():
         "processOnly: !processOutput",
         "conversation-layout",
         "conversation-layout-has-plan",
+        "plan-drawer-open",
         "conversation-thread",
+        "plan-drawer-toggle",
+        "plan-drawer-scrim",
+        "plan-drawer-close",
         "conversation-plan-sidebar",
         "conversation-plan-panel",
         "conversation-plan-list",
@@ -241,18 +248,24 @@ def test_task_detail_is_continuous_chat_window():
     )[0]
     assert 'class="conversation-layout"' in detail_block
     assert "'conversation-layout-has-plan': currentPlanPanel" in detail_block
+    assert "'plan-drawer-open': currentPlanPanel && planDrawerOpen" in detail_block
     assert 'class="conversation-thread"' in detail_block
     assert 'class="conversation-overview"' not in detail_block
     assert "{{ conversationAgentName }}" not in detail_block
     assert "conversationOverviewStats" not in detail_block
     assert "currentProgressItem.title" not in detail_block
     assert 'class="conversation-plan-sidebar"' in detail_block
+    assert 'class="plan-drawer-toggle"' in detail_block
+    assert 'class="plan-drawer-scrim"' in detail_block
+    assert 'class="plan-drawer-close"' in detail_block
+    assert '@click="togglePlanDrawer"' in detail_block
+    assert '@click="closePlanDrawer"' in detail_block
     assert 'class="conversation-plan-panel"' in detail_block
     assert "currentPlanPanel.steps" in detail_block
     assert "planStepStatusLabel(step.status)" in detail_block
     assert "step.evidence" in detail_block
     thread_block = detail_block.split('class="conversation-thread"', 1)[1].split(
-        '<aside v-if="currentPlanPanel"',
+        'class="conversation-plan-sidebar"',
         1,
     )[0]
     assert 'class="conversation-plan-panel"' not in thread_block
@@ -279,6 +292,10 @@ def test_task_detail_is_continuous_chat_window():
     assert "artifactTypeText(artifact)" in detail_block
     assert ".conversation-layout" in styles
     assert ".conversation-layout-has-plan" in styles
+    assert ".plan-drawer-toggle" in styles
+    assert ".plan-drawer-toggle.open" in styles
+    assert ".plan-drawer-scrim" in styles
+    assert ".plan-drawer-close" in styles
     assert ".conversation-thread" in styles
     assert ".conversation-overview" not in styles
     assert ".conversation-overview-grid" not in styles
@@ -344,8 +361,11 @@ def test_vue_sidebar_is_collapsible_resizable_and_detail_layout_is_responsive():
         "@container (max-width: 980px)",
         ".conversation-layout",
         "width: min(1160px, calc(100% - 48px))",
-        "grid-template-columns: minmax(0, 720px) minmax(260px, 320px)",
+        "grid-template-columns: minmax(0, 720px)",
         ".conversation-plan-sidebar",
+        "position: fixed",
+        "transform: translateX(calc(100% + 30px))",
+        ".conversation-plan-sidebar.open",
         ".conversation-thread",
         "width: 100%;",
         "width: fit-content",

@@ -85,6 +85,8 @@ const messages = {
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent 正在处理...',
     'plan.title': '计划',
+    'plan.openDrawer': '查看计划',
+    'plan.closeDrawer': '隐藏计划',
     'plan.evidence': '证据',
     'plan.notStarted': '未开始',
     'plan.skipped': '已跳过',
@@ -234,6 +236,8 @@ const messages = {
     'chat.assistant': 'Agent',
     'chat.thinking': 'Agent is working...',
     'plan.title': 'Plan',
+    'plan.openDrawer': 'View plan',
+    'plan.closeDrawer': 'Hide plan',
     'plan.evidence': 'Evidence',
     'plan.notStarted': 'Not started',
     'plan.skipped': 'Skipped',
@@ -351,6 +355,7 @@ const scrollRef = ref(null)
 const chatInput = ref('')
 const composerComposing = ref(false)
 const chatMessages = ref([])
+const planDrawerOpen = ref(false)
 const chatMessageTotal = ref(0)
 const chatHasMore = ref(false)
 const chatHistoryLoading = ref(false)
@@ -508,6 +513,10 @@ const currentPlanPanel = computed(() => {
   return plans.length ? normalizePlanSnapshotForDisplay(plans[plans.length - 1]) : null
 })
 
+watch(currentPlanPanel, (next) => {
+  if (!next) planDrawerOpen.value = false
+})
+
 watch(selectedAgentId, async () => {
   await refreshToolCatalog()
 })
@@ -518,6 +527,7 @@ function switchView(view) {
   openTaskMenuId.value = ''
   activeView.value = view
   sidebarOpen.value = false
+  if (view !== 'taskDetail') planDrawerOpen.value = false
   if (view === 'tasks') refreshSessions()
   if (view === 'agents') refreshAgents()
   if (view === 'tools') {
@@ -533,6 +543,14 @@ function closeTaskMenu() {
 
 function toggleTaskMenu(taskId) {
   openTaskMenuId.value = openTaskMenuId.value === taskId ? '' : taskId
+}
+
+function togglePlanDrawer() {
+  planDrawerOpen.value = !planDrawerOpen.value
+}
+
+function closePlanDrawer() {
+  planDrawerOpen.value = false
 }
 
 function taskRecordId(task) {
@@ -3035,7 +3053,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="activeView === 'taskDetail'" class="view detail-view">
-        <div class="conversation-layout" :class="{ 'conversation-layout-has-plan': currentPlanPanel }">
+        <div class="conversation-layout" :class="{ 'conversation-layout-has-plan': currentPlanPanel, 'plan-drawer-open': currentPlanPanel && planDrawerOpen }">
           <div class="conversation-thread">
             <div v-if="running" class="conversation-controls">
               <button type="button" class="ghost-button small" @click="stopTask">{{ t('common.stop') }}</button>
@@ -3188,14 +3206,37 @@ onBeforeUnmount(() => {
           </form>
           </div>
 
-          <aside v-if="currentPlanPanel" class="conversation-plan-sidebar" :aria-label="t('plan.title')">
+          <button
+            v-if="currentPlanPanel"
+            type="button"
+            class="plan-drawer-toggle"
+            :class="{ open: planDrawerOpen }"
+            :title="planDrawerOpen ? t('plan.closeDrawer') : t('plan.openDrawer')"
+            @click="togglePlanDrawer"
+          >
+            <span>{{ currentPlanPanel.completed }}/{{ currentPlanPanel.steps.length }}</span>
+            <span class="plan-drawer-toggle-icon" aria-hidden="true">{{ planDrawerOpen ? '→' : '←' }}</span>
+          </button>
+
+          <div
+            v-if="currentPlanPanel && planDrawerOpen"
+            class="plan-drawer-scrim"
+            @click="closePlanDrawer"
+          ></div>
+
+          <aside
+            v-if="currentPlanPanel"
+            class="conversation-plan-sidebar"
+            :class="{ open: planDrawerOpen }"
+            :aria-label="t('plan.title')"
+          >
             <div class="conversation-plan-panel">
               <div class="conversation-plan-head">
                 <div>
                   <span class="overview-eyebrow">{{ t('plan.title') }}</span>
                   <strong>{{ currentPlanPanel.title }}</strong>
                 </div>
-                <span>{{ currentPlanPanel.completed }}/{{ currentPlanPanel.steps.length }}</span>
+                <button type="button" class="plan-drawer-close" :title="t('plan.closeDrawer')" @click="closePlanDrawer">×</button>
               </div>
               <ol class="conversation-plan-list">
                 <li
