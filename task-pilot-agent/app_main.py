@@ -11,6 +11,7 @@ os.environ.setdefault("APP_CONFIG_FILE", str(project_root / "config" / "config.y
 
 from config.config import agentSettings  # noqa: E402
 from tools.aggre_mcp_market.app import aggre_mcp_market_router, init_mcp_market_registry  # noqa: E402
+from tools.aggre_mcp_market.service import runtime as mcp_registry_runtime  # noqa: E402
 
 from brain.app import agent_router, recover_incomplete_agent_tasks  # noqa: E402
 from file.file_op import file_router  # noqa: E402
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     
     yield
     
+    mcp_registry_runtime.set_registry(None)
     logger.info("Application shutting down...")
 
 

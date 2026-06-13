@@ -3,7 +3,9 @@ from __future__ import annotations
 
 def test_mcp_local_registers_general_agent_tools():
     from tools.mcp_local import mcp_server
+    from tools.mcp_local.tool_registrars.all_tools import register_all_tools
 
+    assert callable(register_all_tools)
     tools = mcp_server.mcp._tool_manager._tools
 
     for tool_name in [

@@ -97,6 +97,51 @@ def test_mcp_registry_refresh_server_updates_only_matching_snapshot():
     assert registry.refresh_server("missing") is False
 
 
+def test_mcp_registry_enriches_tools_and_restores_snapshot_cache(tmp_path):
+    from tools.aggre_mcp_market.models import Protocol, ToolInfo
+    from tools.aggre_mcp_market.service.registry import MCPRegistry
+
+    class LocalClient:
+        url = "http://local.example.test/mcp"
+        authorization = None
+        tool_prefix = "mcp_local"
+        protocol = Protocol.STREAMABLE_HTTP
+
+        def list_tools(self):
+            return [
+                ToolInfo(
+                    full_name="mcp_local-shell_exec",
+                    name="shell_exec",
+                    description="Shell",
+                    input_schema={"type": "object"},
+                    output_schema={},
+                    server_url=self.url,
+                    protocol=self.protocol,
+                    tool_prefix=self.tool_prefix,
+                )
+            ]
+
+    snapshot_path = tmp_path / "mcp_registry_snapshot.json"
+    registry = MCPRegistry([], start_background=False, snapshot_path=snapshot_path)
+    registry._clients = [LocalClient()]
+
+    registry.refresh(keep_last_on_failure=False)
+
+    [tool] = registry.list_tools()
+    assert tool.server_id == "mcp_local"
+    assert tool.risk_level == "high"
+    assert tool.requires_approval is True
+    assert tool.metadata["serverId"] == "mcp_local"
+    assert snapshot_path.exists()
+
+    restored = MCPRegistry([], start_background=False, snapshot_path=snapshot_path)
+    [restored_tool] = restored.list_tools()
+    assert restored_tool.full_name == "mcp_local-shell_exec"
+    assert restored_tool.server_id == "mcp_local"
+    assert restored_tool.risk_level == "high"
+    assert restored_tool.requires_approval is True
+
+
 def test_mcp_market_servers_and_refresh_api(monkeypatch):
     from tools.aggre_mcp_market import app as market_app
     from tools.aggre_mcp_market.models import MCPServerStatus, Protocol, ToolInfo

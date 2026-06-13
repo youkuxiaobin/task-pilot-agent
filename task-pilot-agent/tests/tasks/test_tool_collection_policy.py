@@ -35,6 +35,12 @@ class SlowTool(DummyTool):
         return "slow-ok"
 
 
+class CancellingTool(DummyTool):
+    async def execute(self, input_obj: Dict[str, Any]) -> str:
+        self.called = True
+        raise asyncio.CancelledError()
+
+
 class FakePrinter:
     def __init__(self) -> None:
         self.events: List[Dict[str, Any]] = []
@@ -418,3 +424,28 @@ def test_tool_collection_enforces_configured_tool_timeout():
     assert printer.events[-1]["message"]["ok"] is False
     assert printer.events[-1]["message"]["type"] == "tool_call_failed"
     assert printer.events[-1]["message"]["error"] == "tool `mcp_local:slow` timed out"
+
+
+def test_tool_collection_records_cancelled_tool_execution():
+    collection = ToolCollection()
+    cancelling_tool = CancellingTool("mcp_local:cancel")
+    collection.add_tool(cancelling_tool)
+    printer = FakePrinter()
+    collection.agentContext = SimpleNamespace(printer=printer)
+    events: List[Dict[str, Any]] = []
+    collection.add_execution_hook(lambda event: events.append(event))
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(collection.execute("mcp_local:cancel", {"value": "query"}))
+
+    assert cancelling_tool.called is True
+    assert collection.last_execution is not None
+    assert collection.last_execution["tool"] == "mcp_local:cancel"
+    assert collection.last_execution["failed"] is True
+    assert collection.last_execution["cancelled"] is True
+    assert collection.last_execution["error"] == "tool `mcp_local:cancel` cancelled"
+    assert [event["stage"] for event in events] == ["before_call", "cancelled"]
+    assert printer.events[-1]["message_type"] == "tool_result"
+    assert printer.events[-1]["message"]["failed"] is True
+    assert printer.events[-1]["message"]["cancelled"] is True
+    assert printer.events[-1]["message"]["error"] == "tool `mcp_local:cancel` cancelled"

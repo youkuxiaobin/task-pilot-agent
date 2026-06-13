@@ -6,11 +6,12 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tools.aggre_mcp_market.models import MCPServerStatus, ToolCallResult, ToolInfo
 from tools.aggre_mcp_market.service.prompt import assemble_prompt
-from tools.aggre_mcp_market.service.registry import MCPRegistry, load_registry_from_yaml
+from tools.aggre_mcp_market.service.registry import MCPRegistry
+from tools.aggre_mcp_market.service import runtime as registry_runtime
 from utils.logger import get_logger
 
 
@@ -28,6 +29,11 @@ class ToolInfoModel(BaseModel):
     server_url: str
     protocol: str
     tool_prefix: str
+    source: str = "mcp"
+    server_id: str = ""
+    risk_level: str = "low"
+    requires_approval: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @staticmethod
     def from_entity(t: ToolInfo) -> "ToolInfoModel":
@@ -40,6 +46,11 @@ class ToolInfoModel(BaseModel):
             server_url=t.server_url,
             protocol=str(t.protocol.value),
             tool_prefix=t.tool_prefix,
+            source=t.source,
+            server_id=t.server_id,
+            risk_level=t.risk_level,
+            requires_approval=t.requires_approval,
+            metadata=t.metadata,
         )
 
 
@@ -97,45 +108,50 @@ logger = get_logger(__name__)
 async def init_mcp_market_registry() -> None:
     """初始化 MCP registry，阻塞刷新放到线程池，避免卡事件循环。"""
     global registry
-    registry = await asyncio.to_thread(load_registry_from_yaml, True)
-    try:
-        await asyncio.to_thread(registry.blocking_refresh, 10, 1.0)
-    except Exception as exc:
-        logger.error("initial MCP registry refresh failed: %s", exc)
+    registry = await registry_runtime.init_registry(start_background=True)
+
+
+def _active_registry() -> MCPRegistry | None:
+    return registry or registry_runtime.get_registry()
 
 
 @aggre_mcp_market_router.get("/tools", response_model=List[ToolInfoModel])
 def get_tools() -> List[ToolInfoModel]:
-    tools = registry.list_tools() if registry else []
+    active_registry = _active_registry()
+    tools = active_registry.list_tools() if active_registry else []
     return [ToolInfoModel.from_entity(t) for t in tools]
 
 
 @aggre_mcp_market_router.get("/servers", response_model=List[MCPServerStatusModel])
 def get_servers() -> List[MCPServerStatusModel]:
-    servers = registry.list_servers() if registry else []
+    active_registry = _active_registry()
+    servers = active_registry.list_servers() if active_registry else []
     return [MCPServerStatusModel.from_entity(item) for item in servers]
 
 
 @aggre_mcp_market_router.post("/refresh")
 async def refresh_tools() -> Dict[str, Any]:
-    if registry is None:
+    active_registry = _active_registry()
+    if active_registry is None:
         raise HTTPException(status_code=503, detail="MCP registry not initialised")
-    await asyncio.to_thread(registry.refresh, True)
+    await asyncio.to_thread(active_registry.refresh, True)
     return {
-        "toolCount": len(registry.list_tools()),
-        "servers": [MCPServerStatusModel.from_entity(item).model_dump() for item in registry.list_servers()],
+        "toolCount": len(active_registry.list_tools()),
+        "servers": [MCPServerStatusModel.from_entity(item).model_dump() for item in active_registry.list_servers()],
     }
 
 
 @aggre_mcp_market_router.get("/prompt", response_model=str)
 def get_prompt() -> str:
-    tools = registry.list_tools() if registry else []
+    active_registry = _active_registry()
+    tools = active_registry.list_tools() if active_registry else []
     return assemble_prompt(tools)
 
 
 @aggre_mcp_market_router.post("/call_tool", response_model=CallToolResponse)
 async def call_tool(req: CallToolRequest, request: Request):
-    if registry is None:
+    active_registry = _active_registry()
+    if active_registry is None:
         raise HTTPException(status_code=503, detail="MCP registry not initialised")
 
     accept_header = request.headers.get("accept", "")
@@ -147,7 +163,7 @@ async def call_tool(req: CallToolRequest, request: Request):
     if wants_stream:
         async def event_iterator():
             try:
-                stream_iter = await registry.call_tool_stream(req.tool_name, req.arguments)
+                stream_iter = await active_registry.call_tool_stream(req.tool_name, req.arguments)
                 async for event in stream_iter:
                     payload = json.dumps(event, ensure_ascii=False, default=str)
                     yield f"data: {payload}\n\n"
@@ -164,7 +180,7 @@ async def call_tool(req: CallToolRequest, request: Request):
         return StreamingResponse(event_iterator(), media_type="text/event-stream")
 
     try:
-        result = await asyncio.to_thread(registry.call_tool, req.tool_name, req.arguments)
+        result = await asyncio.to_thread(active_registry.call_tool, req.tool_name, req.arguments)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:

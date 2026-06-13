@@ -184,6 +184,20 @@ class ToolCollection:
             await self._notify_execution_hooks("after_call", name, input_obj, self.last_execution)
             self._emit_tool_result(name, input_obj)
             return result
+        except asyncio.CancelledError:
+            error = f"tool `{name}` cancelled"
+            self.last_execution = self._execution_metadata(
+                name,
+                input_obj,
+                started_at,
+                started_at_wall,
+                failed=True,
+                error=error,
+                cancelled=True,
+            )
+            await self._notify_execution_hooks("cancelled", name, input_obj, self.last_execution)
+            self._emit_tool_result(name, input_obj)
+            raise
         except asyncio.TimeoutError:
             error = f"tool `{name}` timed out"
             self.last_execution = self._execution_metadata(
@@ -220,12 +234,14 @@ class ToolCollection:
         result: Any = None,
         failed: bool = False,
         error: Optional[str] = None,
+        cancelled: bool = False,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "tool": name,
             "argumentsSummary": self._summarize_value(input_obj),
             "durationMs": max(0, int((time.perf_counter() - started_at) * 1000)),
             "failed": failed,
+            "cancelled": cancelled,
             "startedAt": self._iso_time(started_at_wall),
             "completedAt": self._iso_time(time.time()),
         }

@@ -398,6 +398,7 @@ def _tool_mcp_metadata(name: str, tool: Any = None) -> Dict[str, Any]:
         "serverUrl": server_url,
         "protocol": protocol,
         "toolPrefix": tool_prefix,
+        "metadata": dict(getattr(tool, "metadata", None) or {}),
     }
 
 
@@ -411,14 +412,18 @@ def _tool_metadata_fields(
     allowed: bool,
     block_reason: str = "",
 ) -> Dict[str, Any]:
-    policy = getattr(tool_spec, "policy", None) or {}
+    policy = dict(getattr(tool_spec, "policy", None) or {})
+    tool_risk_level = str(getattr(tool, "risk_level", "") or "").strip()
+    if tool_risk_level and "risk" not in policy:
+        policy["risk"] = tool_risk_level
     source = _tool_source(name, tool)
     payload: Dict[str, Any] = {
         "id": _canonical_tool_id(name),
         "displayName": _tool_display_name(name, tool_spec, description),
         "source": source,
         "riskLevel": _infer_tool_risk_level(name, policy),
-        "requiresApproval": _tool_requires_approval(name, policy, agent_config, block_reason),
+        "requiresApproval": bool(getattr(tool, "requires_approval", False))
+        or _tool_requires_approval(name, policy, agent_config, block_reason),
         "available": allowed,
         "availability": "available" if allowed else "unavailable",
         "unavailableReason": "" if allowed else block_reason,
@@ -504,6 +509,10 @@ def _configured_mcp_server_items() -> List[Dict[str, Any]]:
 
 def _get_mcp_market_registry() -> Any:
     try:
+        from tools.aggre_mcp_market.service import runtime as mcp_registry_runtime
+        active_registry = mcp_registry_runtime.get_registry()
+        if active_registry is not None:
+            return active_registry
         from tools.aggre_mcp_market import app as mcp_market_app
     except Exception:
         return None

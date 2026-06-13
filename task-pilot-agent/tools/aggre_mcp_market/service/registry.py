@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+from dataclasses import asdict
+from pathlib import Path
+import tempfile
 import threading
 import time
 from urllib.parse import urlparse
@@ -23,6 +29,36 @@ from tools.aggre_mcp_market.models import (
 logger = get_logger(__name__)
 
 
+HIGH_RISK_TOOL_TOKENS = {
+    "shell",
+    "command_start",
+    "command_write",
+    "process_command",
+    "code_interpreter",
+    "file_write",
+    "file_edit",
+    "file_delete",
+    "file_move",
+    "file_copy",
+    "directory_create",
+    "config_update",
+    "mcp_manager_add_server",
+    "message_send",
+    "create_subagent",
+    "skill_install",
+    "skill_set_enabled",
+    "memory_delete",
+}
+
+MEDIUM_RISK_TOOL_TOKENS = {
+    "browser_agent",
+    "browser",
+    "text_to_image",
+    "memory_add",
+    "mcp_manager_write_manifest",
+}
+
+
 class MCPRegistry:
     """Aggregates tools from multiple MCP servers and caches them."""
 
@@ -31,11 +67,13 @@ class MCPRegistry:
         servers: List[MCPServerConfig],
         refresh_interval_seconds: int = 60,
         start_background: bool = True,
+        snapshot_path: Optional[Path] = None,
     ) -> None:
         self._refresh_interval_seconds = max(5, int(refresh_interval_seconds))
         self._clients: List[MCPClientBase] = [self._make_client(cfg) for cfg in servers]
         self._lock = threading.RLock()
         self._snapshot: RegistrySnapshot = RegistrySnapshot()
+        self._snapshot_path = snapshot_path or self._default_snapshot_path()
         self._server_statuses: Dict[Tuple[str, str], MCPServerStatus] = {
             (client.url, client.tool_prefix): MCPServerStatus(
                 url=client.url,
@@ -47,6 +85,7 @@ class MCPRegistry:
         }
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._load_snapshot_cache()
 
         if start_background:
             self._thread = threading.Thread(target=self._run_loop, name="mcp-refresh", daemon=True)
@@ -59,6 +98,125 @@ class MCPRegistry:
         if cfg.protocol == Protocol.STREAMABLE_HTTP:
             return StreamableHttpMCPClient(cfg.url, reveal_secret(cfg.authorization), cfg.tool_prefix)
         raise ValueError(f"Unsupported protocol: {cfg.protocol}")
+
+    @staticmethod
+    def _default_snapshot_path() -> Path:
+        explicit = os.getenv("TASKPILOT_MCP_REGISTRY_SNAPSHOT")
+        if explicit:
+            return Path(explicit).expanduser().resolve()
+        seed = os.getenv("APP_CONFIG_FILE") or os.getcwd()
+        digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
+        return Path(tempfile.gettempdir()) / f"taskpilot_mcp_registry_{digest}.json"
+
+    @classmethod
+    def _server_id_for(cls, url: str, tool_prefix: str) -> str:
+        if tool_prefix:
+            return tool_prefix
+        parsed = urlparse(url)
+        candidate = f"{parsed.netloc}{parsed.path}".strip("/") or url
+        return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in candidate)
+
+    @staticmethod
+    def _risk_level_for_tool(tool_name: str) -> str:
+        canonical = str(tool_name or "").lower().replace(":", "_").replace("-", "_")
+        if any(token in canonical for token in HIGH_RISK_TOOL_TOKENS):
+            return "high"
+        if any(token in canonical for token in MEDIUM_RISK_TOOL_TOKENS):
+            return "medium"
+        return "low"
+
+    def _enrich_tool(self, client: MCPClientBase, tool: ToolInfo) -> ToolInfo:
+        server_id = self._server_id_for(client.url, client.tool_prefix)
+        risk_level = self._risk_level_for_tool(tool.full_name or tool.name)
+        tool.source = tool.source or "mcp"
+        tool.server_id = tool.server_id or server_id
+        tool.risk_level = tool.risk_level or risk_level
+        if tool.risk_level == "low":
+            tool.risk_level = risk_level
+        tool.requires_approval = bool(tool.requires_approval or tool.risk_level in {"high", "critical"})
+        metadata = dict(tool.metadata or {})
+        metadata.update(
+            {
+                "serverId": server_id,
+                "serverUrl": client.url,
+                "toolPrefix": client.tool_prefix,
+                "transport": str(getattr(client, "protocol", "")),
+            }
+        )
+        tool.metadata = metadata
+        return tool
+
+    def _tools_from_client(self, client: MCPClientBase) -> List[ToolInfo]:
+        return [self._enrich_tool(client, tool) for tool in client.list_tools()]
+
+    def _save_snapshot_cache(self) -> None:
+        if not self._snapshot_path:
+            return
+        with self._lock:
+            tools = [asdict(tool) for tool in self._snapshot.tools]
+            statuses = [asdict(status) for status in self._server_statuses.values()]
+        payload = {
+            "updatedAt": time.time(),
+            "tools": tools,
+            "serverStatuses": statuses,
+        }
+        try:
+            self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._snapshot_path.with_suffix(f"{self._snapshot_path.suffix}.tmp")
+            tmp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(self._snapshot_path)
+        except Exception:
+            logger.debug("failed to save MCP registry snapshot cache", exc_info=True)
+
+    def _load_snapshot_cache(self) -> None:
+        if not self._snapshot_path or not self._snapshot_path.exists():
+            return
+        try:
+            payload = json.loads(self._snapshot_path.read_text(encoding="utf-8"))
+            tools = [
+                ToolInfo(
+                    full_name=item["full_name"],
+                    name=item["name"],
+                    description=item.get("description"),
+                    input_schema=item.get("input_schema"),
+                    server_url=item.get("server_url", ""),
+                    protocol=Protocol(item.get("protocol")),
+                    tool_prefix=item.get("tool_prefix", ""),
+                    output_schema=item.get("output_schema"),
+                    source=item.get("source", "mcp"),
+                    server_id=item.get("server_id", ""),
+                    risk_level=item.get("risk_level", "low"),
+                    requires_approval=bool(item.get("requires_approval", False)),
+                    metadata=item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
+                )
+                for item in payload.get("tools", [])
+                if isinstance(item, dict) and item.get("full_name") and item.get("name")
+            ]
+            statuses = {}
+            for item in payload.get("serverStatuses", []):
+                if not isinstance(item, dict):
+                    continue
+                status = MCPServerStatus(
+                    url=item.get("url", ""),
+                    protocol=Protocol(item.get("protocol")),
+                    tool_prefix=item.get("tool_prefix", ""),
+                    authorization_configured=bool(item.get("authorization_configured", False)),
+                    status=item.get("status", "unknown"),
+                    tool_count=int(item.get("tool_count") or 0),
+                    error=item.get("error", ""),
+                    last_checked_at=item.get("last_checked_at"),
+                    duration_ms=item.get("duration_ms"),
+                )
+                statuses[(status.url, status.tool_prefix)] = status
+            with self._lock:
+                if tools:
+                    self._snapshot = RegistrySnapshot(
+                        tools=tools,
+                        index_by_full_name={tool.full_name: tool for tool in tools},
+                    )
+                self._server_statuses.update(statuses)
+        except Exception:
+            logger.debug("failed to load MCP registry snapshot cache", exc_info=True)
 
     # ------------------------------------------------------------------
     def stop(self) -> None:
@@ -83,7 +241,7 @@ class MCPRegistry:
             started_at = time.time()
             client_tools: List[ToolInfo] = []
             try:
-                client_tools = client.list_tools()
+                client_tools = self._tools_from_client(client)
                 tools.extend(client_tools)
                 status = MCPServerStatus(
                     url=client.url,
@@ -122,14 +280,7 @@ class MCPRegistry:
         index = {tool.full_name: tool for tool in tools}
         with self._lock:
             self._snapshot = RegistrySnapshot(tools=tools, index_by_full_name=index)
-
-    @staticmethod
-    def _server_id_for(url: str, tool_prefix: str) -> str:
-        if tool_prefix:
-            return tool_prefix
-        parsed = urlparse(url)
-        candidate = f"{parsed.netloc}{parsed.path}".strip("/") or url
-        return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in candidate)
+        self._save_snapshot_cache()
 
     def _client_matches_server_id(self, client: MCPClientBase, server_id: str) -> bool:
         normalized = str(server_id or "").strip()
@@ -157,7 +308,7 @@ class MCPRegistry:
             started_at = time.time()
             key = (client.url, client.tool_prefix)
             try:
-                client_tools = client.list_tools()
+                client_tools = self._tools_from_client(client)
                 refreshed_tools.extend(client_tools)
                 successful_keys.add(key)
                 status = MCPServerStatus(
@@ -200,6 +351,7 @@ class MCPRegistry:
                 tools=tools,
                 index_by_full_name={tool.full_name: tool for tool in tools},
             )
+        self._save_snapshot_cache()
         return True
 
     def blocking_refresh(self, timeout_seconds: float = 10, interval_seconds: float = 1.0) -> None:

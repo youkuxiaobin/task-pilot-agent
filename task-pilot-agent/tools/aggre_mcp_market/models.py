@@ -31,6 +31,11 @@ class ToolInfo:
     tool_prefix: str
     # Some SDKs expose an optional output schema; capture if available
     output_schema: Optional[Dict[str, Any]] = None
+    source: str = "mcp"
+    server_id: str = ""
+    risk_level: str = "low"
+    requires_approval: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

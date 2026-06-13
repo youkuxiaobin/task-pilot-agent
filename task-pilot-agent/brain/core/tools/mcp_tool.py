@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -8,6 +9,8 @@ import aiohttp
 
 from .base import BaseTool
 from brain.core.context import AgentContext
+from tools.aggre_mcp_market.models import ToolCallResult, ToolInfo
+from tools.aggre_mcp_market.service import runtime as registry_runtime
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,12 +31,20 @@ class MCPTool(BaseTool):
     context: AgentContext
     mcp_market_url: str
     request_timeout: Optional[float] = 900
+    registry: Any = None
+    source: str = "mcp"
+    server_id: str = ""
+    risk_level: str = "low"
+    requires_approval: bool = False
+    metadata: Optional[Dict[str, Any]] = None
 
 
     def __post_init__(self) -> None:
         self.name = self.full_name
         if not self.description:
             self.description = f"MCP tool: {self.name}"
+        if self.metadata is None:
+            self.metadata = {}
 
     def to_params(self) -> Dict[str, Any]:
         if self.input_schema:
@@ -41,8 +52,24 @@ class MCPTool(BaseTool):
         return {"type": "object", "properties": {}, "required": []}
 
     async def execute(self, input_obj: Dict[str, Any]) -> str | None:
-        call_url = f"{self.mcp_market_url}/call_tool"
         arguments = self._with_runtime_arguments(input_obj)
+        if self.registry is not None:
+            try:
+                return await asyncio.wait_for(
+                    self._execute_via_registry(arguments),
+                    timeout=self.request_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.exception("call registry mcp tool timed out")
+                return f"call tools error: tool `{self.full_name}` timed out"
+            except asyncio.CancelledError:
+                logger.warning("call registry mcp tool cancelled: %s", self.full_name)
+                raise
+            except Exception as exc:
+                logger.exception("call registry mcp tool error")
+                return f"call tools error: {exc}"
+
+        call_url = f"{self.mcp_market_url}/call_tool"
         payload = {"tool_name": self.full_name, "arguments": arguments}
         headers = {"Accept": "text/event-stream, application/json"}
         logger.debug(
@@ -65,6 +92,18 @@ class MCPTool(BaseTool):
         except Exception as exc:  # pragma: no cover - network/runtime edge
             logger.exception("call tools error")
             return f"call tools error: {exc}"
+
+    async def _execute_via_registry(self, arguments: Dict[str, Any]) -> str | None:
+        try:
+            stream_iter = await self.registry.call_tool_stream(self.full_name, arguments)
+        except RuntimeError as exc:
+            if "does not support streaming" not in str(exc):
+                raise
+        else:
+            return await self._handle_stream_events(stream_iter)
+
+        result = await asyncio.to_thread(self.registry.call_tool, self.full_name, arguments)
+        return self._format_tool_call_result(result)
 
     def _with_runtime_arguments(self, input_obj: Dict[str, Any]) -> Dict[str, Any]:
         arguments = dict(input_obj or {})
@@ -98,26 +137,30 @@ class MCPTool(BaseTool):
         return str(payload)
 
     async def _handle_streaming_response(self, response: aiohttp.ClientResponse) -> str | None:
+        async def iter_response_events():
+            async for chunk in response.content:
+                if not chunk:
+                    continue
+                line = chunk.decode("utf-8", errors="ignore").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+
+                data_str = line[5:].lstrip()
+                if data_str == "[DONE]":
+                    break
+
+                try:
+                    yield json.loads(data_str)
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse streaming event: %s", data_str)
+
+        return await self._handle_stream_events(iter_response_events())
+
+    async def _handle_stream_events(self, events: Any) -> str | None:
         final_result: Any = None
         final_error: Optional[str] = None
 
-        async for chunk in response.content:
-            if not chunk:
-                continue
-            line = chunk.decode("utf-8", errors="ignore").strip()
-            if not line or not line.startswith("data:"):
-                continue
-
-            data_str = line[5:].lstrip()
-            if data_str == "[DONE]":
-                break
-
-            try:
-                event = json.loads(data_str)
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse streaming event: %s", data_str)
-                continue
-
+        async for event in events:
             method = event.get("method")
             if isinstance(method, str):
                 params = event.get("params") or {}
@@ -152,7 +195,17 @@ class MCPTool(BaseTool):
 
         return "streaming completed"
 
+    @staticmethod
+    def _format_tool_call_result(result: ToolCallResult | Any) -> str | None:
+        payload = getattr(result, "result", result)
+        if isinstance(payload, (dict, list)):
+            return json.dumps(payload, ensure_ascii=False, indent=2)
+        return str(payload)
+
     def _dispatch_notification(self, method: str, params: Any) -> None:
+        printer = getattr(self.context, "printer", None)
+        if printer is None:
+            return
         if method == "notifications/message":
             message = params.get("data") if isinstance(params, dict) else None
             if isinstance(message, str):
@@ -207,11 +260,14 @@ class MCPTool(BaseTool):
             )
 
     def _dispatch_stream_chunk(self, result: Any) -> None:
+        printer = getattr(self.context, "printer", None)
+        if printer is None:
+            return
         if isinstance(result, (dict, list)):
             chunk = json.dumps(result, ensure_ascii=False, indent=2)
         else:
             chunk = str(result)
-        self.context.printer.send(None, "stream", {"chunk": chunk}, None, False)
+        printer.send(None, "stream", {"chunk": chunk}, None, False)
 
 
 class MCPToolFetcher:
@@ -220,17 +276,21 @@ class MCPToolFetcher:
         self.mcp_market_url = mcp_market_url.rstrip("/")
 
     async def fetch_tools(self) -> List[MCPTool]:
-        tools_url = f"{self.mcp_market_url}/tools"
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(tools_url) as response:
-                    if response.status != 200:
-                        logger.error("fetch tools failed HTTP %s", response.status)
-                        return []
-                    tools_data = await response.json()
-        except Exception as exc:  # pragma: no cover - network failure
-            logger.exception("call mcp market error")
-            return []
+        registry = registry_runtime.get_registry()
+        if registry is not None:
+            tools_data = [self._tool_info_to_payload(tool) for tool in registry.list_tools()]
+        else:
+            tools_url = f"{self.mcp_market_url}/tools"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(tools_url) as response:
+                        if response.status != 200:
+                            logger.error("fetch tools failed HTTP %s", response.status)
+                            return []
+                        tools_data = await response.json()
+            except Exception as exc:  # pragma: no cover - network failure
+                logger.exception("call mcp market error")
+                return []
 
         mcp_tools: List[MCPTool] = []
         for tool_data in tools_data:
@@ -246,9 +306,33 @@ class MCPToolFetcher:
                     tool_prefix=tool_data["tool_prefix"],
                     context=self.context,
                     mcp_market_url=self.mcp_market_url,
+                    registry=registry,
+                    source=tool_data.get("source", "mcp"),
+                    server_id=tool_data.get("server_id") or tool_data.get("serverId", ""),
+                    risk_level=tool_data.get("risk_level") or tool_data.get("riskLevel", "low"),
+                    requires_approval=bool(tool_data.get("requires_approval", tool_data.get("requiresApproval", False))),
+                    metadata=tool_data.get("metadata") or {},
                 )
             )
         return mcp_tools
+
+    @staticmethod
+    def _tool_info_to_payload(tool: ToolInfo) -> Dict[str, Any]:
+        return {
+            "full_name": tool.full_name,
+            "name": tool.name,
+            "description": tool.description or "",
+            "input_schema": tool.input_schema,
+            "output_schema": tool.output_schema,
+            "server_url": tool.server_url,
+            "protocol": str(tool.protocol.value),
+            "tool_prefix": tool.tool_prefix,
+            "source": tool.source,
+            "server_id": tool.server_id,
+            "risk_level": tool.risk_level,
+            "requires_approval": tool.requires_approval,
+            "metadata": tool.metadata,
+        }
 
     async def get_tool_by_name(self, name: str) -> Optional[MCPTool]:
         tools = await self.fetch_tools()
